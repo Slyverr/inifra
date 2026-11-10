@@ -34,8 +34,11 @@ pub(crate) enum Command {
     /// Initialize a project with one or more templates
     Init {
         /// Template ID to include (repeatable)
-        #[arg(long = "template", value_name = "ID")]
+        #[arg(long = "template", value_name = "ID", conflicts_with = "preset")]
         templates: Vec<String>,
+        /// Apply a saved user preset
+        #[arg(long, value_name = "NAME", conflicts_with = "templates")]
+        preset: Option<String>,
         /// Project directory to write into
         #[arg(short, long, value_name = "DIR", default_value = ".")]
         path: PathBuf,
@@ -48,6 +51,34 @@ pub(crate) enum Command {
         /// Set a shared template input as KEY=VALUE (repeatable)
         #[arg(long = "set", value_name = "KEY=VALUE")]
         inputs: Vec<String>,
+    },
+    /// List and save reusable template selections
+    Preset {
+        #[command(subcommand)]
+        command: PresetCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum PresetCommand {
+    /// List saved presets
+    List,
+    /// Save a template selection as a user preset
+    Save {
+        /// Preset name
+        name: String,
+        /// Optional preset description
+        #[arg(long, default_value = "")]
+        description: String,
+        /// Template ID to include (repeatable)
+        #[arg(long = "template", value_name = "ID")]
+        templates: Vec<String>,
+        /// Store a shared template input as KEY=VALUE (repeatable)
+        #[arg(long = "set", value_name = "KEY=VALUE")]
+        inputs: Vec<String>,
+        /// Replace an existing preset
+        #[arg(long)]
+        overwrite: bool,
     },
 }
 

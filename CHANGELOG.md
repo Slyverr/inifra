@@ -7,6 +7,13 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Discover user-local template packs and render strict `.j2` template sources.
+- Resolve shared template inputs, detect Cargo and Node project metadata, and prompt for required values.
+- Add a README starter template backed by shared project metadata.
+- Add non-interactive initialization and save, list, and apply user presets.
+
 ## [0.1.0] - 2026-11-10
 
 ### Added

@@ -31,6 +31,7 @@ pub(crate) fn resolve_values(
     template_id: &str,
     input_names: &[String],
     assignments: &[String],
+    preset_values: &BTreeMap<String, String>,
     directory: &Path,
 ) -> Result<BTreeMap<String, String>> {
     let mut definitions = parse(BUILTIN_INPUTS)?;
@@ -64,25 +65,17 @@ pub(crate) fn resolve_values(
         }
     }
 
-    let mut values = BTreeMap::new();
+    let mut values = preset_values.clone();
     let declared = input_names
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();
-    for assignment in assignments {
-        let (name, value) = assignment
-            .split_once('=')
-            .with_context(|| format!("input must use KEY=VALUE syntax: {assignment:?}"))?;
-        if !valid_name(name) {
-            bail!("invalid input name in assignment: {name:?}");
-        }
-        if !declared.contains(name) {
-            bail!("template selection {template_id:?} does not use input {name:?}");
-        }
-        if values.insert(name.to_owned(), value.to_owned()).is_some() {
-            bail!("input {name:?} was provided more than once");
+    for name in values.keys() {
+        if !valid_name(name) || !declared.contains(name.as_str()) {
+            bail!("preset value {name:?} is not used by template selection {template_id:?}");
         }
     }
+    values.extend(parse_assignments(input_names, template_id, assignments)?);
 
     let detected = if input_names.iter().any(|name| !values.contains_key(name)) {
         detect::project_inputs(directory)?
@@ -118,6 +111,34 @@ pub(crate) fn resolve_values(
         }
         if definition.required && values[name].trim().is_empty() {
             bail!("input {name:?} is required and cannot be empty");
+        }
+    }
+
+    Ok(values)
+}
+
+pub(crate) fn parse_assignments(
+    input_names: &[String],
+    selection: &str,
+    assignments: &[String],
+) -> Result<BTreeMap<String, String>> {
+    let mut values = BTreeMap::new();
+    let declared = input_names
+        .iter()
+        .map(String::as_str)
+        .collect::<HashSet<_>>();
+    for assignment in assignments {
+        let (name, value) = assignment
+            .split_once('=')
+            .with_context(|| format!("input must use KEY=VALUE syntax: {assignment:?}"))?;
+        if !valid_name(name) {
+            bail!("invalid input name in assignment: {name:?}");
+        }
+        if !declared.contains(name) {
+            bail!("template selection {selection:?} does not use input {name:?}");
+        }
+        if values.insert(name.to_owned(), value.to_owned()).is_some() {
+            bail!("input {name:?} was provided more than once");
         }
     }
 

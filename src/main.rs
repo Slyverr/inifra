@@ -2,6 +2,7 @@ mod cli;
 mod commands;
 mod detect;
 mod output;
+mod presets;
 mod templates;
 
 fn main() {

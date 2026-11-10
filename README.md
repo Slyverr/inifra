@@ -59,7 +59,8 @@ existing files. The default is to leave existing files unchanged.
 
 Inifra also discovers user-local template packs from the platform config
 directory under `inifra/templates`. See [Template packs](docs/templates.md)
-for the manifest format and override behavior.
+for the manifest format and override behavior. See [Presets](docs/presets.md)
+to save and reuse template selections.
 
 ## License
 

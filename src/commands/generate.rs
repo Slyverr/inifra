@@ -13,6 +13,7 @@ pub(super) fn run(
 ) -> Result<()> {
     setup::run(
         &[template_id.to_owned()],
+        None,
         destination,
         dry_run,
         overwrite,
