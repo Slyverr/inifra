@@ -1,12 +1,14 @@
 mod builtin;
 mod catalog;
+mod local;
 mod manifest;
 mod model;
 
-pub(crate) use model::Template;
 #[cfg(test)]
 pub(crate) use model::TemplateFile;
+pub(crate) use model::{Template, TemplateOrigin};
 
 pub(crate) fn discover() -> anyhow::Result<Vec<Template>> {
-    catalog::discover_builtins()
+    let local_root = dirs::config_dir().map(|path| path.join("inifra").join("templates"));
+    catalog::discover(local_root.as_deref())
 }

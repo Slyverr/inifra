@@ -9,6 +9,8 @@ pub(super) struct Manifest {
     schema_version: u32,
     pub(super) id: String,
     pub(super) description: String,
+    #[serde(default)]
+    pub(super) category: Option<String>,
     pub(super) files: Vec<ManifestFile>,
 }
 
@@ -35,6 +37,13 @@ fn validate(manifest: &Manifest) -> Result<()> {
     validate_id(&manifest.id)?;
     if manifest.description.trim().is_empty() {
         bail!("template {} must have a description", manifest.id);
+    }
+    if manifest
+        .category
+        .as_ref()
+        .is_some_and(|category| category.trim().is_empty())
+    {
+        bail!("template {} must not have an empty category", manifest.id);
     }
     if manifest.files.is_empty() {
         bail!("template {} must declare at least one file", manifest.id);
@@ -104,6 +113,22 @@ output = "docs/NOTES.md"
     #[test]
     fn accepts_a_valid_manifest() {
         assert!(parse(BASE).is_ok());
+    }
+
+    #[test]
+    fn accepts_optional_category_metadata() {
+        let source = BASE.replace(
+            "description = \"Project notes\"",
+            "description = \"Project notes\"\ncategory = \"Project guidance\"",
+        );
+
+        assert_eq!(
+            parse(&source)
+                .expect("parse categorized pack")
+                .category
+                .as_deref(),
+            Some("Project guidance")
+        );
     }
 
     #[test]

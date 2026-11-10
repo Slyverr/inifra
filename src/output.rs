@@ -267,12 +267,14 @@ pub(crate) fn write_plan(plan: &Plan) -> Result<WriteSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::templates::TemplateFile;
+    use crate::templates::{TemplateFile, TemplateOrigin};
 
     fn template(files: &[(&str, &str)]) -> Template {
         Template {
             id: "test".to_owned(),
             description: "test".to_owned(),
+            category: None,
+            origin: TemplateOrigin::Builtin,
             files: files
                 .iter()
                 .map(|(path, contents)| TemplateFile {

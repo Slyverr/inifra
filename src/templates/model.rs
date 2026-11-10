@@ -4,7 +4,15 @@ use std::path::PathBuf;
 pub(crate) struct Template {
     pub(crate) id: String,
     pub(crate) description: String,
+    pub(crate) category: Option<String>,
+    pub(crate) origin: TemplateOrigin,
     pub(crate) files: Vec<TemplateFile>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TemplateOrigin {
+    Builtin,
+    Local,
 }
 
 #[derive(Clone, Debug)]

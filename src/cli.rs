@@ -12,9 +12,9 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
-    /// List the bundled starter templates
+    /// List available starter templates
     List,
-    /// Generate one bundled template in a project directory
+    /// Generate one template in a project directory
     Generate {
         /// Template ID to generate
         template: String,

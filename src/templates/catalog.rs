@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
 use super::builtin::PACKS;
+use super::local;
 use super::manifest;
-use super::model::{Template, TemplateFile};
+use super::model::{Template, TemplateFile, TemplateOrigin};
 
 pub(super) struct EmbeddedPack {
     pub(super) manifest: &'static str,
@@ -17,7 +18,7 @@ pub(super) struct EmbeddedFile {
     pub(super) contents: &'static [u8],
 }
 
-pub(super) fn discover_builtins() -> Result<Vec<Template>> {
+pub(super) fn discover(local_root: Option<&Path>) -> Result<Vec<Template>> {
     let mut catalog = BTreeMap::new();
 
     for pack in PACKS {
@@ -60,11 +61,17 @@ pub(super) fn discover_builtins() -> Result<Vec<Template>> {
         let template = Template {
             id: id.clone(),
             description: manifest.description,
+            category: manifest.category,
+            origin: TemplateOrigin::Builtin,
             files,
         };
         if catalog.insert(id.clone(), template).is_some() {
             bail!("duplicate built-in template ID: {id}");
         }
+    }
+
+    for template in local::discover_at(local_root)? {
+        catalog.insert(template.id.clone(), template);
     }
 
     Ok(catalog.into_values().collect())
@@ -76,7 +83,7 @@ mod tests {
 
     #[test]
     fn every_builtin_manifest_resolves_all_embedded_files() {
-        let templates = discover_builtins().expect("load built-in templates");
+        let templates = discover(None).expect("load built-in templates");
 
         assert_eq!(templates.len(), PACKS.len());
         assert!(templates.iter().all(|template| !template.files.is_empty()));

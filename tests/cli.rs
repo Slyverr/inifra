@@ -3,18 +3,55 @@ use std::process::{Command, Output};
 use tempfile::tempdir;
 
 fn run_cli(arguments: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_inifra"))
-        .args(arguments)
-        .output()
-        .expect("run Inifra")
+    let config = tempdir().expect("create isolated config directory");
+    run_cli_with_config(arguments, config.path())
 }
 
 fn run_cli_in(arguments: &[&str], directory: &std::path::Path) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_inifra"))
-        .args(arguments)
-        .current_dir(directory)
-        .output()
-        .expect("run Inifra")
+    let config = tempdir().expect("create isolated config directory");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_inifra"));
+    command.args(arguments).current_dir(directory);
+    set_config_directory(&mut command, config.path());
+    command.output().expect("run Inifra")
+}
+
+fn run_cli_with_config(arguments: &[&str], config: &std::path::Path) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_inifra"));
+    command.args(arguments);
+    set_config_directory(&mut command, config);
+    command.output().expect("run Inifra")
+}
+
+fn set_config_directory(command: &mut Command, config: &std::path::Path) {
+    #[cfg(target_os = "windows")]
+    command.env("APPDATA", config);
+    #[cfg(target_os = "macos")]
+    command.env("HOME", config);
+    #[cfg(all(unix, not(target_os = "macos")))]
+    command.env("XDG_CONFIG_HOME", config);
+}
+
+fn write_local_pack(
+    config: &std::path::Path,
+    id: &str,
+    description: &str,
+    output: &str,
+    body: &str,
+) {
+    #[cfg(target_os = "macos")]
+    let config_dir = config.join("Library/Application Support");
+    #[cfg(not(target_os = "macos"))]
+    let config_dir = config.to_path_buf();
+    let pack = config_dir.join("inifra/templates").join(id);
+    std::fs::create_dir_all(&pack).expect("create local template pack");
+    std::fs::write(
+        pack.join("template.toml"),
+        format!(
+            "schema_version = 1\nid = {id:?}\ndescription = {description:?}\n\n[[files]]\nsource = \"source.txt\"\noutput = {output:?}\n"
+        ),
+    )
+    .expect("write manifest");
+    std::fs::write(pack.join("source.txt"), body).expect("write template source");
 }
 
 #[test]
@@ -49,6 +86,111 @@ fn list_shows_bundled_templates_and_output_paths() {
     assert!(listing.contains(".editorconfig"));
     assert!(listing.contains("gitignore-rust"));
     assert!(listing.contains(".gitignore"));
+}
+
+#[test]
+fn list_discovers_templates_from_the_user_config_directory() {
+    let config = tempdir().expect("create isolated config directory");
+    write_local_pack(
+        config.path(),
+        "notes",
+        "Project notes",
+        "NOTES.md",
+        "hello\n",
+    );
+
+    let output = run_cli_with_config(&["list"], config.path());
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let listing = String::from_utf8_lossy(&output.stdout);
+    assert!(listing.contains("notes"));
+    assert!(listing.contains("[local]"));
+    assert!(listing.contains("NOTES.md"));
+}
+
+#[test]
+fn local_template_with_a_builtin_id_overrides_the_builtin() {
+    let config = tempdir().expect("create isolated config directory");
+    write_local_pack(
+        config.path(),
+        "gitignore-rust",
+        "Custom ignore rules",
+        ".gitignore",
+        "custom\n",
+    );
+    let destination = tempdir().expect("create destination");
+
+    let listing = run_cli_with_config(&["list"], config.path());
+    assert!(listing.status.success());
+    let listing = String::from_utf8_lossy(&listing.stdout);
+    assert!(listing.contains("Custom ignore rules [local]"));
+    assert!(!listing.contains("Basic Rust gitignore [built-in]"));
+
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "gitignore-rust",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+        ],
+        config.path(),
+    );
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(destination.path().join(".gitignore")).unwrap(),
+        "custom\n"
+    );
+}
+
+#[test]
+fn duplicate_local_template_ids_are_reported() {
+    let config = tempdir().expect("create isolated config directory");
+    write_local_pack(
+        config.path(),
+        "notes",
+        "Project notes",
+        "NOTES.md",
+        "first\n",
+    );
+    let duplicate = config.path().join("inifra/templates/another-pack");
+    std::fs::create_dir_all(&duplicate).expect("create duplicate pack");
+    std::fs::write(
+        duplicate.join("template.toml"),
+        "schema_version = 1\nid = \"notes\"\ndescription = \"Duplicate notes\"\n\n[[files]]\nsource = \"source.txt\"\noutput = \"OTHER.md\"\n",
+    )
+    .expect("write duplicate manifest");
+    std::fs::write(duplicate.join("source.txt"), "second\n").expect("write source");
+
+    let output = run_cli_with_config(&["list"], config.path());
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("multiple local templates use the same ID")
+    );
+}
+
+#[test]
+fn malformed_local_manifests_report_an_error() {
+    let config = tempdir().expect("create isolated config directory");
+    let pack = config.path().join("inifra/templates/broken");
+    std::fs::create_dir_all(&pack).expect("create malformed pack");
+    std::fs::write(pack.join("template.toml"), "not = valid = toml").expect("write manifest");
+
+    let output = run_cli_with_config(&["list"], config.path());
+
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("invalid template manifest"));
+    assert!(error.contains("template.toml"));
 }
 
 #[test]

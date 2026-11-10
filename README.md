@@ -1,8 +1,9 @@
 # Inifra
 
 Inifra is a Rust CLI for adding reusable starter files to a project. It lists
-bundled templates and generates their files in a chosen project directory,
-preserving existing files unless replacement is explicitly requested.
+bundled and user-local templates and generates their files in a chosen project
+directory, preserving existing files unless replacement is explicitly
+requested.
 
 ## Requirements
 
@@ -44,6 +45,10 @@ cargo run --locked -- generate gitignore-rust
 
 Use `--path DIR` to choose a project directory and `--overwrite` to replace
 existing files. The default is to leave existing files unchanged.
+
+Inifra also discovers user-local template packs from the platform config
+directory under `inifra/templates`. See [Template packs](docs/templates.md)
+for the manifest format and override behavior.
 
 ## License
 

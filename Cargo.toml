@@ -9,6 +9,7 @@ include = [
   "/Cargo.lock",
   "/CHANGELOG.md",
   "/CONTRIBUTING.md",
+  "/docs/**",
   "/LICENSE-APACHE",
   "/LICENSE-MIT",
   "/README.md",
@@ -20,6 +21,7 @@ include = [
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+dirs = "6"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 tempfile = "3"
