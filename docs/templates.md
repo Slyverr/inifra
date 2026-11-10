@@ -15,6 +15,11 @@ Create one directory per pack under:
 The user config directory follows the operating system convention. For example,
 on Linux it is usually `~/.config`; `XDG_CONFIG_HOME` can change it.
 
+Use `inifra edit TEMPLATE_ID` to open an existing local pack in `$VISUAL` or
+`$EDITOR`. Editing a built-in first copies its manifest and source files into
+this directory, so changes remain local to your user config. In a terminal,
+the same command can create a starter pack for an unknown ID.
+
 Each pack contains a `template.toml` manifest and its source files:
 
 ```text

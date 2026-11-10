@@ -75,6 +75,12 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: PresetCommand,
     },
+    /// Open a local template in the configured editor
+    Edit {
+        /// Template ID to edit or create
+        #[arg(add = ArgValueCompleter::new(crate::completions::template_candidates))]
+        template: String,
+    },
     /// Generate shell completion scripts
     Completions {
         /// Shell to generate completions for

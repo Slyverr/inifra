@@ -68,6 +68,11 @@ directory under `inifra/templates`. See [Template packs](docs/templates.md)
 for the manifest format and override behavior. See [Presets](docs/presets.md)
 to save and reuse template selections.
 
+Run `inifra edit TEMPLATE_ID` to open a local template pack in `$VISUAL` or
+`$EDITOR`. A built-in template is copied to the user config directory before
+it is opened; an unknown ID can start a new template pack from an interactive
+terminal.
+
 Generate shell completions with `inifra completions SHELL`, where `SHELL` is
 `bash`, `elvish`, `fish`, `powershell`, or `zsh`. Redirect the output to the
 completion file used by your shell. Install Fish completions automatically

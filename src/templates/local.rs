@@ -140,6 +140,38 @@ fn load_pack(root: &Path) -> Result<Template> {
     })
 }
 
+pub(super) fn source_files(root: &Path) -> Result<Vec<PathBuf>> {
+    let metadata = fs::symlink_metadata(root)
+        .with_context(|| format!("could not inspect template pack {}", root.display()))?;
+    if metadata.file_type().is_symlink() || !metadata.is_dir() {
+        bail!(
+            "template pack must be a regular directory: {}",
+            root.display()
+        );
+    }
+    validate_pack_tree(root)?;
+    let manifest_path = root.join("template.toml");
+    let source = fs::read_to_string(&manifest_path).with_context(|| {
+        format!(
+            "could not read template manifest {}",
+            manifest_path.display()
+        )
+    })?;
+    let manifest = manifest::parse(&source)
+        .with_context(|| format!("invalid template manifest {}", manifest_path.display()))?;
+    for file in &manifest.files {
+        read_source(root, &file.source)?;
+    }
+    Ok(std::iter::once(manifest_path)
+        .chain(
+            manifest
+                .files
+                .into_iter()
+                .map(|file| root.join(file.source)),
+        )
+        .collect())
+}
+
 fn read_source(root: &Path, source: &str) -> Result<Vec<u8>> {
     let relative = Path::new(source);
     let components = relative.components().collect::<Vec<_>>();

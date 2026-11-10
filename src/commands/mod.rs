@@ -1,4 +1,5 @@
 mod completions;
+mod edit;
 mod generate;
 mod list;
 mod picker;
@@ -38,6 +39,7 @@ pub(crate) fn run(command: Command) -> Result<()> {
             &inputs,
         ),
         Command::Preset { command } => preset::run(command),
+        Command::Edit { template } => edit::run(&template),
         Command::Completions { shell, apply } => completions::run(shell, apply),
     }
 }

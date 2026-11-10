@@ -91,7 +91,7 @@ fn validate(manifest: &Manifest) -> Result<()> {
     Ok(())
 }
 
-fn validate_id(id: &str) -> Result<()> {
+pub(super) fn validate_id(id: &str) -> Result<()> {
     if id.is_empty()
         || id.starts_with('-')
         || id.ends_with('-')

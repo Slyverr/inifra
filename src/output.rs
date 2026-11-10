@@ -78,14 +78,7 @@ pub(crate) fn edit_text_files(plan: &mut Plan) -> Result<()> {
         paths.push(path);
     }
 
-    let status = ProcessCommand::new(&editor.command)
-        .args(editor.arguments)
-        .args(&paths)
-        .status()
-        .context("could not start the configured editor")?;
-    if !status.success() {
-        bail!("the configured editor exited with status {status}");
-    }
+    run_editor(editor, &paths)?;
 
     let edited = editable
         .iter()
@@ -108,6 +101,22 @@ pub(crate) fn edit_text_files(plan: &mut Plan) -> Result<()> {
         .collect::<Result<Vec<_>>>()?;
     for (index, contents) in edited {
         plan.files[index].contents = contents;
+    }
+    Ok(())
+}
+
+pub(crate) fn open_files_in_editor(paths: &[PathBuf]) -> Result<()> {
+    run_editor(configured_editor()?, paths)
+}
+
+fn run_editor(editor: Editor, paths: &[PathBuf]) -> Result<()> {
+    let status = ProcessCommand::new(&editor.command)
+        .args(editor.arguments)
+        .args(paths)
+        .status()
+        .context("could not start the configured editor")?;
+    if !status.success() {
+        bail!("the configured editor exited with status {status}");
     }
     Ok(())
 }

@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
@@ -16,6 +17,40 @@ pub(super) struct EmbeddedPack {
 pub(super) struct EmbeddedFile {
     pub(super) source: &'static str,
     pub(super) contents: &'static [u8],
+}
+
+pub(super) fn copy_builtin(id: &str, destination: &Path) -> Result<()> {
+    let pack = PACKS
+        .iter()
+        .find(|pack| manifest::parse(pack.manifest).is_ok_and(|manifest| manifest.id == id))
+        .with_context(|| format!("built-in template {id:?} was not found"))?;
+    let manifest = manifest::parse(pack.manifest)?;
+    fs::create_dir_all(destination)
+        .with_context(|| format!("could not create template pack {}", destination.display()))?;
+    fs::write(destination.join("template.toml"), pack.manifest)
+        .with_context(|| format!("could not write template manifest for {id:?}"))?;
+    for file in pack.files {
+        let source = destination.join(file.source);
+        if let Some(parent) = source.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!(
+                    "could not create template source directory {}",
+                    parent.display()
+                )
+            })?;
+        }
+        fs::write(&source, file.contents)
+            .with_context(|| format!("could not write template source {}", source.display()))?;
+    }
+    for file in manifest.files {
+        if !pack.files.iter().any(|source| source.source == file.source) {
+            bail!(
+                "built-in template {id:?} refers to missing embedded source {:?}",
+                file.source
+            );
+        }
+    }
+    Ok(())
 }
 
 pub(super) fn discover(local_root: Option<&Path>) -> Result<Vec<Template>> {
