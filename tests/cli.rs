@@ -745,7 +745,34 @@ fn generate_creates_a_missing_destination() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(destination.join(".editorconfig").is_file());
+    assert_eq!(
+        std::fs::read_to_string(destination.join(".editorconfig")).expect("read output"),
+        "root = true\n\n[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n"
+    );
+}
+
+#[test]
+fn changelog_template_avoids_assuming_a_versioning_policy() {
+    let destination = tempdir().expect("create temporary directory");
+    let output = run_cli(&[
+        "generate",
+        "changelog",
+        "--path",
+        destination.path().to_str().expect("UTF-8 path"),
+    ]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let changelog = std::fs::read_to_string(destination.path().join("CHANGELOG.md"))
+        .expect("read generated changelog");
+    assert!(changelog.contains("follows the [Keep a Changelog]"));
+    assert!(changelog.contains("Use [Semantic Versioning]"));
+    assert!(changelog.contains("this project's release model."));
+    assert!(!changelog.contains("this project adheres to [Semantic Versioning]"));
+    assert!(changelog.contains("## [Unreleased]"));
 }
 
 #[test]

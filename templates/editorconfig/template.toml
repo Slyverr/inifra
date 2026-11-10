@@ -1,6 +1,6 @@
 schema_version = 1
 id = "editorconfig"
-description = "Portable editor formatting defaults"
+description = "Portable text encoding and newline defaults"
 category = "Repository setup"
 
 [[files]]
