@@ -33,5 +33,7 @@ jobs:
       - run: cargo check --locked
       - run: cargo test --locked
       - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo run --locked -- --help
+      - run: cargo run --locked -- list
       - if: matrix.os == 'ubuntu-latest' && matrix.toolchain == 'stable'
         run: cargo package --locked
