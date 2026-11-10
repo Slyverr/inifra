@@ -7,3 +7,7 @@ required = true
 [inputs.project_description]
 prompt = "Short project description"
 required = false
+
+[inputs.repository_url]
+prompt = "Repository URL"
+required = false

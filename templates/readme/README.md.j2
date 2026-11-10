@@ -2,6 +2,10 @@
 
 {% if project_description %}{{ project_description }}
 
+{% endif %}{% if repository_url %}## Repository
+
+{{ repository_url }}
+
 {% endif %}## Getting started
 
 Add installation and usage instructions here, keeping commands aligned with the project's actual tooling.

@@ -57,6 +57,11 @@ override prompts, required status, and defaults. Required values must be
 non-empty; optional values without defaults render as empty strings. Unknown,
 duplicate, and undeclared `--set` names are errors.
 
+For README inputs, Inifra detects project name, description, and repository URL
+from a root `Cargo.toml` or `package.json` in the destination directory. Explicit
+`--set` values take precedence over detected values, which take precedence over
+configured defaults. Missing required values fail before any files are written.
+
 ## Discovery and overrides
 
 `inifra list` shows both bundled and local templates, including category labels

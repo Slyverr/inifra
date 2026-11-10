@@ -1,10 +1,13 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
 use super::model::Template;
+
+use crate::detect;
 
 const BUILTIN_INPUTS: &str = include_str!("../../templates/inputs.toml");
 
@@ -27,6 +30,7 @@ struct InputDefinition {
 pub(crate) fn resolve_values(
     template: &Template,
     assignments: &[String],
+    directory: &Path,
 ) -> Result<BTreeMap<String, String>> {
     let mut definitions = parse(BUILTIN_INPUTS)?;
     if let Some(path) = user_input_path() {
@@ -80,6 +84,16 @@ pub(crate) fn resolve_values(
         }
     }
 
+    let detected = if template
+        .inputs
+        .iter()
+        .any(|name| !values.contains_key(name))
+    {
+        detect::project_inputs(directory)?
+    } else {
+        BTreeMap::new()
+    };
+
     for name in &template.inputs {
         let definition = definitions.get(name).with_context(|| {
             format!(
@@ -88,7 +102,9 @@ pub(crate) fn resolve_values(
             )
         })?;
         if !values.contains_key(name) {
-            if let Some(default) = &definition.default {
+            if let Some(value) = detected.get(name) {
+                values.insert(name.clone(), value.clone());
+            } else if let Some(default) = &definition.default {
                 values.insert(name.clone(), default.clone());
             } else if definition.required {
                 bail!(

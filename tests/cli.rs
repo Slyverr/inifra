@@ -264,6 +264,92 @@ fn readme_template_uses_shared_inputs() {
 }
 
 #[test]
+fn readme_template_detects_cargo_metadata_from_destination() {
+    let config = tempdir().expect("create isolated config directory");
+    let destination = tempdir().expect("create destination");
+    std::fs::write(
+        destination.path().join("Cargo.toml"),
+        "[package]\nname = \"detected-project\"\nversion = \"0.1.0\"\ndescription = \"Detected description\"\nrepository = \"https://example.com/project\"\n",
+    )
+    .expect("write Cargo manifest");
+
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "readme",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let readme = std::fs::read_to_string(destination.path().join("README.md")).unwrap();
+    assert!(readme.starts_with("# detected-project\n\nDetected description"));
+    assert!(readme.contains("https://example.com/project"));
+}
+
+#[test]
+fn explicit_inputs_override_detected_project_values() {
+    let config = tempdir().expect("create isolated config directory");
+    let destination = tempdir().expect("create destination");
+    std::fs::write(
+        destination.path().join("package.json"),
+        "{\"name\":\"detected-name\",\"description\":\"Detected description\"}",
+    )
+    .expect("write package manifest");
+
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "readme",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+            "--set",
+            "project_name=Explicit name",
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let readme = std::fs::read_to_string(destination.path().join("README.md")).unwrap();
+    assert!(readme.starts_with("# Explicit name\n\nDetected description"));
+}
+
+#[test]
+fn templates_without_inputs_ignore_unrelated_project_manifest_errors() {
+    let config = tempdir().expect("create isolated config directory");
+    let destination = tempdir().expect("create destination");
+    std::fs::write(destination.path().join("Cargo.toml"), "invalid = [toml")
+        .expect("write malformed manifest");
+
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "gitignore-rust",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(destination.path().join(".gitignore").is_file());
+}
+
+#[test]
 fn readme_template_requires_a_project_name_before_writing() {
     let config = tempdir().expect("create isolated config directory");
     let destination = tempdir().expect("create destination");

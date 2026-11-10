@@ -2,7 +2,7 @@ schema_version = 1
 id = "readme"
 description = "Project overview and getting started"
 category = "Project guidance"
-inputs = ["project_name", "project_description"]
+inputs = ["project_name", "project_description", "repository_url"]
 
 [[files]]
 source = "README.md.j2"
