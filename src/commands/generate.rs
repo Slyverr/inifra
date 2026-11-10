@@ -24,7 +24,7 @@ pub(super) fn run(
     let mut template = template.clone();
     let values = templates::resolve_values(&template, assignments, destination)?;
     templates::render_text_files(&mut template, &values)?;
-    let plan = output::plan(destination, &template, overwrite)?;
+    let plan = output::plan(destination, &template.id, &template.files, overwrite)?;
     output::show_plan(&plan, dry_run);
     if dry_run {
         return Ok(());

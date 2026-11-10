@@ -7,7 +7,6 @@ mod model;
 mod render;
 
 pub(crate) use inputs::resolve_values;
-#[cfg(test)]
 pub(crate) use model::TemplateFile;
 pub(crate) use model::{Template, TemplateOrigin};
 pub(crate) use render::render_text_files;

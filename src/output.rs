@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use tempfile::Builder;
 
-use crate::templates::Template;
+use crate::templates::TemplateFile;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Action {
@@ -45,19 +45,24 @@ impl Plan {
     }
 }
 
-pub(crate) fn plan(destination: &Path, template: &Template, overwrite: bool) -> Result<Plan> {
+pub(crate) fn plan(
+    destination: &Path,
+    selection: &str,
+    outputs: &[TemplateFile],
+    overwrite: bool,
+) -> Result<Plan> {
     let destination = resolve_destination(destination)?;
-    let mut files = Vec::with_capacity(template.files.len());
-    let mut output_paths = Vec::with_capacity(template.files.len());
+    let mut files = Vec::with_capacity(outputs.len());
+    let mut output_paths = Vec::with_capacity(outputs.len());
 
-    for output in &template.files {
+    for output in outputs {
         let relative_path = validate_relative_path(&output.path)?;
         if output_paths.iter().any(|existing: &PathBuf| {
             existing.starts_with(&relative_path) || relative_path.starts_with(existing)
         }) {
             bail!(
                 "template {:?} declares conflicting output paths near {}",
-                template.id,
+                selection,
                 output.path.display()
             );
         }
@@ -267,24 +272,17 @@ pub(crate) fn write_plan(plan: &Plan) -> Result<WriteSummary> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::templates::{TemplateFile, TemplateOrigin};
+    use crate::templates::TemplateFile;
 
-    fn template(files: &[(&str, &str)]) -> Template {
-        Template {
-            id: "test".to_owned(),
-            description: "test".to_owned(),
-            category: None,
-            inputs: Vec::new(),
-            origin: TemplateOrigin::Builtin,
-            files: files
-                .iter()
-                .map(|(path, contents)| TemplateFile {
-                    path: PathBuf::from(path),
-                    contents: contents.as_bytes().to_vec(),
-                    render_text: false,
-                })
-                .collect(),
-        }
+    fn files(files: &[(&str, &str)]) -> Vec<TemplateFile> {
+        files
+            .iter()
+            .map(|(path, contents)| TemplateFile {
+                path: PathBuf::from(path),
+                contents: contents.as_bytes().to_vec(),
+                render_text: false,
+            })
+            .collect()
     }
     #[test]
     fn rejects_empty_absolute_and_traversing_paths() {
@@ -305,17 +303,17 @@ mod tests {
     #[test]
     fn rejects_duplicate_output_paths() {
         let destination = tempfile::tempdir().expect("create destination");
-        let template = template(&[("README.md", "first"), ("README.md", "second")]);
+        let files = files(&[("README.md", "first"), ("README.md", "second")]);
 
-        assert!(plan(destination.path(), &template, false).is_err());
+        assert!(plan(destination.path(), "test", &files, false).is_err());
     }
 
     #[test]
     fn rejects_file_and_directory_output_collisions_before_writing() {
         let destination = tempfile::tempdir().expect("create destination");
-        let template = template(&[("created.md", "first"), ("created.md/nested.txt", "second")]);
+        let files = files(&[("created.md", "first"), ("created.md/nested.txt", "second")]);
 
-        assert!(plan(destination.path(), &template, false).is_err());
+        assert!(plan(destination.path(), "test", &files, false).is_err());
         assert!(!destination.path().join("created.md").exists());
     }
 
@@ -327,9 +325,9 @@ mod tests {
         let destination = tempfile::tempdir().expect("create destination");
         let outside = tempfile::NamedTempFile::new().expect("create outside file");
         symlink(outside.path(), destination.path().join("README.md")).expect("create symlink");
-        let template = template(&[("README.md", "data")]);
+        let files = files(&[("README.md", "data")]);
 
-        assert!(plan(destination.path(), &template, true).is_err());
+        assert!(plan(destination.path(), "test", &files, true).is_err());
     }
 
     #[cfg(unix)]
@@ -340,9 +338,9 @@ mod tests {
         let destination = tempfile::tempdir().expect("create destination");
         let outside = tempfile::tempdir().expect("create outside directory");
         symlink(outside.path(), destination.path().join("docs")).expect("create symlink");
-        let template = template(&[("docs/README.md", "data")]);
+        let files = files(&[("docs/README.md", "data")]);
 
-        assert!(plan(destination.path(), &template, false).is_err());
+        assert!(plan(destination.path(), "test", &files, false).is_err());
         assert!(!outside.path().join("README.md").exists());
     }
 }
