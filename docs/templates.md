@@ -4,6 +4,22 @@ Inifra loads templates bundled with the program and templates in the user's
 configuration directory. Local packs let users add templates or replace a
 built-in template without changing the project or the Inifra installation.
 
+## Built-in templates
+
+The bundled catalog provides optional starters for common repository files:
+
+- `readme` creates a README outline with project name, optional description,
+  and optional repository URL inputs.
+- `contributing` creates contributor guidance and shares the project name input.
+- `changelog` creates an Unreleased section using Keep a Changelog's format.
+- `editorconfig` sets portable text encoding and newline defaults.
+- `gitignore-rust` ignores Rust build output.
+- `license-mit` and `license-apache` write a `LICENSE` file. Choose one;
+  both use the same output path. The MIT template asks for a copyright year and
+  holder, while Apache-2.0 copies the standard license text.
+
+Templates remain opt-in so projects only receive files that fit their needs.
+
 ## Location
 
 Create one directory per pack under:
@@ -68,10 +84,12 @@ When a required value is unavailable and both input and error output are
 terminals, Inifra prompts once for that shared input. In non-interactive runs,
 provide required values with `--set`.
 
-For README inputs, Inifra detects project name, description, and repository URL
-from a root `Cargo.toml` or `package.json` in the destination directory. Explicit
-`--set` values take precedence over detected values, which take precedence over
-configured defaults. Missing required values fail before any files are written.
+For README inputs and the contributor-guide project name, Inifra detects
+metadata from a root `Cargo.toml` or `package.json` in the destination
+directory. Explicit `--set` values take precedence over detected values, which
+take precedence over configured defaults. Missing required values fail before
+any files are written. License templates share the `copyright_year` and
+`copyright_holder` inputs; the MIT template requires both.
 
 ## Discovery and overrides
 
