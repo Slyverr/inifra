@@ -10,11 +10,13 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 ### Added
 
 - Allow `INIFRA_CONFIG_DIR` to override the platform's user config directory.
+- Add a contributor guide starter and MIT and Apache-2.0 license templates.
 
 ### Changed
 
 - Make the built-in changelog and EditorConfig templates more adaptable to
   projects with different release and formatting conventions.
+- Expand the README starter with common setup, usage, and support sections.
 
 ## [0.3.0] - 2026-11-10
 

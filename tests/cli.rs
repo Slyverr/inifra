@@ -302,6 +302,11 @@ fn list_shows_bundled_templates_and_output_paths() {
     assert!(listing.contains(".editorconfig"));
     assert!(listing.contains("gitignore-rust"));
     assert!(listing.contains(".gitignore"));
+    assert!(listing.contains("contributing"));
+    assert!(listing.contains("CONTRIBUTING.md"));
+    assert!(listing.contains("license-mit"));
+    assert!(listing.contains("license-apache"));
+    assert!(listing.contains("LICENSE"));
 }
 
 #[test]
@@ -473,6 +478,130 @@ fn readme_template_uses_shared_inputs() {
         "unexpected README output: {readme:?}"
     );
     assert!(readme.contains("## Getting started"));
+    assert!(readme.contains("## Usage"));
+    assert!(readme.contains("## Support"));
+}
+
+#[test]
+fn contributing_template_uses_the_shared_project_name() {
+    let config = tempdir().expect("create isolated config directory");
+    let destination = tempdir().expect("create destination");
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "contributing",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+            "--set",
+            "project_name=Example Project",
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let contributing = std::fs::read_to_string(destination.path().join("CONTRIBUTING.md"))
+        .expect("read generated contributor guide");
+    assert!(contributing.starts_with("# Contributing to Example Project\n"));
+    assert!(contributing.contains("## Development setup"));
+    assert!(contributing.contains("## Checks"));
+}
+
+#[test]
+fn readme_and_contributing_reuse_one_project_name_input() {
+    let config = tempdir().expect("create isolated config directory");
+    let destination = tempdir().expect("create destination");
+    let output = run_cli_with_config(
+        &[
+            "init",
+            "--template",
+            "readme",
+            "--template",
+            "contributing",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+            "--set",
+            "project_name=Shared name",
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let readme = std::fs::read_to_string(destination.path().join("README.md"))
+        .expect("read generated README");
+    let contributing = std::fs::read_to_string(destination.path().join("CONTRIBUTING.md"))
+        .expect("read generated contributor guide");
+    assert!(readme.starts_with("# Shared name\n"));
+    assert!(contributing.starts_with("# Contributing to Shared name\n"));
+}
+
+#[test]
+fn mit_license_renders_shared_copyright_inputs() {
+    let config = tempdir().expect("create isolated config directory");
+    let destination = tempdir().expect("create destination");
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "license-mit",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+            "--set",
+            "copyright_year=2026",
+            "--set",
+            "copyright_holder=Slyverr",
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let license = std::fs::read_to_string(destination.path().join("LICENSE"))
+        .expect("read generated MIT license");
+    assert!(license.starts_with("MIT License\n\nCopyright 2026 Slyverr\n"));
+    assert!(license.contains("Permission is hereby granted, free of charge"));
+    assert!(!license.contains("{{"));
+}
+
+#[test]
+fn apache_license_matches_the_bundled_standard_text() {
+    let config = tempdir().expect("create isolated config directory");
+    let destination = tempdir().expect("create destination");
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "license-apache",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let generated =
+        std::fs::read(destination.path().join("LICENSE")).expect("read generated Apache license");
+    let bundled = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/templates/license-apache/LICENSE"
+    ))
+    .expect("read bundled Apache license text");
+    assert_eq!(generated, bundled);
+    let generated = String::from_utf8_lossy(&generated);
+    assert!(generated.contains("Apache License"));
+    assert!(generated.contains("Version 2.0, January 2004"));
 }
 
 #[test]

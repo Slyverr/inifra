@@ -1,0 +1,9 @@
+schema_version = 1
+id = "contributing"
+description = "Contributor setup and pull request guidance"
+category = "Project guidance"
+inputs = ["project_name"]
+
+[[files]]
+source = "CONTRIBUTING.md.j2"
+output = "CONTRIBUTING.md"

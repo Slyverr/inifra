@@ -11,3 +11,11 @@ required = false
 [inputs.repository_url]
 prompt = "Repository URL"
 required = false
+
+[inputs.copyright_year]
+prompt = "Copyright year"
+required = true
+
+[inputs.copyright_holder]
+prompt = "Copyright holder"
+required = true
