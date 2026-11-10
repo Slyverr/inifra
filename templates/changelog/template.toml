@@ -1,6 +1,7 @@
 schema_version = 1
 id = "changelog"
 description = "Keep a record of notable project changes"
+category = "Development workflow"
 
 [[files]]
 source = "CHANGELOG.md"

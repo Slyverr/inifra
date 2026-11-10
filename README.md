@@ -51,6 +51,9 @@ cargo run --locked -- init --template readme --template editorconfig \
   --set project_name=MyProject
 ```
 
+Run `inifra init` without `--template` or `--preset` in a terminal to choose
+templates interactively, preview their rendered files, and confirm the write.
+
 Templates that need values accept repeatable `--set KEY=VALUE` options, for
 example `cargo run --locked -- generate readme --set project_name=Inifra`.
 

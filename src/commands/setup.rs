@@ -1,9 +1,12 @@
 use std::collections::HashSet;
+use std::io::IsTerminal;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
 use crate::{output, presets, templates};
+
+use super::picker;
 
 pub(super) fn run(
     template_ids: &[String],
@@ -21,11 +24,23 @@ pub(super) fn run(
         Some(preset) => (preset.templates, preset.values),
         None => (template_ids.to_vec(), Default::default()),
     };
+    let catalog = templates::discover()?;
+    let interactive = preset_name.is_none() && selected_ids.is_empty();
+    let selected_ids = if interactive {
+        if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
+            bail!("provide --template ID or --preset NAME when running without a terminal");
+        }
+        let Some(selected) = picker::choose(&catalog)? else {
+            return Ok(());
+        };
+        selected
+    } else {
+        selected_ids
+    };
     if selected_ids.is_empty() {
-        bail!("select at least one template with --template ID");
+        bail!("select at least one template");
     }
 
-    let catalog = templates::discover()?;
     let mut selected = Vec::with_capacity(selected_ids.len());
     let mut seen_ids = HashSet::with_capacity(selected_ids.len());
     let mut input_names = Vec::new();
@@ -66,6 +81,19 @@ pub(super) fn run(
 
     let plan = output::plan(destination, &selection, &files, overwrite)?;
     output::show_plan(&plan, dry_run);
+    if interactive {
+        output::show_content_preview(&files);
+        if !dry_run
+            && !plan.all_skipped()
+            && !dialoguer::Confirm::new()
+                .with_prompt("Write these files?")
+                .default(true)
+                .interact()
+                .context("could not confirm project setup")?
+        {
+            return Ok(());
+        }
+    }
     if dry_run {
         return Ok(());
     }

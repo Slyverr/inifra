@@ -190,6 +190,37 @@ pub(crate) fn show_plan(plan: &Plan, dry_run: bool) {
     }
 }
 
+pub(crate) fn show_content_preview(outputs: &[TemplateFile]) {
+    const MAX_PREVIEW_LINES: usize = 40;
+
+    println!("\nSelected file preview:");
+    for output in outputs {
+        println!("\n--- {} ---", output.path.display());
+        match std::str::from_utf8(&output.contents) {
+            Ok(contents) => {
+                let mut lines = contents.lines();
+                for line in lines.by_ref().take(MAX_PREVIEW_LINES) {
+                    let safe_line = line
+                        .chars()
+                        .map(|character| {
+                            if character.is_control() {
+                                format!("\\u{{{:x}}}", u32::from(character))
+                            } else {
+                                character.to_string()
+                            }
+                        })
+                        .collect::<String>();
+                    println!("{safe_line}");
+                }
+                if lines.next().is_some() {
+                    println!("… preview truncated");
+                }
+            }
+            Err(_) => println!("(binary content; preview omitted)"),
+        }
+    }
+}
+
 pub(crate) fn write_plan(plan: &Plan) -> Result<WriteSummary> {
     fs::create_dir_all(&plan.destination).with_context(|| {
         format!(

@@ -597,7 +597,7 @@ fn init_detects_conflicting_outputs_before_writing_any_files() {
 }
 
 #[test]
-fn init_requires_an_explicit_template_until_interactive_selection_exists() {
+fn init_requires_explicit_selection_without_a_terminal() {
     let config = tempdir().expect("create isolated config directory");
     let destination = tempdir().expect("create destination");
 
@@ -611,7 +611,11 @@ fn init_requires_an_explicit_template_until_interactive_selection_exists() {
     );
 
     assert!(!output.status.success());
-    assert!(String::from_utf8_lossy(&output.stderr).contains("select at least one template"));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("provide --template ID or --preset NAME"),
+        "unexpected error: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     assert!(
         std::fs::read_dir(destination.path())
             .unwrap()

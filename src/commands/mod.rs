@@ -1,5 +1,6 @@
 mod generate;
 mod list;
+mod picker;
 mod preset;
 mod setup;
 
