@@ -79,8 +79,9 @@ completion file used by your shell. Install Fish completions automatically
 with `inifra completions fish --apply`; this writes a managed file under the
 Fish config directory without changing shell startup files. Fish dynamically
 completes current template and saved preset names; other shells use Clap's
-generated static completions. Re-run the Fish `--apply` command after updating
-Inifra to refresh its completion adapter.
+generated static completions. The Fish adapter invokes the installed Inifra
+binary when Fish loads its completions; restart Fish or source the managed file
+again to refresh an already-running shell after an upgrade.
 
 ## License
 
