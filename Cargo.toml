@@ -21,7 +21,7 @@ include = [
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
-clap_complete = "4"
+clap_complete = { version = "4", features = ["unstable-dynamic"] }
 dirs = "6"
 dialoguer = "0.12"
 minijinja = "2.24"

@@ -69,7 +69,10 @@ Generate shell completions with `inifra completions SHELL`, where `SHELL` is
 `bash`, `elvish`, `fish`, `powershell`, or `zsh`. Redirect the output to the
 completion file used by your shell. Install Fish completions automatically
 with `inifra completions fish --apply`; this writes a managed file under the
-Fish config directory without changing shell startup files.
+Fish config directory without changing shell startup files. Fish dynamically
+completes current template and saved preset names; other shells use Clap's
+generated static completions. Re-run the Fish `--apply` command after updating
+Inifra to refresh its completion adapter.
 
 ## License
 

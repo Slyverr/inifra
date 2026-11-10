@@ -76,7 +76,10 @@ fn completions_generates_a_fish_script() {
     let output = run_cli(&["completions", "fish"]);
 
     assert!(output.status.success());
-    assert!(String::from_utf8_lossy(&output.stdout).contains("complete -c inifra"));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "COMPLETE=fish inifra | source\n"
+    );
 }
 
 #[test]
@@ -90,7 +93,7 @@ fn completions_applies_fish_script_to_user_config() {
     assert!(
         std::fs::read_to_string(path)
             .expect("read installed Fish completions")
-            .contains("complete -c inifra")
+            .contains("COMPLETE=fish inifra | source")
     );
 }
 
@@ -101,6 +104,48 @@ fn completions_rejects_apply_for_non_fish_shells() {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("only for Fish"));
+}
+
+#[test]
+fn fish_dynamic_completions_include_matching_template_ids() {
+    let config = tempdir().expect("create isolated config directory");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_inifra"));
+    command
+        .args(["--", "inifra", "generate", "rea"])
+        .env("COMPLETE", "fish");
+    set_config_directory(&mut command, config.path());
+    let output = command.output().expect("run dynamic completion");
+
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|line| line == "readme")
+    );
+}
+
+#[test]
+fn fish_dynamic_completions_include_saved_preset_names() {
+    let config = tempdir().expect("create isolated config directory");
+    let saved = run_cli_with_config(
+        &["preset", "save", "demo-setup", "--template", "readme"],
+        config.path(),
+    );
+    assert!(saved.status.success());
+
+    let mut command = Command::new(env!("CARGO_BIN_EXE_inifra"));
+    command
+        .args(["--", "inifra", "init", "--preset", "demo"])
+        .env("COMPLETE", "fish");
+    set_config_directory(&mut command, config.path());
+    let output = command.output().expect("run dynamic completion");
+
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .any(|line| line == "demo-setup")
+    );
 }
 
 fn fish_completion_path(config: &std::path::Path) -> std::path::PathBuf {

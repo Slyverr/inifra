@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand, ValueHint};
+use clap_complete::engine::ArgValueCompleter;
 
 #[derive(Debug, Parser)]
 #[command(version, about = "Add reusable starter files to a project")]
@@ -17,9 +18,10 @@ pub(crate) enum Command {
     /// Generate one template in a project directory
     Generate {
         /// Template ID to generate
+        #[arg(add = ArgValueCompleter::new(crate::completions::template_candidates))]
         template: String,
         /// Project directory to write into
-        #[arg(short, long, value_name = "DIR", default_value = ".")]
+        #[arg(short, long, value_name = "DIR", default_value = ".", value_hint = ValueHint::DirPath)]
         path: PathBuf,
         /// Show planned changes without writing files
         #[arg(long)]
@@ -34,13 +36,23 @@ pub(crate) enum Command {
     /// Initialize a project with one or more templates
     Init {
         /// Template ID to include (repeatable)
-        #[arg(long = "template", value_name = "ID", conflicts_with = "preset")]
+        #[arg(
+            long = "template",
+            value_name = "ID",
+            conflicts_with = "preset",
+            add = ArgValueCompleter::new(crate::completions::template_candidates)
+        )]
         templates: Vec<String>,
         /// Apply a saved user preset
-        #[arg(long, value_name = "NAME", conflicts_with = "templates")]
+        #[arg(
+            long,
+            value_name = "NAME",
+            conflicts_with = "templates",
+            add = ArgValueCompleter::new(crate::completions::preset_candidates)
+        )]
         preset: Option<String>,
         /// Project directory to write into
-        #[arg(short, long, value_name = "DIR", default_value = ".")]
+        #[arg(short, long, value_name = "DIR", default_value = ".", value_hint = ValueHint::DirPath)]
         path: PathBuf,
         /// Show planned changes without writing files
         #[arg(long)]
@@ -80,7 +92,11 @@ pub(crate) enum PresetCommand {
         #[arg(long, default_value = "")]
         description: String,
         /// Template ID to include (repeatable)
-        #[arg(long = "template", value_name = "ID")]
+        #[arg(
+            long = "template",
+            value_name = "ID",
+            add = ArgValueCompleter::new(crate::completions::template_candidates)
+        )]
         templates: Vec<String>,
         /// Store a shared template input as KEY=VALUE (repeatable)
         #[arg(long = "set", value_name = "KEY=VALUE")]
@@ -92,6 +108,7 @@ pub(crate) enum PresetCommand {
 }
 
 pub(crate) fn run() -> Result<()> {
+    clap_complete::CompleteEnv::with_factory(command).complete();
     let cli = Cli::parse();
     match cli.command {
         Some(command) => crate::commands::run(command),

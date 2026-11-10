@@ -8,15 +8,20 @@ use tempfile::NamedTempFile;
 use crate::cli;
 
 const FISH_COMPLETION_FILE: &str = "inifra.generated.fish";
+const FISH_COMPLETION_ADAPTER: &str = "COMPLETE=fish inifra | source\n";
 
 pub(super) fn run(shell: Shell, apply: bool) -> Result<()> {
     if apply && shell != Shell::Fish {
         bail!("--apply is currently supported only for Fish");
     }
 
-    let mut command = cli::command();
     let mut contents = Vec::new();
-    generate(shell, &mut command, "inifra", &mut contents);
+    if shell == Shell::Fish {
+        contents.extend_from_slice(FISH_COMPLETION_ADAPTER.as_bytes());
+    } else {
+        let mut command = cli::command();
+        generate(shell, &mut command, "inifra", &mut contents);
+    }
 
     if apply {
         install_fish_completions(&contents)
