@@ -200,11 +200,10 @@ fn read_source(root: &Path, source: &str) -> Result<Vec<u8>> {
         .with_context(|| format!("could not read template source {}", current.display()))
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
-    #[cfg(unix)]
     #[test]
     fn rejects_symlinks_even_when_the_manifest_does_not_reference_them() {
         use std::os::unix::fs::symlink;

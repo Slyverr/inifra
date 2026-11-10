@@ -280,6 +280,20 @@ fn inspect_target(path: &Path) -> Result<Target> {
     }
 }
 
+#[cfg(unix)]
+fn output_file_builder() -> Builder<'static, 'static> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut builder = Builder::new();
+    builder.permissions(fs::Permissions::from_mode(0o666));
+    builder
+}
+
+#[cfg(not(unix))]
+fn output_file_builder() -> Builder<'static, 'static> {
+    Builder::new()
+}
+
 pub(crate) fn show_plan(plan: &Plan, dry_run: bool) {
     let heading = if dry_run { "Preview for" } else { "Target:" };
     println!("{heading} {}", plan.destination.display());
@@ -365,13 +379,7 @@ pub(crate) fn write_plan(plan: &Plan) -> Result<WriteSummary> {
             (Action::Skip, _) => continue,
         }
 
-        let mut builder = Builder::new();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            builder.permissions(fs::Permissions::from_mode(0o666));
-        }
-        let mut temporary = builder.tempfile_in(parent).with_context(|| {
+        let mut temporary = output_file_builder().tempfile_in(parent).with_context(|| {
             format!(
                 "could not prepare output for {}",
                 file.target_path.display()
