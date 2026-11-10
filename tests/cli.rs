@@ -66,6 +66,7 @@ fn help_lists_available_commands() {
     let help = String::from_utf8_lossy(&output.stdout);
     assert!(help.contains("list"));
     assert!(help.contains("generate"));
+    assert!(help.contains("init"));
 }
 
 #[test]
@@ -534,6 +535,88 @@ fn generate_creates_a_missing_destination() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(destination.join(".editorconfig").is_file());
+}
+
+#[test]
+fn init_generates_files_from_multiple_templates() {
+    let config = tempdir().expect("create isolated config directory");
+    let destination = tempdir().expect("create destination");
+
+    let output = run_cli_with_config(
+        &[
+            "init",
+            "--template",
+            "editorconfig",
+            "--template",
+            "gitignore-rust",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(destination.path().join(".editorconfig").is_file());
+    assert!(destination.path().join(".gitignore").is_file());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Wrote 2 files"));
+}
+
+#[test]
+fn init_detects_conflicting_outputs_before_writing_any_files() {
+    let config = tempdir().expect("create isolated config directory");
+    write_local_pack(
+        config.path(),
+        "custom-ignore",
+        "Custom ignore rules",
+        ".gitignore",
+        "custom\n",
+    );
+    let destination = tempdir().expect("create destination");
+
+    let output = run_cli_with_config(
+        &[
+            "init",
+            "--template",
+            "gitignore-rust",
+            "--template",
+            "custom-ignore",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+        ],
+        config.path(),
+    );
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("conflicting output paths"));
+    assert!(!destination.path().join(".gitignore").exists());
+}
+
+#[test]
+fn init_requires_an_explicit_template_until_interactive_selection_exists() {
+    let config = tempdir().expect("create isolated config directory");
+    let destination = tempdir().expect("create destination");
+
+    let output = run_cli_with_config(
+        &[
+            "init",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+        ],
+        config.path(),
+    );
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("select at least one template"));
+    assert!(
+        std::fs::read_dir(destination.path())
+            .unwrap()
+            .next()
+            .is_none()
+    );
 }
 
 #[test]

@@ -5,8 +5,6 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
-use super::model::Template;
-
 use crate::detect;
 
 const BUILTIN_INPUTS: &str = include_str!("../../templates/inputs.toml");
@@ -28,7 +26,8 @@ struct InputDefinition {
 }
 
 pub(crate) fn resolve_values(
-    template: &Template,
+    template_id: &str,
+    input_names: &[String],
     assignments: &[String],
     directory: &Path,
 ) -> Result<BTreeMap<String, String>> {
@@ -64,8 +63,7 @@ pub(crate) fn resolve_values(
     }
 
     let mut values = BTreeMap::new();
-    let declared = template
-        .inputs
+    let declared = input_names
         .iter()
         .map(String::as_str)
         .collect::<HashSet<_>>();
@@ -77,29 +75,22 @@ pub(crate) fn resolve_values(
             bail!("invalid input name in assignment: {name:?}");
         }
         if !declared.contains(name) {
-            bail!("template {:?} does not use input {name:?}", template.id);
+            bail!("template selection {template_id:?} does not use input {name:?}");
         }
         if values.insert(name.to_owned(), value.to_owned()).is_some() {
             bail!("input {name:?} was provided more than once");
         }
     }
 
-    let detected = if template
-        .inputs
-        .iter()
-        .any(|name| !values.contains_key(name))
-    {
+    let detected = if input_names.iter().any(|name| !values.contains_key(name)) {
         detect::project_inputs(directory)?
     } else {
         BTreeMap::new()
     };
 
-    for name in &template.inputs {
+    for name in input_names {
         let definition = definitions.get(name).with_context(|| {
-            format!(
-                "template {:?} refers to undefined input {name:?}",
-                template.id
-            )
+            format!("template selection {template_id:?} refers to undefined input {name:?}")
         })?;
         if !values.contains_key(name) {
             if let Some(value) = detected.get(name) {

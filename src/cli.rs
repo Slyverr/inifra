@@ -31,6 +31,24 @@ pub(crate) enum Command {
         #[arg(long = "set", value_name = "KEY=VALUE")]
         inputs: Vec<String>,
     },
+    /// Initialize a project with one or more templates
+    Init {
+        /// Template ID to include (repeatable)
+        #[arg(long = "template", value_name = "ID")]
+        templates: Vec<String>,
+        /// Project directory to write into
+        #[arg(short, long, value_name = "DIR", default_value = ".")]
+        path: PathBuf,
+        /// Show planned changes without writing files
+        #[arg(long)]
+        dry_run: bool,
+        /// Replace existing files
+        #[arg(long)]
+        overwrite: bool,
+        /// Set a shared template input as KEY=VALUE (repeatable)
+        #[arg(long = "set", value_name = "KEY=VALUE")]
+        inputs: Vec<String>,
+    },
 }
 
 pub(crate) fn run() -> Result<()> {

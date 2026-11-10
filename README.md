@@ -43,6 +43,14 @@ cargo run --locked -- generate gitignore-rust --dry-run
 cargo run --locked -- generate gitignore-rust
 ```
 
+Set up a project with multiple templates using `init`:
+
+```sh
+cargo run --locked -- init --template readme --template editorconfig \
+  --path ./my-project \
+  --set project_name=MyProject
+```
+
 Templates that need values accept repeatable `--set KEY=VALUE` options, for
 example `cargo run --locked -- generate readme --set project_name=Inifra`.
 
