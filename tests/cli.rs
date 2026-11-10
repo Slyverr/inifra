@@ -83,6 +83,23 @@ fn completions_generates_a_fish_script() {
 }
 
 #[test]
+fn completions_generates_scripts_for_each_supported_shell() {
+    for shell in ["bash", "elvish", "fish", "powershell", "zsh"] {
+        let output = run_cli(&["completions", shell]);
+
+        assert!(
+            output.status.success(),
+            "completion generation failed for {shell}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            !output.stdout.is_empty(),
+            "completion output was empty for {shell}"
+        );
+    }
+}
+
+#[test]
 fn completions_applies_fish_script_to_user_config() {
     let config = tempdir().expect("create isolated config directory");
     let output = run_cli_with_config(&["completions", "fish", "--apply"], config.path());
