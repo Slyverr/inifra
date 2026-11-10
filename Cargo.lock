@@ -246,6 +246,7 @@ dependencies = [
  "minijinja",
  "serde",
  "serde_json",
+ "shlex",
  "tempfile",
  "toml",
 ]

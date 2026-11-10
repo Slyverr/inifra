@@ -9,6 +9,7 @@ pub(super) fn run(
     destination: &Path,
     dry_run: bool,
     overwrite: bool,
+    edit: bool,
     assignments: &[String],
 ) -> Result<()> {
     setup::run(
@@ -17,6 +18,7 @@ pub(super) fn run(
         destination,
         dry_run,
         overwrite,
+        edit,
         assignments,
     )
 }

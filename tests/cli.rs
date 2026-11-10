@@ -106,6 +106,40 @@ fn completions_rejects_apply_for_non_fish_shells() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("only for Fish"));
 }
 
+#[cfg(unix)]
+#[test]
+fn generate_edit_opens_text_before_writing() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let config = tempdir().expect("create isolated config directory");
+    let project = tempdir().expect("create project directory");
+    let editor = config.path().join("fake-editor");
+    std::fs::write(&editor, "#!/bin/sh\nprintf '# Edited\\n' > \"$1\"\n")
+        .expect("write fake editor");
+    std::fs::set_permissions(&editor, std::fs::Permissions::from_mode(0o755))
+        .expect("make fake editor executable");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_inifra"));
+    command
+        .args([
+            "generate",
+            "readme",
+            "--path",
+            project.path().to_str().expect("project path is UTF-8"),
+            "--set",
+            "project_name=Example",
+            "--edit",
+        ])
+        .env("VISUAL", &editor);
+    set_config_directory(&mut command, config.path());
+    let output = command.output().expect("run Inifra");
+
+    assert!(output.status.success());
+    assert_eq!(
+        std::fs::read(project.path().join("README.md")).expect("read generated README"),
+        b"# Edited\n"
+    );
+}
+
 #[test]
 fn fish_dynamic_completions_include_matching_template_ids() {
     let config = tempdir().expect("create isolated config directory");

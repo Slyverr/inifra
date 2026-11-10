@@ -56,6 +56,9 @@ templates interactively, preview their rendered files, and confirm the write.
 
 Templates that need values accept repeatable `--set KEY=VALUE` options, for
 example `cargo run --locked -- generate readme --set project_name=Inifra`.
+Pass `--edit` to open generated text files in `$VISUAL` or `$EDITOR` before
+writing them. Files are edited in a temporary directory; binary files and
+existing files that would be skipped are left out.
 
 Use `--path DIR` to choose a project directory and `--overwrite` to replace
 existing files. The default is to leave existing files unchanged.

@@ -14,6 +14,7 @@ pub(super) fn run(
     destination: &Path,
     dry_run: bool,
     overwrite: bool,
+    edit: bool,
     assignments: &[String],
 ) -> Result<()> {
     if preset_name.is_some() && !template_ids.is_empty() {
@@ -79,7 +80,10 @@ pub(super) fn run(
         files.extend(template.files);
     }
 
-    let plan = output::plan(destination, &selection, &files, overwrite)?;
+    let mut plan = output::plan(destination, &selection, &files, overwrite)?;
+    if edit {
+        output::edit_text_files(&mut plan)?;
+    }
     output::show_plan(&plan, dry_run);
     if interactive {
         output::show_content_preview(&files);

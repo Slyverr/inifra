@@ -29,6 +29,9 @@ pub(crate) enum Command {
         /// Replace existing files
         #[arg(long)]
         overwrite: bool,
+        /// Open generated text files in the configured editor before writing
+        #[arg(long)]
+        edit: bool,
         /// Set a shared template input as KEY=VALUE (repeatable)
         #[arg(long = "set", value_name = "KEY=VALUE")]
         inputs: Vec<String>,
@@ -60,6 +63,9 @@ pub(crate) enum Command {
         /// Replace existing files
         #[arg(long)]
         overwrite: bool,
+        /// Open generated text files in the configured editor before writing
+        #[arg(long)]
+        edit: bool,
         /// Set a shared template input as KEY=VALUE (repeatable)
         #[arg(long = "set", value_name = "KEY=VALUE")]
         inputs: Vec<String>,
