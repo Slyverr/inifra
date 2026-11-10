@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::{Component, Path};
 
 use anyhow::{Context, Result, bail};
@@ -11,6 +12,8 @@ pub(super) struct Manifest {
     pub(super) description: String,
     #[serde(default)]
     pub(super) category: Option<String>,
+    #[serde(default)]
+    pub(super) inputs: Vec<String>,
     pub(super) files: Vec<ManifestFile>,
 }
 
@@ -44,6 +47,26 @@ fn validate(manifest: &Manifest) -> Result<()> {
         .is_some_and(|category| category.trim().is_empty())
     {
         bail!("template {} must not have an empty category", manifest.id);
+    }
+    let mut input_names = HashSet::with_capacity(manifest.inputs.len());
+    for input in &manifest.inputs {
+        if input.is_empty()
+            || !input
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
+            || input.as_bytes()[0].is_ascii_digit()
+        {
+            bail!(
+                "template {} has an invalid input name: {input:?}",
+                manifest.id
+            );
+        }
+        if !input_names.insert(input) {
+            bail!(
+                "template {} declares input {input:?} more than once",
+                manifest.id
+            );
+        }
     }
     if manifest.files.is_empty() {
         bail!("template {} must declare at least one file", manifest.id);

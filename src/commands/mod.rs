@@ -13,6 +13,7 @@ pub(crate) fn run(command: Command) -> Result<()> {
             path,
             dry_run,
             overwrite,
-        } => generate::run(&template, &path, dry_run, overwrite),
+            inputs,
+        } => generate::run(&template, &path, dry_run, overwrite, &inputs),
     }
 }

@@ -2,6 +2,13 @@ use super::catalog::{EmbeddedFile, EmbeddedPack};
 
 pub(super) const PACKS: &[EmbeddedPack] = &[
     EmbeddedPack {
+        manifest: include_str!("../../templates/readme/template.toml"),
+        files: &[EmbeddedFile {
+            source: "README.md.j2",
+            contents: include_bytes!("../../templates/readme/README.md.j2"),
+        }],
+    },
+    EmbeddedPack {
         manifest: include_str!("../../templates/changelog/template.toml"),
         files: &[EmbeddedFile {
             source: "CHANGELOG.md",

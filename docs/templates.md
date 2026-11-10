@@ -30,6 +30,7 @@ schema_version = 1
 id = "notes"
 description = "Project notes"
 category = "Project guidance"
+inputs = ["project_name"]
 
 [[files]]
 source = "NOTES.md"
@@ -47,6 +48,14 @@ values and invalid template syntax are errors, and the source's final newline
 is preserved. Other source files are copied byte-for-byte. The manifest's
 `output` is always the destination path, so a source named `README.md.j2` can
 write to `README.md`.
+
+Shared input prompts and defaults are defined in `templates/inputs.toml`. Each
+pack lists the input names it uses in its manifest, and template text refers to
+those names directly. Pass values with repeatable `--set KEY=VALUE` options. A
+local registry at `<user config directory>/inifra/inputs.toml` can add or
+override prompts, required status, and defaults. Required values must be
+non-empty; optional values without defaults render as empty strings. Unknown,
+duplicate, and undeclared `--set` names are errors.
 
 ## Discovery and overrides
 

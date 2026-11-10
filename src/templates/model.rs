@@ -5,6 +5,7 @@ pub(crate) struct Template {
     pub(crate) id: String,
     pub(crate) description: String,
     pub(crate) category: Option<String>,
+    pub(crate) inputs: Vec<String>,
     pub(crate) origin: TemplateOrigin,
     pub(crate) files: Vec<TemplateFile>,
 }

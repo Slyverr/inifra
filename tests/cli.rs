@@ -232,6 +232,126 @@ fn generate_renders_jinja_text_sources() {
 }
 
 #[test]
+fn readme_template_uses_shared_inputs() {
+    let config = tempdir().expect("create isolated config directory");
+    let destination = tempdir().expect("create destination");
+
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "readme",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+            "--set",
+            "project_name=Inifra",
+            "--set",
+            "project_description=A template-driven project setup tool.",
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let readme = std::fs::read_to_string(destination.path().join("README.md")).unwrap();
+    assert!(
+        readme.starts_with("# Inifra\n\nA template-driven project setup tool."),
+        "unexpected README output: {readme:?}"
+    );
+    assert!(readme.contains("## Getting started"));
+}
+
+#[test]
+fn readme_template_requires_a_project_name_before_writing() {
+    let config = tempdir().expect("create isolated config directory");
+    let destination = tempdir().expect("create destination");
+
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "readme",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+        ],
+        config.path(),
+    );
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("--set project_name=VALUE"));
+    assert!(!destination.path().join("README.md").exists());
+}
+
+#[test]
+fn user_input_defaults_are_shared_by_template_renders() {
+    let config = tempdir().expect("create isolated config directory");
+    let app_config = config.path().join("inifra");
+    std::fs::create_dir_all(&app_config).expect("create Inifra config directory");
+    std::fs::write(
+        app_config.join("inputs.toml"),
+        "schema_version = 1\n[inputs.project_name]\nprompt = \"Project name\"\nrequired = true\ndefault = \"Configured name\"\n",
+    )
+    .expect("write shared input definition");
+    let destination = tempdir().expect("create destination");
+
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "readme",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let readme = std::fs::read_to_string(destination.path().join("README.md")).unwrap();
+    assert!(readme.starts_with("# Configured name\n"));
+}
+
+#[test]
+fn duplicate_and_undeclared_input_assignments_are_rejected() {
+    let config = tempdir().expect("create isolated config directory");
+    let destination = tempdir().expect("create destination");
+    let path = destination.path().to_str().expect("UTF-8 path");
+
+    let duplicate = run_cli_with_config(
+        &[
+            "generate",
+            "readme",
+            "--path",
+            path,
+            "--set",
+            "project_name=First",
+            "--set",
+            "project_name=Second",
+        ],
+        config.path(),
+    );
+    assert!(!duplicate.status.success());
+    assert!(String::from_utf8_lossy(&duplicate.stderr).contains("provided more than once"));
+
+    let unknown = run_cli_with_config(
+        &[
+            "generate",
+            "readme",
+            "--path",
+            path,
+            "--set",
+            "unknown=value",
+        ],
+        config.path(),
+    );
+    assert!(!unknown.status.success());
+    assert!(String::from_utf8_lossy(&unknown.stderr).contains("does not use input"));
+}
+
+#[test]
 fn generate_fails_on_undefined_template_values_before_writing() {
     let config = tempdir().expect("create isolated config directory");
     let pack = templates_root(config.path()).join("missing-value");

@@ -134,6 +134,7 @@ fn load_pack(root: &Path) -> Result<Template> {
         id: manifest.id,
         description: manifest.description,
         category: manifest.category,
+        inputs: manifest.inputs,
         origin: TemplateOrigin::Local,
         files,
     })

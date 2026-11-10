@@ -30,7 +30,7 @@ cargo install --path . --locked
 
 ## Usage
 
-List the bundled templates:
+List available templates:
 
 ```sh
 cargo run --locked -- list
@@ -42,6 +42,9 @@ Preview a template, then generate it in the current directory:
 cargo run --locked -- generate gitignore-rust --dry-run
 cargo run --locked -- generate gitignore-rust
 ```
+
+Templates that need values accept repeatable `--set KEY=VALUE` options, for
+example `cargo run --locked -- generate readme --set project_name=Inifra`.
 
 Use `--path DIR` to choose a project directory and `--overwrite` to replace
 existing files. The default is to leave existing files unchanged.

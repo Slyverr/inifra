@@ -40,7 +40,7 @@ pub(super) fn discover(local_root: Option<&Path>) -> Result<Vec<Template>> {
             files.push(TemplateFile {
                 path: PathBuf::from(&file.output),
                 contents: embedded.contents.to_vec(),
-                render_text: false,
+                render_text: file.source.ends_with(".j2"),
             });
         }
 
@@ -63,6 +63,7 @@ pub(super) fn discover(local_root: Option<&Path>) -> Result<Vec<Template>> {
             id: id.clone(),
             description: manifest.description,
             category: manifest.category,
+            inputs: manifest.inputs,
             origin: TemplateOrigin::Builtin,
             files,
         };
