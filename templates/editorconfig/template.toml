@@ -1,0 +1,7 @@
+schema_version = 1
+id = "editorconfig"
+description = "Portable editor formatting defaults"
+
+[[files]]
+source = ".editorconfig"
+output = ".editorconfig"

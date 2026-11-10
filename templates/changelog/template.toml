@@ -1,0 +1,7 @@
+schema_version = 1
+id = "changelog"
+description = "Keep a record of notable project changes"
+
+[[files]]
+source = "CHANGELOG.md"
+output = "CHANGELOG.md"

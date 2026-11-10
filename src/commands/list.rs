@@ -4,11 +4,11 @@ use crate::templates;
 
 pub(super) fn run() -> Result<()> {
     println!("Available templates:");
-    for template in templates::all() {
+    for template in templates::discover()? {
         let outputs = template
-            .outputs
+            .files
             .iter()
-            .map(|file| file.path)
+            .map(|file| file.path.display().to_string())
             .collect::<Vec<_>>()
             .join(", ");
         println!(

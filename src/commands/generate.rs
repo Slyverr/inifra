@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::{output, templates};
 
@@ -10,14 +10,15 @@ pub(super) fn run(
     dry_run: bool,
     overwrite: bool,
 ) -> Result<()> {
-    let template = templates::find(template_id).ok_or_else(|| {
-        let available = templates::all()
+    let catalog = templates::discover()?;
+    let Some(template) = catalog.iter().find(|template| template.id == template_id) else {
+        let available = catalog
             .iter()
-            .map(|template| template.id)
+            .map(|template| template.id.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        anyhow::anyhow!("unknown template {template_id:?}; available templates: {available}")
-    })?;
+        bail!("unknown template {template_id:?}; available templates: {available}");
+    };
 
     let plan = output::plan(destination, template, overwrite)?;
     output::show_plan(&plan, dry_run);
