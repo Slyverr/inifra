@@ -1,3 +1,11 @@
+mod cli;
+mod commands;
+mod output;
+mod templates;
+
 fn main() {
-    println!("Hello, Inifra!");
+    if let Err(error) = cli::run() {
+        eprintln!("error: {error:#}");
+        std::process::exit(1);
+    }
 }

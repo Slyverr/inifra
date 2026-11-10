@@ -3,5 +3,21 @@ name = "inifra"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Interactive CLI for choosing reusable files and templates to add to a project"
+description = "CLI for adding reusable starter files to a project"
 license = "MIT OR Apache-2.0"
+include = [
+  "/Cargo.lock",
+  "/CHANGELOG.md",
+  "/CONTRIBUTING.md",
+  "/LICENSE-APACHE",
+  "/LICENSE-MIT",
+  "/README.md",
+  "/src/**",
+  "/templates/**",
+  "/tests/**",
+]
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+tempfile = "3"

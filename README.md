@@ -1,19 +1,49 @@
 # Inifra
 
-Inifra is an early-stage Rust CLI for choosing reusable files and templates to
-add to a project. The repository currently contains the project foundation;
-CLI functionality will be introduced incrementally.
+Inifra is a Rust CLI for adding reusable starter files to a project. It lists
+bundled templates and generates their files in a chosen project directory,
+preserving existing files unless replacement is explicitly requested.
 
 ## Requirements
 
-- Rust 1.88 or newer
+- Rust 1.88 or newer, or Nix with flakes enabled
 
 ## Build and run
 
 ```sh
 cargo check --locked
-cargo run --locked
+cargo run --locked -- --help
 ```
+
+With Nix, run a command in the development shell without entering it first:
+
+```sh
+nix develop -c cargo check --locked
+```
+
+Install the current checkout locally with:
+
+```sh
+cargo install --path . --locked
+```
+
+## Usage
+
+List the bundled templates:
+
+```sh
+cargo run --locked -- list
+```
+
+Preview a template, then generate it in the current directory:
+
+```sh
+cargo run --locked -- generate gitignore-rust --dry-run
+cargo run --locked -- generate gitignore-rust
+```
+
+Use `--path DIR` to choose a project directory and `--overwrite` to replace
+existing files. The default is to leave existing files unchanged.
 
 ## License
 
