@@ -6,6 +6,7 @@ use clap_complete::{Shell, generate};
 use tempfile::NamedTempFile;
 
 use crate::cli;
+use crate::theme::{self, Tone};
 
 const FISH_COMPLETION_FILE: &str = "inifra.generated.fish";
 const FISH_COMPLETION_ADAPTER: &str = "COMPLETE=fish inifra | source\n";
@@ -80,6 +81,10 @@ fn install_fish_completions(contents: &[u8]) -> Result<()> {
                 destination.display()
             )
         })?;
-    println!("Installed Fish completions at {}", destination.display());
+    println!(
+        "{} {}",
+        theme::paint_stdout("Installed Fish completions at", Tone::Success, true),
+        theme::paint_stdout(destination.display(), Tone::Path, false)
+    );
     Ok(())
 }

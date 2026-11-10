@@ -5,7 +5,11 @@ use clap::{CommandFactory, Parser, Subcommand, ValueHint};
 use clap_complete::engine::ArgValueCompleter;
 
 #[derive(Debug, Parser)]
-#[command(version, about = "Add reusable starter files to a project")]
+#[command(
+    version,
+    about = "Add reusable starter files to a project",
+    styles = crate::theme::HELP_STYLES
+)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,

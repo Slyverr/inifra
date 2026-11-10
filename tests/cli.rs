@@ -22,6 +22,20 @@ fn run_cli_with_config(arguments: &[&str], config: &std::path::Path) -> Output {
     command.output().expect("run Inifra")
 }
 
+fn run_cli_with_forced_colors(arguments: &[&str], no_color: bool) -> Output {
+    let config = tempdir().expect("create isolated config directory");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_inifra"));
+    command
+        .args(arguments)
+        .env("CLICOLOR_FORCE", "1")
+        .env_remove("NO_COLOR");
+    if no_color {
+        command.env("NO_COLOR", "1");
+    }
+    set_config_directory(&mut command, config.path());
+    command.output().expect("run Inifra")
+}
+
 fn set_config_directory(command: &mut Command, config: &std::path::Path) {
     #[cfg(target_os = "windows")]
     command.env("APPDATA", config);
@@ -69,6 +83,38 @@ fn help_lists_available_commands() {
     assert!(help.contains("init"));
     assert!(help.contains("preset"));
     assert!(help.contains("completions"));
+}
+
+#[test]
+fn human_readable_output_can_be_forced_to_color() {
+    let output = run_cli_with_forced_colors(&["list"], false);
+
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("\u{1b}["));
+}
+
+#[test]
+fn human_readable_output_is_plain_when_redirected() {
+    let output = run_cli(&["list"]);
+
+    assert!(output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("\u{1b}["));
+}
+
+#[test]
+fn no_color_disables_forced_human_readable_colors() {
+    let output = run_cli_with_forced_colors(&["list"], true);
+
+    assert!(output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("\u{1b}["));
+}
+
+#[test]
+fn errors_use_color_when_forced() {
+    let output = run_cli_with_forced_colors(&["generate", "missing-template"], false);
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("\u{1b}["));
 }
 
 #[test]

@@ -4,6 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 
+use crate::theme::{self, Tone};
 use crate::{output, presets, templates};
 
 use super::picker;
@@ -102,7 +103,14 @@ pub(super) fn run(
         return Ok(());
     }
     if plan.all_skipped() {
-        println!("No files written; existing files were left unchanged.");
+        println!(
+            "{}",
+            theme::paint_stdout(
+                "No files written; existing files were left unchanged.",
+                Tone::Muted,
+                false
+            )
+        );
         return Ok(());
     }
 
@@ -111,8 +119,15 @@ pub(super) fn run(
     let written = summary.created + summary.replaced;
     let file_word = if written == 1 { "file" } else { "files" };
     println!(
-        "Wrote {written} {file_word} ({} created, {} replaced, {} skipped).",
-        summary.created, summary.replaced, summary.skipped
+        "{}",
+        theme::paint_stdout(
+            format!(
+                "Wrote {written} {file_word} ({} created, {} replaced, {} skipped).",
+                summary.created, summary.replaced, summary.skipped
+            ),
+            Tone::Success,
+            true
+        )
     );
     Ok(())
 }

@@ -1,9 +1,13 @@
 use anyhow::Result;
 
 use crate::templates::{self, TemplateOrigin};
+use crate::theme::{self, Tone};
 
 pub(super) fn run() -> Result<()> {
-    println!("Available templates:");
+    println!(
+        "{}",
+        theme::paint_stdout("Available templates:", Tone::Accent, true)
+    );
     for template in templates::discover()? {
         let origin = match template.origin {
             TemplateOrigin::Builtin => "built-in",
@@ -12,7 +16,12 @@ pub(super) fn run() -> Result<()> {
         let category = template
             .category
             .as_deref()
-            .map(|category| format!(" ({category})"))
+            .map(|category| {
+                format!(
+                    " {}",
+                    theme::paint_stdout(format!("({category})"), Tone::Muted, false)
+                )
+            })
             .unwrap_or_default();
         let outputs = template
             .files
@@ -21,8 +30,12 @@ pub(super) fn run() -> Result<()> {
             .collect::<Vec<_>>()
             .join(", ");
         println!(
-            "  {:<16} {} [{}]{} — {}",
-            template.id, template.description, origin, category, outputs
+            "  {} {} {}{} — {}",
+            theme::paint_stdout(format!("{:<16}", template.id), Tone::Accent, true),
+            template.description,
+            theme::paint_stdout(format!("[{origin}]"), Tone::Muted, false),
+            category,
+            theme::paint_stdout(outputs, Tone::Path, false)
         );
     }
     Ok(())

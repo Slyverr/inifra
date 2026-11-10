@@ -5,6 +5,9 @@ bundled and user-local templates and generates their files in a chosen project
 directory, preserving existing files unless replacement is explicitly
 requested.
 
+Human-readable output uses terminal colors when supported. Set `NO_COLOR` to
+disable styling.
+
 ## Requirements
 
 - Rust 1.88 or newer, or Nix with flakes enabled

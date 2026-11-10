@@ -241,6 +241,7 @@ dependencies = [
  "anyhow",
  "clap",
  "clap_complete",
+ "console",
  "dialoguer",
  "dirs",
  "minijinja",

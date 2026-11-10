@@ -6,6 +6,8 @@ use std::process::Command as ProcessCommand;
 use anyhow::{Context, Result, bail};
 use tempfile::Builder;
 
+use crate::theme::{self, Tone};
+
 use crate::templates::TemplateFile;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -55,7 +57,10 @@ pub(crate) fn edit_text_files(plan: &mut Plan) -> Result<()> {
         .map(|(index, file)| (index, file.relative_path.clone()))
         .collect::<Vec<_>>();
     if editable.is_empty() {
-        println!("No editable text files.");
+        println!(
+            "{}",
+            theme::paint_stdout("No editable text files.", Tone::Muted, false)
+        );
         return Ok(());
     }
 
@@ -296,23 +301,42 @@ fn output_file_builder() -> Builder<'static, 'static> {
 
 pub(crate) fn show_plan(plan: &Plan, dry_run: bool) {
     let heading = if dry_run { "Preview for" } else { "Target:" };
-    println!("{heading} {}", plan.destination.display());
+    let tone = if dry_run { Tone::Warning } else { Tone::Accent };
+    println!(
+        "{} {}",
+        theme::paint_stdout(heading, tone, true),
+        theme::paint_stdout(plan.destination.display(), Tone::Path, false)
+    );
     for file in &plan.files {
-        let action = match file.action {
-            Action::Create => "create",
-            Action::Skip => "skip (already exists)",
-            Action::Replace => "replace",
+        let (action, tone) = match file.action {
+            Action::Create => ("create", Tone::Success),
+            Action::Skip => ("skip (already exists)", Tone::Muted),
+            Action::Replace => ("replace", Tone::Warning),
         };
-        println!("  {action:<22} {}", file.relative_path.display());
+        println!(
+            "  {} {}",
+            theme::paint_stdout(format!("{action:<22}"), tone, true),
+            theme::paint_stdout(file.relative_path.display(), Tone::Path, false)
+        );
     }
 }
 
 pub(crate) fn show_content_preview(outputs: &[TemplateFile]) {
     const MAX_PREVIEW_LINES: usize = 40;
 
-    println!("\nSelected file preview:");
+    println!(
+        "\n{}",
+        theme::paint_stdout("Selected file preview:", Tone::Accent, true)
+    );
     for output in outputs {
-        println!("\n--- {} ---", output.path.display());
+        println!(
+            "\n{}",
+            theme::paint_stdout(
+                format!("--- {} ---", output.path.display()),
+                Tone::Path,
+                true
+            )
+        );
         match std::str::from_utf8(&output.contents) {
             Ok(contents) => {
                 let mut lines = contents.lines();

@@ -7,6 +7,15 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Colorize CLI help, output, and errors while respecting terminal color settings.
+- Add an interactive template picker with rendered-file previews and write confirmation.
+- Generate shell completions for Bash, Elvish, Fish, PowerShell, and Zsh; install Fish
+  completions and complete template IDs and preset names dynamically.
+- Edit generated text files and user-local template packs with the configured editor.
+- Verify builds and CLI behavior across platforms, and add an installable Nix package.
+
 ## [0.2.0] - 2026-11-10
 
 ### Added

@@ -3,6 +3,7 @@ use std::collections::HashSet;
 use anyhow::{Result, bail};
 
 use crate::cli::PresetCommand;
+use crate::theme::{self, Tone};
 use crate::{presets, templates};
 
 pub(super) fn run(command: PresetCommand) -> Result<()> {
@@ -21,16 +22,22 @@ pub(super) fn run(command: PresetCommand) -> Result<()> {
 fn list() -> Result<()> {
     let presets = presets::list()?;
     if presets.is_empty() {
-        println!("No saved presets.");
+        println!(
+            "{}",
+            theme::paint_stdout("No saved presets.", Tone::Muted, false)
+        );
         return Ok(());
     }
-    println!("Saved presets:");
+    println!(
+        "{}",
+        theme::paint_stdout("Saved presets:", Tone::Accent, true)
+    );
     for preset in presets {
         println!(
-            "  {:<20} {} [{}]",
-            preset.name,
+            "  {} {} [{}]",
+            theme::paint_stdout(format!("{:<20}", preset.name), Tone::Accent, true),
             preset.description,
-            preset.templates.join(", ")
+            theme::paint_stdout(preset.templates.join(", "), Tone::Success, false)
         );
     }
     Ok(())
@@ -70,6 +77,10 @@ fn save(
         values,
     );
     presets::save(&preset, overwrite)?;
-    println!("Saved preset {:?}.", preset.name);
+    println!(
+        "{} {}.",
+        theme::paint_stdout("Saved preset", Tone::Success, true),
+        theme::paint_stdout(format!("{:?}", preset.name), Tone::Accent, false)
+    );
     Ok(())
 }

@@ -22,6 +22,7 @@ include = [
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 clap_complete = { version = "4", features = ["unstable-dynamic"] }
+console = "0.16"
 dirs = "6"
 dialoguer = "0.12"
 minijinja = "2.24"
