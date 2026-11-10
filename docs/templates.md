@@ -13,7 +13,9 @@ Create one directory per pack under:
 ```
 
 The user config directory follows the operating system convention. For example,
-on Linux it is usually `~/.config`; `XDG_CONFIG_HOME` can change it.
+on Linux it is usually `~/.config`; `XDG_CONFIG_HOME` can change it. Set
+`INIFRA_CONFIG_DIR` to an absolute path to override the config root on any
+platform.
 
 Use `inifra edit TEMPLATE_ID` to open an existing local pack in `$VISUAL` or
 `$EDITOR`. Editing a built-in first copies its manifest and source files into

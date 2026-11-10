@@ -35,33 +35,32 @@ pub(crate) fn resolve_values(
     directory: &Path,
 ) -> Result<BTreeMap<String, String>> {
     let mut definitions = parse(BUILTIN_INPUTS)?;
-    if let Some(path) = user_input_path() {
-        match fs::symlink_metadata(&path) {
-            Ok(metadata) => {
-                if metadata.file_type().is_symlink() || !metadata.is_file() {
-                    bail!(
-                        "user input definitions must be a regular file: {}",
-                        path.display()
-                    );
-                }
-                let source = fs::read_to_string(&path).with_context(|| {
-                    format!("could not read user input definitions {}", path.display())
-                })?;
-                for (name, definition) in parse(&source)
-                    .with_context(|| format!("invalid user input definitions {}", path.display()))?
-                {
-                    definitions.insert(name, definition);
-                }
+    let path = user_input_path()?;
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                bail!(
+                    "user input definitions must be a regular file: {}",
+                    path.display()
+                );
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-            Err(error) => {
-                return Err(error).with_context(|| {
-                    format!(
-                        "could not inspect user input definitions {}",
-                        path.display()
-                    )
-                });
+            let source = fs::read_to_string(&path).with_context(|| {
+                format!("could not read user input definitions {}", path.display())
+            })?;
+            for (name, definition) in parse(&source)
+                .with_context(|| format!("invalid user input definitions {}", path.display()))?
+            {
+                definitions.insert(name, definition);
             }
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "could not inspect user input definitions {}",
+                    path.display()
+                )
+            });
         }
     }
 
@@ -180,8 +179,8 @@ fn valid_name(name: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
 }
 
-fn user_input_path() -> Option<std::path::PathBuf> {
-    dirs::config_dir().map(|path| path.join("inifra").join("inputs.toml"))
+fn user_input_path() -> Result<std::path::PathBuf> {
+    crate::paths::config_root().map(|path| path.join("inifra").join("inputs.toml"))
 }
 
 #[cfg(test)]

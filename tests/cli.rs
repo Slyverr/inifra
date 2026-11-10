@@ -37,12 +37,7 @@ fn run_cli_with_forced_colors(arguments: &[&str], no_color: bool) -> Output {
 }
 
 fn set_config_directory(command: &mut Command, config: &std::path::Path) {
-    #[cfg(target_os = "windows")]
-    command.env("APPDATA", config);
-    #[cfg(target_os = "macos")]
-    command.env("HOME", config);
-    #[cfg(all(unix, not(target_os = "macos")))]
-    command.env("XDG_CONFIG_HOME", config);
+    command.env("INIFRA_CONFIG_DIR", config);
 }
 
 fn write_local_pack(
@@ -65,11 +60,7 @@ fn write_local_pack(
 }
 
 fn templates_root(config: &std::path::Path) -> std::path::PathBuf {
-    #[cfg(target_os = "macos")]
-    let root = config.join("Library/Application Support/inifra/templates");
-    #[cfg(not(target_os = "macos"))]
-    let root = config.join("inifra/templates");
-    root
+    config.join("inifra/templates")
 }
 
 #[test]
@@ -286,8 +277,6 @@ fn fish_dynamic_completions_include_saved_preset_names() {
 }
 
 fn fish_completion_path(config: &std::path::Path) -> std::path::PathBuf {
-    #[cfg(target_os = "macos")]
-    let config = config.join("Library/Application Support");
     config.join("fish/completions/inifra.generated.fish")
 }
 

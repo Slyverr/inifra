@@ -198,9 +198,7 @@ fn validate_name(name: &str) -> Result<()> {
 }
 
 fn preset_directory() -> Result<PathBuf> {
-    dirs::config_dir()
-        .map(|path| path.join("inifra").join("presets"))
-        .context("could not determine the user config directory")
+    crate::paths::config_root().map(|path| path.join("inifra").join("presets"))
 }
 
 #[cfg(test)]

@@ -34,7 +34,7 @@ pub(super) fn run(shell: Shell, apply: bool) -> Result<()> {
 }
 
 fn install_fish_completions(contents: &[u8]) -> Result<()> {
-    let config_dir = dirs::config_dir().context("could not locate the user config directory")?;
+    let config_dir = crate::paths::config_root()?;
     let directory = config_dir.join("fish").join("completions");
     fs::create_dir_all(&directory).with_context(|| {
         format!(

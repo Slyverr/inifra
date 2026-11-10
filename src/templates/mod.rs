@@ -12,8 +12,10 @@ pub(crate) use model::{Template, TemplateOrigin};
 pub(crate) use render::render_text_files;
 
 pub(crate) fn discover() -> anyhow::Result<Vec<Template>> {
-    let local_root = dirs::config_dir().map(|path| path.join("inifra").join("templates"));
-    catalog::discover(local_root.as_deref())
+    let local_root = crate::paths::config_root()?
+        .join("inifra")
+        .join("templates");
+    catalog::discover(Some(&local_root))
 }
 
 pub(crate) fn validate_id(id: &str) -> anyhow::Result<()> {
@@ -21,11 +23,7 @@ pub(crate) fn validate_id(id: &str) -> anyhow::Result<()> {
 }
 
 pub(crate) fn local_pack_path(id: &str) -> anyhow::Result<std::path::PathBuf> {
-    use anyhow::Context;
-
-    dirs::config_dir()
-        .map(|path| path.join("inifra").join("templates").join(id))
-        .context("could not locate the user config directory")
+    crate::paths::config_root().map(|path| path.join("inifra").join("templates").join(id))
 }
 
 pub(crate) fn copy_builtin(id: &str, destination: &std::path::Path) -> anyhow::Result<()> {

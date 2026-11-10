@@ -2,6 +2,7 @@
 
 Presets save a reusable template selection and shared input values in the
 user's config directory under `inifra/presets/<name>.toml`.
+Set `INIFRA_CONFIG_DIR` to an absolute path to override the config root.
 
 Save, list, and apply a preset:
 

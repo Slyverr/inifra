@@ -3,6 +3,7 @@ mod commands;
 mod completions;
 mod detect;
 mod output;
+mod paths;
 mod presets;
 mod templates;
 mod theme;
