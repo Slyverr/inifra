@@ -35,6 +35,6 @@ pub(crate) fn run(command: Command) -> Result<()> {
             &inputs,
         ),
         Command::Preset { command } => preset::run(command),
-        Command::Completions { shell } => completions::run(shell),
+        Command::Completions { shell, apply } => completions::run(shell, apply),
     }
 }

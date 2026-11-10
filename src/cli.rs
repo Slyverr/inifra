@@ -62,6 +62,9 @@ pub(crate) enum Command {
         /// Shell to generate completions for
         #[arg(value_enum)]
         shell: clap_complete::Shell,
+        /// Install Fish completions in the user config directory
+        #[arg(long)]
+        apply: bool,
     },
 }
 

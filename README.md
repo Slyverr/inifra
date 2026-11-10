@@ -67,7 +67,9 @@ to save and reuse template selections.
 
 Generate shell completions with `inifra completions SHELL`, where `SHELL` is
 `bash`, `elvish`, `fish`, `powershell`, or `zsh`. Redirect the output to the
-completion file used by your shell.
+completion file used by your shell. Install Fish completions automatically
+with `inifra completions fish --apply`; this writes a managed file under the
+Fish config directory without changing shell startup files.
 
 ## License
 

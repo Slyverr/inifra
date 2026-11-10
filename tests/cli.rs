@@ -80,6 +80,36 @@ fn completions_generates_a_fish_script() {
 }
 
 #[test]
+fn completions_applies_fish_script_to_user_config() {
+    let config = tempdir().expect("create isolated config directory");
+    let output = run_cli_with_config(&["completions", "fish", "--apply"], config.path());
+    let path = fish_completion_path(config.path());
+
+    assert!(output.status.success());
+    assert!(path.is_file());
+    assert!(
+        std::fs::read_to_string(path)
+            .expect("read installed Fish completions")
+            .contains("complete -c inifra")
+    );
+}
+
+#[test]
+fn completions_rejects_apply_for_non_fish_shells() {
+    let config = tempdir().expect("create isolated config directory");
+    let output = run_cli_with_config(&["completions", "bash", "--apply"], config.path());
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("only for Fish"));
+}
+
+fn fish_completion_path(config: &std::path::Path) -> std::path::PathBuf {
+    #[cfg(target_os = "macos")]
+    let config = config.join("Library/Application Support");
+    config.join("fish/completions/inifra.generated.fish")
+}
+
+#[test]
 fn no_arguments_show_help_as_a_friendly_entry_point() {
     let output = run_cli(&[]);
 
