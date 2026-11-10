@@ -280,6 +280,7 @@ mod tests {
                 .map(|(path, contents)| TemplateFile {
                     path: PathBuf::from(path),
                     contents: contents.as_bytes().to_vec(),
+                    render_text: false,
                 })
                 .collect(),
         }

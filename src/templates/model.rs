@@ -19,4 +19,5 @@ pub(crate) enum TemplateOrigin {
 pub(crate) struct TemplateFile {
     pub(crate) path: PathBuf,
     pub(crate) contents: Vec<u8>,
+    pub(crate) render_text: bool,
 }

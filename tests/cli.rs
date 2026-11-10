@@ -38,11 +38,7 @@ fn write_local_pack(
     output: &str,
     body: &str,
 ) {
-    #[cfg(target_os = "macos")]
-    let config_dir = config.join("Library/Application Support");
-    #[cfg(not(target_os = "macos"))]
-    let config_dir = config.to_path_buf();
-    let pack = config_dir.join("inifra/templates").join(id);
+    let pack = templates_root(config).join(id);
     std::fs::create_dir_all(&pack).expect("create local template pack");
     std::fs::write(
         pack.join("template.toml"),
@@ -52,6 +48,14 @@ fn write_local_pack(
     )
     .expect("write manifest");
     std::fs::write(pack.join("source.txt"), body).expect("write template source");
+}
+
+fn templates_root(config: &std::path::Path) -> std::path::PathBuf {
+    #[cfg(target_os = "macos")]
+    let root = config.join("Library/Application Support/inifra/templates");
+    #[cfg(not(target_os = "macos"))]
+    let root = config.join("inifra/templates");
+    root
 }
 
 #[test]
@@ -160,7 +164,7 @@ fn duplicate_local_template_ids_are_reported() {
         "NOTES.md",
         "first\n",
     );
-    let duplicate = config.path().join("inifra/templates/another-pack");
+    let duplicate = templates_root(config.path()).join("another-pack");
     std::fs::create_dir_all(&duplicate).expect("create duplicate pack");
     std::fs::write(
         duplicate.join("template.toml"),
@@ -181,7 +185,7 @@ fn duplicate_local_template_ids_are_reported() {
 #[test]
 fn malformed_local_manifests_report_an_error() {
     let config = tempdir().expect("create isolated config directory");
-    let pack = config.path().join("inifra/templates/broken");
+    let pack = templates_root(config.path()).join("broken");
     std::fs::create_dir_all(&pack).expect("create malformed pack");
     std::fs::write(pack.join("template.toml"), "not = valid = toml").expect("write manifest");
 
@@ -191,6 +195,68 @@ fn malformed_local_manifests_report_an_error() {
     let error = String::from_utf8_lossy(&output.stderr);
     assert!(error.contains("invalid template manifest"));
     assert!(error.contains("template.toml"));
+}
+
+#[test]
+fn generate_renders_jinja_text_sources() {
+    let config = tempdir().expect("create isolated config directory");
+    let pack = templates_root(config.path()).join("rendered");
+    std::fs::create_dir_all(&pack).expect("create template pack");
+    std::fs::write(
+        pack.join("template.toml"),
+        "schema_version = 1\nid = \"rendered\"\ndescription = \"Rendered text\"\n\n[[files]]\nsource = \"message.txt.j2\"\noutput = \"message.txt\"\n",
+    )
+    .expect("write manifest");
+    std::fs::write(pack.join("message.txt.j2"), "{{ 1 + 1 }}\n").expect("write source");
+    let destination = tempdir().expect("create destination");
+
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "rendered",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(destination.path().join("message.txt")).unwrap(),
+        "2\n"
+    );
+}
+
+#[test]
+fn generate_fails_on_undefined_template_values_before_writing() {
+    let config = tempdir().expect("create isolated config directory");
+    let pack = templates_root(config.path()).join("missing-value");
+    std::fs::create_dir_all(&pack).expect("create template pack");
+    std::fs::write(
+        pack.join("template.toml"),
+        "schema_version = 1\nid = \"missing-value\"\ndescription = \"Missing value\"\n\n[[files]]\nsource = \"message.txt.j2\"\noutput = \"message.txt\"\n",
+    )
+    .expect("write manifest");
+    std::fs::write(pack.join("message.txt.j2"), "{{ required_value }}\n").expect("write source");
+    let destination = tempdir().expect("create destination");
+
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "missing-value",
+            "--path",
+            destination.path().to_str().expect("UTF-8 path"),
+        ],
+        config.path(),
+    );
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("could not render template"));
+    assert!(!destination.path().join("message.txt").exists());
 }
 
 #[test]

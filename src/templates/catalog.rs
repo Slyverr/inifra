@@ -40,6 +40,7 @@ pub(super) fn discover(local_root: Option<&Path>) -> Result<Vec<Template>> {
             files.push(TemplateFile {
                 path: PathBuf::from(&file.output),
                 contents: embedded.contents.to_vec(),
+                render_text: false,
             });
         }
 

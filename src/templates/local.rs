@@ -126,6 +126,7 @@ fn load_pack(root: &Path) -> Result<Template> {
         files.push(TemplateFile {
             path: PathBuf::from(file.output),
             contents: source_path,
+            render_text: file.source.ends_with(".j2"),
         });
     }
 

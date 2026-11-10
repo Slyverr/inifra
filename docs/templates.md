@@ -42,8 +42,11 @@ each output. `source` is relative to the pack directory; `output` is relative
 to the destination project directory. Both paths must be safe relative paths.
 Outputs may not overlap or conflict.
 
-For now, source files are copied as-is. Variable rendering and shared inputs
-will be introduced separately.
+Sources ending in `.j2` are rendered as MiniJinja text before writing. Undefined
+values and invalid template syntax are errors, and the source's final newline
+is preserved. Other source files are copied byte-for-byte. The manifest's
+`output` is always the destination path, so a source named `README.md.j2` can
+write to `README.md`.
 
 ## Discovery and overrides
 

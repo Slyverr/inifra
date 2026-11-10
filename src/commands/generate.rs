@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
@@ -20,7 +21,9 @@ pub(super) fn run(
         bail!("unknown template {template_id:?}; available templates: {available}");
     };
 
-    let plan = output::plan(destination, template, overwrite)?;
+    let mut template = template.clone();
+    templates::render_text_files(&mut template, &BTreeMap::new())?;
+    let plan = output::plan(destination, &template, overwrite)?;
     output::show_plan(&plan, dry_run);
     if dry_run {
         return Ok(());
