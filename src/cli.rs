@@ -57,6 +57,12 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: PresetCommand,
     },
+    /// Generate shell completion scripts
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -93,4 +99,8 @@ pub(crate) fn run() -> Result<()> {
             Ok(())
         }
     }
+}
+
+pub(crate) fn command() -> clap::Command {
+    Cli::command()
 }

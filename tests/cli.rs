@@ -68,6 +68,15 @@ fn help_lists_available_commands() {
     assert!(help.contains("generate"));
     assert!(help.contains("init"));
     assert!(help.contains("preset"));
+    assert!(help.contains("completions"));
+}
+
+#[test]
+fn completions_generates_a_fish_script() {
+    let output = run_cli(&["completions", "fish"]);
+
+    assert!(output.status.success());
+    assert!(String::from_utf8_lossy(&output.stdout).contains("complete -c inifra"));
 }
 
 #[test]

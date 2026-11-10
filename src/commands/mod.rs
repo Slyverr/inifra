@@ -1,3 +1,4 @@
+mod completions;
 mod generate;
 mod list;
 mod picker;
@@ -34,5 +35,6 @@ pub(crate) fn run(command: Command) -> Result<()> {
             &inputs,
         ),
         Command::Preset { command } => preset::run(command),
+        Command::Completions { shell } => completions::run(shell),
     }
 }

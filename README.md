@@ -65,6 +65,10 @@ directory under `inifra/templates`. See [Template packs](docs/templates.md)
 for the manifest format and override behavior. See [Presets](docs/presets.md)
 to save and reuse template selections.
 
+Generate shell completions with `inifra completions SHELL`, where `SHELL` is
+`bash`, `elvish`, `fish`, `powershell`, or `zsh`. Redirect the output to the
+completion file used by your shell.
+
 ## License
 
 Licensed under either the [Apache License, Version 2.0](LICENSE-APACHE) or the
