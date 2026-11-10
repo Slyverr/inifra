@@ -1,8 +1,10 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs;
+use std::io::IsTerminal;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use dialoguer::Input;
 use serde::Deserialize;
 
 use crate::detect;
@@ -98,10 +100,18 @@ pub(crate) fn resolve_values(
             } else if let Some(default) = &definition.default {
                 values.insert(name.clone(), default.clone());
             } else if definition.required {
-                bail!(
-                    "input {name:?} is required ({}); provide it with --set {name}=VALUE",
-                    definition.prompt
-                );
+                let value = if std::io::stdin().is_terminal() && std::io::stderr().is_terminal() {
+                    Input::<String>::new()
+                        .with_prompt(&definition.prompt)
+                        .interact()
+                        .with_context(|| format!("could not read required input {name:?}"))?
+                } else {
+                    bail!(
+                        "input {name:?} is required ({}); provide it with --set {name}=VALUE",
+                        definition.prompt
+                    );
+                };
+                values.insert(name.clone(), value);
             } else {
                 values.insert(name.clone(), String::new());
             }
