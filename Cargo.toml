@@ -1,0 +1,7 @@
+[package]
+name = "inifra"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Interactive CLI for choosing reusable files and templates to add to a project"
+license = "MIT OR Apache-2.0"
