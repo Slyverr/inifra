@@ -29,7 +29,7 @@ pub(super) fn run(
     let catalog = templates::discover()?;
     let interactive = preset_name.is_none() && selected_ids.is_empty();
     let selected_ids = if interactive {
-        if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
+        if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
             bail!("provide --template ID or --preset NAME when running without a terminal");
         }
         let Some(selected) = picker::choose(&catalog)? else {
