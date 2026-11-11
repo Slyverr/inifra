@@ -34,35 +34,7 @@ pub(crate) fn resolve_values(
     preset_values: &BTreeMap<String, String>,
     directory: &Path,
 ) -> Result<BTreeMap<String, String>> {
-    let mut definitions = parse(BUILTIN_INPUTS)?;
-    let path = user_input_path()?;
-    match fs::symlink_metadata(&path) {
-        Ok(metadata) => {
-            if metadata.file_type().is_symlink() || !metadata.is_file() {
-                bail!(
-                    "user input definitions must be a regular file: {}",
-                    path.display()
-                );
-            }
-            let source = fs::read_to_string(&path).with_context(|| {
-                format!("could not read user input definitions {}", path.display())
-            })?;
-            for (name, definition) in parse(&source)
-                .with_context(|| format!("invalid user input definitions {}", path.display()))?
-            {
-                definitions.insert(name, definition);
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(error).with_context(|| {
-                format!(
-                    "could not inspect user input definitions {}",
-                    path.display()
-                )
-            });
-        }
-    }
+    let definitions = definitions()?;
 
     let mut values = preset_values.clone();
     let declared = input_names
@@ -114,6 +86,39 @@ pub(crate) fn resolve_values(
     }
 
     Ok(values)
+}
+
+fn definitions() -> Result<BTreeMap<String, InputDefinition>> {
+    let mut definitions = parse(BUILTIN_INPUTS)?;
+    let path = user_input_path()?;
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) => {
+            if metadata.file_type().is_symlink() || !metadata.is_file() {
+                bail!(
+                    "user input definitions must be a regular file: {}",
+                    path.display()
+                );
+            }
+            let source = fs::read_to_string(&path).with_context(|| {
+                format!("could not read user input definitions {}", path.display())
+            })?;
+            definitions.extend(
+                parse(&source).with_context(|| {
+                    format!("invalid user input definitions {}", path.display())
+                })?,
+            );
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).with_context(|| {
+                format!(
+                    "could not inspect user input definitions {}",
+                    path.display()
+                )
+            });
+        }
+    }
+    Ok(definitions)
 }
 
 pub(crate) fn parse_assignments(

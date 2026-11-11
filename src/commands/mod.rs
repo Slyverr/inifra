@@ -40,6 +40,6 @@ pub(crate) fn run(command: Command) -> Result<()> {
         ),
         Command::Preset { command } => preset::run(command),
         Command::Edit { template } => edit::run(&template),
-        Command::Completions { shell, apply } => completions::run(shell, apply),
+        Command::Completions { shell, install } => completions::run(shell, install),
     }
 }

@@ -77,14 +77,15 @@ Run `inifra edit TEMPLATE_ID` to open a local template pack in `$VISUAL` or
 it is opened; an unknown ID can start a new template pack from an interactive
 terminal.
 
-Generate completions for Bash, Elvish, Fish, PowerShell, or Zsh with
-`inifra completions SHELL`, replacing `SHELL` with the target shell. Add the
-output to that shell's completion setup. Fish users can instead install a
-managed completion file with `inifra completions fish --apply`; this does not
-change shell startup files. Fish completions dynamically suggest current
-template and preset names, while the other shells use Clap's generated static
-completions. After upgrading Inifra, restart Fish or source the managed file
-again to refresh an already-running shell.
+Generate dynamic completions for Bash, Elvish, Fish, PowerShell, or Zsh with
+`inifra completions SHELL`. The generated completion scripts use the installed
+`inifra` command to complete available commands, options, paths, template IDs,
+preset names, and shared input names. You can write the script to Inifra's
+managed config location with `inifra completions SHELL --install` (the older
+`--apply` spelling remains available). This never edits shell startup files.
+Fish loads its managed file automatically. For other shells, source the
+reported file from that shell's completion setup. Re-run `--install` after
+upgrading Inifra to refresh the shell integration script.
 
 ## License
 

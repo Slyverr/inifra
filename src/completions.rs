@@ -31,3 +31,90 @@ pub(crate) fn preset_candidates(current: &OsStr) -> Vec<CompletionCandidate> {
         .map(|preset| CompletionCandidate::new(preset.name))
         .collect()
 }
+
+pub(crate) fn input_candidates(current: &OsStr) -> Vec<CompletionCandidate> {
+    let Some(prefix) = current.to_str() else {
+        return Vec::new();
+    };
+    if prefix.contains('=') {
+        return Vec::new();
+    }
+
+    let Ok(selected_names) = selected_input_names() else {
+        return Vec::new();
+    };
+
+    selected_names
+        .into_iter()
+        .map(|name| format!("{name}="))
+        .filter(|name| name.starts_with(prefix))
+        .map(CompletionCandidate::new)
+        .collect()
+}
+
+fn selected_input_names() -> anyhow::Result<Vec<String>> {
+    let mut arguments = std::env::args_os()
+        .skip(1)
+        .filter_map(|argument| argument.into_string().ok())
+        .collect::<Vec<_>>();
+    if let Some(separator) = arguments.iter().position(|argument| argument == "--") {
+        arguments.drain(..=separator);
+    }
+    if arguments
+        .first()
+        .is_some_and(|argument| argument == "inifra")
+    {
+        arguments.remove(0);
+    }
+
+    let Some(command) = arguments.first().map(String::as_str) else {
+        return Ok(Vec::new());
+    };
+    let command = if command == "preset" && arguments.get(1).is_some_and(|arg| arg == "save") {
+        "preset-save"
+    } else {
+        command
+    };
+    let mut template_ids = Vec::new();
+    let mut preset_name = None;
+    match command {
+        "generate" => template_ids.extend(arguments.get(1).cloned()),
+        "init" | "preset-save" => {
+            let mut index = if command == "init" { 1 } else { 2 };
+            while index < arguments.len() {
+                let argument = &arguments[index];
+                if argument == "--template" {
+                    if let Some(template) = arguments.get(index + 1) {
+                        template_ids.push(template.clone());
+                    }
+                    index += 2;
+                } else if let Some(template) = argument.strip_prefix("--template=") {
+                    template_ids.push(template.to_owned());
+                    index += 1;
+                } else if argument == "--preset" && command == "init" {
+                    preset_name = arguments.get(index + 1).cloned();
+                    index += 2;
+                } else if let Some(preset) = argument.strip_prefix("--preset=") {
+                    preset_name = Some(preset.to_owned());
+                    index += 1;
+                } else {
+                    index += 1;
+                }
+            }
+        }
+        _ => return Ok(Vec::new()),
+    }
+    if let Some(name) = preset_name
+        && let Ok(preset) = crate::presets::load(&name)
+    {
+        template_ids.extend(preset.templates);
+    }
+
+    let templates = crate::templates::discover()?;
+    let names = templates
+        .into_iter()
+        .filter(|template| template_ids.contains(&template.id))
+        .flat_map(|template| template.inputs)
+        .collect::<std::collections::BTreeSet<_>>();
+    Ok(names.into_iter().collect())
+}

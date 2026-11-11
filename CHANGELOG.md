@@ -12,6 +12,7 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 - Allow `INIFRA_CONFIG_DIR` to override the platform's user config directory.
 - Add a contributor guide starter and MIT and Apache-2.0 license templates.
 - Add agent, architecture, development, GitHub collaboration, and security policy starters.
+- Install dynamic completions for supported shells without editing startup files.
 
 ### Removed
 
@@ -31,8 +32,8 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 - Colorize CLI help, output, and errors while respecting terminal color settings.
 - Add an interactive template picker with rendered-file previews and write confirmation.
-- Generate shell completions for Bash, Elvish, Fish, PowerShell, and Zsh; install Fish
-  completions and complete template IDs and preset names dynamically.
+- Generate shell completions for Bash, Elvish, Fish, PowerShell, and Zsh; complete
+  template IDs, preset names, and shared input names dynamically.
 - Edit generated text files and user-local template packs with the configured editor.
 - Verify builds and CLI behavior across platforms, and add an installable Nix package.
 

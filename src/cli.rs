@@ -37,7 +37,11 @@ pub(crate) enum Command {
         #[arg(long)]
         edit: bool,
         /// Set a shared template input as KEY=VALUE (repeatable)
-        #[arg(long = "set", value_name = "KEY=VALUE")]
+        #[arg(
+            long = "set",
+            value_name = "KEY=VALUE",
+            add = ArgValueCompleter::new(crate::completions::input_candidates)
+        )]
         inputs: Vec<String>,
     },
     /// Initialize a project with one or more templates
@@ -71,7 +75,11 @@ pub(crate) enum Command {
         #[arg(long)]
         edit: bool,
         /// Set a shared template input as KEY=VALUE (repeatable)
-        #[arg(long = "set", value_name = "KEY=VALUE")]
+        #[arg(
+            long = "set",
+            value_name = "KEY=VALUE",
+            add = ArgValueCompleter::new(crate::completions::input_candidates)
+        )]
         inputs: Vec<String>,
     },
     /// List and save reusable template selections
@@ -90,9 +98,9 @@ pub(crate) enum Command {
         /// Shell to generate completions for
         #[arg(value_enum)]
         shell: clap_complete::Shell,
-        /// Install Fish completions in the user config directory
-        #[arg(long)]
-        apply: bool,
+        /// Install completions in the user config directory without editing shell startup files
+        #[arg(long, visible_alias = "apply")]
+        install: bool,
     },
 }
 
@@ -115,7 +123,11 @@ pub(crate) enum PresetCommand {
         )]
         templates: Vec<String>,
         /// Store a shared template input as KEY=VALUE (repeatable)
-        #[arg(long = "set", value_name = "KEY=VALUE")]
+        #[arg(
+            long = "set",
+            value_name = "KEY=VALUE",
+            add = ArgValueCompleter::new(crate::completions::input_candidates)
+        )]
         inputs: Vec<String>,
         /// Replace an existing preset
         #[arg(long)]
@@ -124,7 +136,10 @@ pub(crate) enum PresetCommand {
 }
 
 pub(crate) fn run() -> Result<()> {
-    clap_complete::CompleteEnv::with_factory(command).complete();
+    clap_complete::CompleteEnv::with_factory(command)
+        .bin("inifra")
+        .completer("inifra")
+        .complete();
     let cli = Cli::parse();
     match cli.command {
         Some(command) => crate::commands::run(command),
