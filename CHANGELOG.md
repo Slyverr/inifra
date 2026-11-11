@@ -14,6 +14,8 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Add a category-grouped inline template picker with a live source preview,
+  adaptive layout, category navigation, and alternatives for shared output paths.
 - Make the built-in changelog and EditorConfig templates more adaptable to
   projects with different release and formatting conventions.
 - Expand the README starter with common setup, usage, and support sections.
