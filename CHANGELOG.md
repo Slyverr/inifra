@@ -11,6 +11,11 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 - Allow `INIFRA_CONFIG_DIR` to override the platform's user config directory.
 - Add a contributor guide starter and MIT and Apache-2.0 license templates.
+- Add agent, architecture, development, GitHub collaboration, and security policy starters.
+
+### Removed
+
+- Remove the Rust `.gitignore` starter, which common project bootstrap tools already provide.
 
 ### Changed
 

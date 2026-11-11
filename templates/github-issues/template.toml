@@ -1,0 +1,12 @@
+schema_version = 1
+id = "github-issues"
+description = "GitHub bug report and feature request forms"
+category = "GitHub"
+
+[[files]]
+source = "bug-report.yml"
+output = ".github/ISSUE_TEMPLATE/bug-report.yml"
+
+[[files]]
+source = "feature-request.yml"
+output = ".github/ISSUE_TEMPLATE/feature-request.yml"

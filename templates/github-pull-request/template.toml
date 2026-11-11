@@ -1,0 +1,8 @@
+schema_version = 1
+id = "github-pull-request"
+description = "GitHub pull request description template"
+category = "GitHub"
+
+[[files]]
+source = "pull_request_template.md"
+output = ".github/pull_request_template.md"

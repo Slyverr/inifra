@@ -1,0 +1,9 @@
+schema_version = 1
+id = "docs-architecture"
+description = "Architecture documentation outline"
+category = "Project documentation"
+inputs = ["project_name"]
+
+[[files]]
+source = "architecture.md.j2"
+output = "docs/architecture.md"

@@ -19,3 +19,11 @@ required = true
 [inputs.copyright_holder]
 prompt = "Copyright holder"
 required = true
+
+[inputs.security_contact]
+prompt = "Private security reporting channel"
+required = true
+
+[inputs.supported_versions]
+prompt = "Versions receiving security fixes"
+required = true

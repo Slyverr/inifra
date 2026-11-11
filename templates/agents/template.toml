@@ -1,0 +1,9 @@
+schema_version = 1
+id = "agents"
+description = "Root instructions for coding agents"
+category = "Project guidance"
+inputs = ["project_name"]
+
+[[files]]
+source = "AGENTS.md.j2"
+output = "AGENTS.md"

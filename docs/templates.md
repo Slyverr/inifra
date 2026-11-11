@@ -10,10 +10,16 @@ The bundled catalog provides optional starters for common repository files:
 
 - `readme` creates a README outline with project name, optional description,
   and optional repository URL inputs.
+- `agents` creates concise root instructions for coding agents.
 - `contributing` creates contributor guidance and shares the project name input.
 - `changelog` creates an Unreleased section using Keep a Changelog's format.
 - `editorconfig` sets portable text encoding and newline defaults.
-- `gitignore-rust` ignores Rust build output.
+- `docs-architecture` and `docs-development` create outlines for documenting
+  verified architecture, setup, and development workflows.
+- `github-issues` creates GitHub bug-report and feature-request forms;
+  `github-pull-request` creates a pull request description template.
+- `security` creates a vulnerability reporting policy and asks for the private
+  reporting channel and supported versions.
 - `license-mit` and `license-apache` write a `LICENSE` file. Choose one;
   both use the same output path. The MIT template asks for a copyright year and
   holder, while Apache-2.0 copies the standard license text.

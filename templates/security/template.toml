@@ -1,0 +1,9 @@
+schema_version = 1
+id = "security"
+description = "Security reporting policy starter"
+category = "Legal & security"
+inputs = ["project_name", "supported_versions", "security_contact"]
+
+[[files]]
+source = "SECURITY.md.j2"
+output = "SECURITY.md"

@@ -1,8 +1,0 @@
-schema_version = 1
-id = "gitignore-rust"
-description = "Ignore Rust build output"
-category = "Repository setup"
-
-[[files]]
-source = ".gitignore"
-output = ".gitignore"

@@ -298,10 +298,15 @@ fn list_shows_bundled_templates_and_output_paths() {
     let listing = String::from_utf8_lossy(&output.stdout);
     assert!(listing.contains("changelog"));
     assert!(listing.contains("CHANGELOG.md"));
+    assert!(listing.contains("agents"));
+    assert!(listing.contains("docs-architecture"));
+    assert!(listing.contains("docs-development"));
+    assert!(listing.contains("github-issues"));
+    assert!(listing.contains("github-pull-request"));
+    assert!(listing.contains("security"));
     assert!(listing.contains("editorconfig"));
     assert!(listing.contains(".editorconfig"));
-    assert!(listing.contains("gitignore-rust"));
-    assert!(listing.contains(".gitignore"));
+    assert!(!listing.contains("gitignore"));
     assert!(listing.contains("contributing"));
     assert!(listing.contains("CONTRIBUTING.md"));
     assert!(listing.contains("license-mit"));
@@ -338,9 +343,9 @@ fn local_template_with_a_builtin_id_overrides_the_builtin() {
     let config = tempdir().expect("create isolated config directory");
     write_local_pack(
         config.path(),
-        "gitignore-rust",
-        "Custom ignore rules",
-        ".gitignore",
+        "editorconfig",
+        "Custom editor settings",
+        ".editorconfig",
         "custom\n",
     );
     let destination = tempdir().expect("create destination");
@@ -348,13 +353,13 @@ fn local_template_with_a_builtin_id_overrides_the_builtin() {
     let listing = run_cli_with_config(&["list"], config.path());
     assert!(listing.status.success());
     let listing = String::from_utf8_lossy(&listing.stdout);
-    assert!(listing.contains("Custom ignore rules [local]"));
-    assert!(!listing.contains("Basic Rust gitignore [built-in]"));
+    assert!(listing.contains("Custom editor settings [local]"));
+    assert!(!listing.contains("Portable editor formatting defaults [built-in]"));
 
     let output = run_cli_with_config(
         &[
             "generate",
-            "gitignore-rust",
+            "editorconfig",
             "--path",
             destination.path().to_str().expect("UTF-8 path"),
         ],
@@ -366,7 +371,7 @@ fn local_template_with_a_builtin_id_overrides_the_builtin() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert_eq!(
-        std::fs::read_to_string(destination.path().join(".gitignore")).unwrap(),
+        std::fs::read_to_string(destination.path().join(".editorconfig")).unwrap(),
         "custom\n"
     );
 }
@@ -675,7 +680,7 @@ fn templates_without_inputs_ignore_unrelated_project_manifest_errors() {
     let output = run_cli_with_config(
         &[
             "generate",
-            "gitignore-rust",
+            "editorconfig",
             "--path",
             destination.path().to_str().expect("UTF-8 path"),
         ],
@@ -687,7 +692,7 @@ fn templates_without_inputs_ignore_unrelated_project_manifest_errors() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(destination.path().join(".gitignore").is_file());
+    assert!(destination.path().join(".editorconfig").is_file());
 }
 
 #[test]
@@ -820,7 +825,7 @@ fn generate_writes_template_to_the_requested_directory() {
     let destination = tempdir().expect("create temporary directory");
     let output = run_cli(&[
         "generate",
-        "gitignore-rust",
+        "editorconfig",
         "--path",
         destination.path().to_str().expect("UTF-8 path"),
     ]);
@@ -832,8 +837,8 @@ fn generate_writes_template_to_the_requested_directory() {
     );
     assert!(String::from_utf8_lossy(&output.stdout).contains("Wrote 1 file"));
     assert_eq!(
-        std::fs::read_to_string(destination.path().join(".gitignore")).expect("read output"),
-        "/target/\n"
+        std::fs::read_to_string(destination.path().join(".editorconfig")).expect("read output"),
+        "root = true\n\n[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n"
     );
 }
 
@@ -913,9 +918,9 @@ fn init_generates_files_from_multiple_templates() {
         &[
             "init",
             "--template",
-            "editorconfig",
+            "changelog",
             "--template",
-            "gitignore-rust",
+            "editorconfig",
             "--path",
             destination.path().to_str().expect("UTF-8 path"),
         ],
@@ -928,7 +933,7 @@ fn init_generates_files_from_multiple_templates() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(destination.path().join(".editorconfig").is_file());
-    assert!(destination.path().join(".gitignore").is_file());
+    assert!(destination.path().join("CHANGELOG.md").is_file());
     assert!(String::from_utf8_lossy(&output.stdout).contains("Wrote 2 files"));
 }
 
@@ -937,9 +942,9 @@ fn init_detects_conflicting_outputs_before_writing_any_files() {
     let config = tempdir().expect("create isolated config directory");
     write_local_pack(
         config.path(),
-        "custom-ignore",
-        "Custom ignore rules",
-        ".gitignore",
+        "custom-editorconfig",
+        "Custom editor settings",
+        ".editorconfig",
         "custom\n",
     );
     let destination = tempdir().expect("create destination");
@@ -948,9 +953,9 @@ fn init_detects_conflicting_outputs_before_writing_any_files() {
         &[
             "init",
             "--template",
-            "gitignore-rust",
+            "editorconfig",
             "--template",
-            "custom-ignore",
+            "custom-editorconfig",
             "--path",
             destination.path().to_str().expect("UTF-8 path"),
         ],
@@ -959,7 +964,7 @@ fn init_detects_conflicting_outputs_before_writing_any_files() {
 
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("conflicting output paths"));
-    assert!(!destination.path().join(".gitignore").exists());
+    assert!(!destination.path().join(".editorconfig").exists());
 }
 
 #[test]
@@ -1046,12 +1051,12 @@ fn saved_presets_can_be_listed_and_applied_with_cli_overrides() {
 #[test]
 fn generate_skips_existing_files_by_default() {
     let destination = tempdir().expect("create temporary directory");
-    let output_path = destination.path().join(".gitignore");
+    let output_path = destination.path().join(".editorconfig");
     std::fs::write(&output_path, "keep this\n").expect("write existing file");
 
     let output = run_cli(&[
         "generate",
-        "gitignore-rust",
+        "editorconfig",
         "--path",
         destination.path().to_str().expect("UTF-8 path"),
     ]);
@@ -1071,12 +1076,12 @@ fn generate_skips_existing_files_by_default() {
 #[test]
 fn generate_overwrites_only_when_requested() {
     let destination = tempdir().expect("create temporary directory");
-    let output_path = destination.path().join(".gitignore");
+    let output_path = destination.path().join(".editorconfig");
     std::fs::write(&output_path, "old content\n").expect("write existing file");
 
     let output = run_cli(&[
         "generate",
-        "gitignore-rust",
+        "editorconfig",
         "--path",
         destination.path().to_str().expect("UTF-8 path"),
         "--overwrite",
@@ -1090,19 +1095,19 @@ fn generate_overwrites_only_when_requested() {
     assert!(String::from_utf8_lossy(&output.stdout).contains("replace"));
     assert_eq!(
         std::fs::read_to_string(output_path).expect("read output"),
-        "/target/\n"
+        "root = true\n\n[*]\ncharset = utf-8\nend_of_line = lf\ninsert_final_newline = true\n"
     );
 }
 
 #[test]
 fn generate_dry_run_previews_replacement_without_changing_the_file() {
     let destination = tempdir().expect("create temporary directory");
-    let output_path = destination.path().join(".gitignore");
+    let output_path = destination.path().join(".editorconfig");
     std::fs::write(&output_path, "old content\n").expect("write existing file");
 
     let output = run_cli(&[
         "generate",
-        "gitignore-rust",
+        "editorconfig",
         "--path",
         destination.path().to_str().expect("UTF-8 path"),
         "--overwrite",
@@ -1135,7 +1140,7 @@ fn generate_reports_unknown_template_ids_without_creating_the_destination() {
     assert!(!output.status.success());
     let error = String::from_utf8_lossy(&output.stderr);
     assert!(error.contains("unknown template"));
-    assert!(error.contains("gitignore-rust"));
+    assert!(error.contains("editorconfig"));
     assert!(!destination.exists());
 }
 
@@ -1148,11 +1153,11 @@ fn generate_refuses_to_replace_a_symlink() {
     let outside = tempdir().expect("create outside directory");
     let outside_file = outside.path().join("outside.txt");
     std::fs::write(&outside_file, "keep this\n").expect("write outside file");
-    symlink(&outside_file, destination.path().join(".gitignore")).expect("create symlink");
+    symlink(&outside_file, destination.path().join(".editorconfig")).expect("create symlink");
 
     let output = run_cli(&[
         "generate",
-        "gitignore-rust",
+        "editorconfig",
         "--path",
         destination.path().to_str().expect("UTF-8 path"),
         "--overwrite",

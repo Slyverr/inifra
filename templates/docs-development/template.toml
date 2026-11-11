@@ -1,0 +1,9 @@
+schema_version = 1
+id = "docs-development"
+description = "Local development documentation outline"
+category = "Project documentation"
+inputs = ["project_name"]
+
+[[files]]
+source = "development.md.j2"
+output = "docs/development.md"

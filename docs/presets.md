@@ -10,7 +10,7 @@ Save, list, and apply a preset:
 inifra preset save rust-cli \
   --description "Rust command-line project" \
   --template readme \
-  --template gitignore-rust \
+  --template editorconfig \
   --set project_name=rust-cli
 
 inifra preset list
@@ -28,7 +28,7 @@ Preset files use this versioned TOML format:
 schema_version = 1
 name = "rust-cli"
 description = "Rust command-line project"
-templates = ["readme", "gitignore-rust"]
+templates = ["readme", "editorconfig"]
 
 [values]
 project_name = "rust-cli"

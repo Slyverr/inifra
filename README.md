@@ -42,8 +42,8 @@ cargo run --locked -- list
 Preview a template, then generate it in the current directory:
 
 ```sh
-cargo run --locked -- generate gitignore-rust --dry-run
-cargo run --locked -- generate gitignore-rust
+cargo run --locked -- generate editorconfig --dry-run
+cargo run --locked -- generate editorconfig
 ```
 
 Set up a project with multiple templates using `init`:
