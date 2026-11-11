@@ -23,6 +23,7 @@ anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 clap_complete = { version = "4", features = ["unstable-dynamic"] }
 console = "0.16"
+crossterm = "0.29"
 dirs = "6"
 dialoguer = "0.12"
 minijinja = "2.24"
@@ -31,3 +32,4 @@ serde_json = "1"
 shlex = "2"
 toml = "0.8"
 tempfile = "3"
+unicode-width = "0.2"
