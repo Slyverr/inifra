@@ -35,5 +35,6 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo run --locked -- --help
       - run: cargo run --locked -- list
+      - run: cargo run --locked -- validate
       - if: matrix.os == 'ubuntu-latest' && matrix.toolchain == 'stable'
         run: cargo package --locked
