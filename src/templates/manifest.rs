@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::path::{Component, Path};
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -90,8 +89,8 @@ fn validate(manifest: &Manifest) -> Result<()> {
 
     let mut output_paths = Vec::with_capacity(manifest.files.len());
     for file in &manifest.files {
-        validate_relative_path("source", &file.source)?;
-        let output = validate_relative_path("output", &file.output)?;
+        crate::paths::template_relative_path("source", &file.source)?;
+        let output = crate::paths::template_relative_path("output", &file.output)?;
         if output_paths.iter().any(|existing: &std::path::PathBuf| {
             existing.starts_with(&output) || output.starts_with(existing)
         }) {
@@ -118,21 +117,6 @@ pub(super) fn validate_id(id: &str) -> Result<()> {
         bail!("template ID must use lower-case letters, digits, and hyphens: {id:?}");
     }
     Ok(())
-}
-
-fn validate_relative_path(label: &str, value: &str) -> Result<std::path::PathBuf> {
-    let path = Path::new(value);
-    if has_control_characters(value)
-        || path.as_os_str().is_empty()
-        || path
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_)))
-    {
-        bail!(
-            "template {label} path must be a non-empty relative path without traversal: {value:?}"
-        );
-    }
-    Ok(path.to_path_buf())
 }
 
 fn has_control_characters(value: &str) -> bool {

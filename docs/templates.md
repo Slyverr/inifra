@@ -125,11 +125,11 @@ output = "docs/NOTES.md"
 
 `id` uses lowercase letters, digits, and hyphens. `description` must not be
 empty. `category` is optional grouping metadata. Descriptions, categories, and
-source and output paths must not contain control characters, so template data
-can be displayed safely in a terminal. Add one `[[files]]` entry for each
-output. `source` is relative to the pack directory; `output` is relative to the
-destination project directory. Both paths must be safe relative paths. Outputs
-may not overlap or conflict.
+source and output paths must not contain control characters. Paths must use
+forward slashes and cannot contain backslashes or colons, so validation is
+consistent across platforms. Add one `[[files]]` entry for each output.
+`source` is relative to the pack directory; `output` is relative to the
+destination project directory. Outputs may not overlap or conflict.
 
 Sources ending in `.j2` are rendered as MiniJinja text before writing. Undefined
 values and invalid template syntax are errors, and the source's final newline

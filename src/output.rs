@@ -112,15 +112,10 @@ fn resolve_destination(destination: &Path) -> Result<PathBuf> {
 }
 
 fn validate_relative_path(path: &Path) -> Result<PathBuf> {
-    if path.as_os_str().is_empty()
-        || path.to_string_lossy().contains('\0')
-        || path
-            .components()
-            .any(|component| !matches!(component, Component::Normal(_)))
-    {
-        bail!("refusing unsafe template output path: {}", path.display());
-    }
-    Ok(path.to_path_buf())
+    let value = path
+        .to_str()
+        .context("template output path is not valid UTF-8")?;
+    crate::paths::template_relative_path("output", value)
 }
 
 fn ensure_safe_parent(root: &Path, target: &Path) -> Result<()> {

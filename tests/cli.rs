@@ -800,6 +800,34 @@ fn malformed_local_manifests_report_an_error() {
 }
 
 #[test]
+fn validate_rejects_non_portable_template_paths_on_every_platform() {
+    for (id, output_path) in [
+        ("backslash-path", r"nested\..\outside.md"),
+        ("drive-path", "C:/outside.md"),
+        ("alternate-stream", "README.md:metadata"),
+    ] {
+        let config = tempdir().expect("create isolated config directory");
+        write_local_pack(config.path(), id, "Path validation", output_path, "Notes\n");
+        let manifest_path = templates_root(config.path()).join(id).join("template.toml");
+        let manifest = std::fs::read_to_string(manifest_path).expect("read generated manifest");
+
+        let output = run_cli_with_config(&["validate", id], config.path());
+
+        assert!(
+            !output.status.success(),
+            "accepted path {output_path:?} from manifest {manifest:?}; stdout: {}; stderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("forward slashes"),
+            "unexpected error for {output_path:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
 fn list_rejects_terminal_control_characters_in_template_metadata() {
     let config = tempdir().expect("create isolated config directory");
     let pack = templates_root(config.path()).join("unsafe-description");
