@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-11-12
+
 ### Fixed
 
 - Reject control characters in template descriptions, categories, and file paths.
