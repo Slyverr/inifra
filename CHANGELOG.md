@@ -7,6 +7,10 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Filter picker templates by ID, description, category, or output path.
+
 ## [0.5.0] - 2026-11-12
 
 ### Added

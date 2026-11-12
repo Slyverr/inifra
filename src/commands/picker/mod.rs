@@ -27,6 +27,8 @@ pub(super) mod text {
     pub const CHOOSE_TEMPLATE: &str = "choose a template";
     pub const SELECTED_SUFFIX: &str = " selected";
     pub const NO_TEMPLATES: &str = "no templates are available";
+    pub const NO_MATCHES: &str = "No templates match this filter";
+    pub const FILTER_PROMPT: &str = "Filter: ";
     pub const NOTHING_SELECTED: &str = "Select at least one template before continuing.";
     pub const OUTPUT_CONFLICT_NOTICE: &str = " both write ";
     pub const CONFLICT_NOTICE_SUFFIX: &str = "; deselect one before continuing";
@@ -59,7 +61,8 @@ pub(super) mod text {
     pub const ALTERNATIVE_SUFFIX: &str = " ›";
     pub const ALTERNATIVE_SEPARATOR: &str = "  ·  ";
     pub const FOOTER_VARIANT: (&str, &str) = ("←/→ h/l", " cycle · ");
-    pub const FOOTER_SINGLE: [(&str, &str); 6] = [
+    pub const FOOTER_SINGLE: [(&str, &str); 7] = [
+        ("/", " filter · "),
         ("↑/↓ j/k", " move · "),
         ("Space", " toggle · "),
         ("Tab/⇧Tab", " group · "),
@@ -67,7 +70,8 @@ pub(super) mod text {
         ("Enter", " next · "),
         ("Esc", " cancel"),
     ];
-    pub const FOOTER_MULTI: [(&str, &str); 7] = [
+    pub const FOOTER_MULTI: [(&str, &str); 8] = [
+        ("/", " filter · "),
         ("↑/↓ j/k", " move · "),
         ("Space", " toggle · "),
         ("a", " toggle group · "),
@@ -76,6 +80,14 @@ pub(super) mod text {
         ("Enter", " next · "),
         ("Esc", " cancel"),
     ];
+    pub const FOOTER_SEARCH: [(&str, &str); 5] = [
+        ("↑/↓", " move · "),
+        ("Text", " filter · "),
+        ("Backspace", " delete · "),
+        ("Enter", " next · "),
+        ("Esc", " finish filter"),
+    ];
+    pub const FOOTER_CLEAR_FILTER: (&str, &str) = ("Esc", " clear filter");
 }
 
 const DEFAULT_SELECTED_TEMPLATE_IDS: &[&str] = &["readme"];
@@ -207,11 +219,14 @@ pub(super) fn choose(catalog: &[Template]) -> Result<Option<Vec<String>>> {
         preview_scroll: 0,
         multiple: true,
         notice: None,
+        query: String::new(),
+        search_mode: false,
     };
     let session = TerminalSession::enter()?;
 
     loop {
-        picker.draw(&templates, &rows, &session)?;
+        let visible_rows = picker.visible_rows(&templates, &rows);
+        picker.draw(&templates, &rows, &visible_rows, &session)?;
         let Event::Key(key) = event::read()? else {
             continue;
         };
@@ -222,23 +237,45 @@ pub(super) fn choose(catalog: &[Template]) -> Result<Option<Vec<String>>> {
             return Ok(None);
         }
         match key.code {
-            KeyCode::Up | KeyCode::Char('k') => picker.move_up(),
-            KeyCode::Down | KeyCode::Char('j') => picker.move_down(rows.len()),
-            KeyCode::Left | KeyCode::Char('h') => picker.move_variant(&templates, &rows, true),
-            KeyCode::Right | KeyCode::Char('l') => picker.move_variant(&templates, &rows, false),
-            KeyCode::Tab => picker.move_category(&rows, false),
-            KeyCode::BackTab => picker.move_category(&rows, true),
+            KeyCode::Char('/') if !picker.search_mode => picker.search_mode = true,
+            KeyCode::Char(character) if picker.search_mode => {
+                picker.query.push(character);
+                picker.update_search(&templates, &rows);
+            }
+            KeyCode::Backspace if picker.search_mode => {
+                picker.query.pop();
+                picker.update_search(&templates, &rows);
+            }
+            KeyCode::Up | KeyCode::Char('k') if !visible_rows.is_empty() => {
+                picker.move_up(&visible_rows)
+            }
+            KeyCode::Down | KeyCode::Char('j') if !visible_rows.is_empty() => {
+                picker.move_down(&visible_rows)
+            }
+            KeyCode::Left | KeyCode::Char('h') if !visible_rows.is_empty() => {
+                picker.move_variant(&templates, &rows, true)
+            }
+            KeyCode::Right | KeyCode::Char('l') if !visible_rows.is_empty() => {
+                picker.move_variant(&templates, &rows, false)
+            }
+            KeyCode::Tab => picker.move_category(&rows, &visible_rows, false),
+            KeyCode::BackTab => picker.move_category(&rows, &visible_rows, true),
             KeyCode::Char(key) if key.to_ascii_lowercase() == text::CATEGORY_TOGGLE_KEY => {
-                picker.toggle_category(&templates, &rows)
+                picker.toggle_category(&templates, &rows, &visible_rows)
             }
             KeyCode::PageUp => picker.scroll_preview_up(layout::PREVIEW_SCROLL_ROWS),
             KeyCode::PageDown => picker.scroll_preview_down(layout::PREVIEW_SCROLL_ROWS),
-            KeyCode::Char(' ') => picker.toggle_current(&templates, &rows),
+            KeyCode::Char(' ') if !picker.search_mode && !visible_rows.is_empty() => {
+                picker.toggle_current(&templates, &rows)
+            }
             KeyCode::Enter => {
+                picker.search_mode = false;
                 if let Some(selected) = picker.confirm(&templates) {
                     return Ok(Some(selected));
                 }
             }
+            KeyCode::Esc if picker.search_mode => picker.search_mode = false,
+            KeyCode::Esc if !picker.query.is_empty() => picker.clear_search(&templates, &rows),
             KeyCode::Esc => return Ok(None),
             _ => {}
         }

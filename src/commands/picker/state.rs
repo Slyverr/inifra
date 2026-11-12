@@ -5,6 +5,7 @@ use std::path::Path;
 pub(super) enum PickerEntry<'a> {
     Category(&'a str),
     Blank,
+    NoResults,
     Template(usize, &'a TemplateRow),
 }
 
@@ -20,25 +21,45 @@ pub(super) struct Picker {
     pub(super) preview_scroll: usize,
     pub(super) multiple: bool,
     pub(super) notice: Option<String>,
+    pub(super) query: String,
+    pub(super) search_mode: bool,
 }
 
 impl Picker {
-    pub(super) fn move_up(&mut self) {
-        self.cursor = self.cursor.saturating_sub(1);
+    pub(super) fn move_up(&mut self, visible_rows: &[usize]) {
+        let Some(position) = visible_rows.iter().position(|row| *row == self.cursor) else {
+            return;
+        };
+        self.cursor = visible_rows[position.saturating_sub(1)];
         self.preview_scroll = 0;
         self.notice = None;
     }
 
-    pub(super) fn move_down(&mut self, count: usize) {
-        self.cursor = (self.cursor + 1).min(count.saturating_sub(1));
+    pub(super) fn move_down(&mut self, visible_rows: &[usize]) {
+        let Some(position) = visible_rows.iter().position(|row| *row == self.cursor) else {
+            return;
+        };
+        self.cursor = visible_rows[(position + 1).min(visible_rows.len().saturating_sub(1))];
         self.preview_scroll = 0;
         self.notice = None;
     }
 
-    pub(super) fn move_category(&mut self, rows: &[TemplateRow], backward: bool) {
-        let starts = category_starts(rows);
+    pub(super) fn move_category(
+        &mut self,
+        rows: &[TemplateRow],
+        visible_rows: &[usize],
+        backward: bool,
+    ) {
+        let starts = category_starts(rows, visible_rows);
+        if starts.is_empty() {
+            return;
+        }
+        let position = visible_rows
+            .iter()
+            .position(|row| *row == self.cursor)
+            .unwrap_or_default();
         let current_group = starts
-            .partition_point(|start| *start <= self.cursor)
+            .partition_point(|start| *start <= position)
             .saturating_sub(1);
         let target_group = if backward {
             current_group.checked_sub(1)
@@ -46,7 +67,7 @@ impl Picker {
             (current_group + 1 < starts.len()).then_some(current_group + 1)
         };
         if let Some(target_group) = target_group {
-            self.cursor = starts[target_group];
+            self.cursor = visible_rows[starts[target_group]];
             self.preview_scroll = 0;
             self.notice = None;
         }
@@ -91,26 +112,46 @@ impl Picker {
         self.notice = None;
     }
 
-    pub(super) fn toggle_category(&mut self, templates: &[&Template], rows: &[TemplateRow]) {
+    pub(super) fn toggle_category(
+        &mut self,
+        templates: &[&Template],
+        rows: &[TemplateRow],
+        visible_rows: &[usize],
+    ) {
         if !self.multiple {
             return;
         }
-        let starts = category_starts(rows);
+        let starts = category_starts(rows, visible_rows);
+        if starts.is_empty() {
+            return;
+        }
+        let position = visible_rows
+            .iter()
+            .position(|row| *row == self.cursor)
+            .unwrap_or_default();
         let current_group = starts
-            .partition_point(|start| *start <= self.cursor)
+            .partition_point(|start| *start <= position)
             .saturating_sub(1);
         let start = starts[current_group];
-        let end = starts.get(current_group + 1).copied().unwrap_or(rows.len());
-        let select_group = rows[start..end]
-            .iter()
-            .any(|row| !row.alternatives.iter().any(|index| self.selected[*index]));
+        let end = starts
+            .get(current_group + 1)
+            .copied()
+            .unwrap_or(visible_rows.len());
+        let group_rows = &visible_rows[start..end];
+        let select_group = group_rows.iter().any(|row| {
+            !rows[*row]
+                .alternatives
+                .iter()
+                .any(|index| self.selected[*index])
+        });
         let mut selection = self.selected.clone();
-        for (offset, row) in rows[start..end].iter().enumerate() {
+        for row_index in group_rows {
+            let row = &rows[*row_index];
             for index in &row.alternatives {
                 selection[*index] = false;
             }
             if select_group {
-                selection[self.choices[start + offset]] = true;
+                selection[self.choices[*row_index]] = true;
             }
         }
         if select_group && let Some(conflict) = find_selection_conflict(templates, &selection) {
@@ -119,6 +160,44 @@ impl Picker {
         }
         self.selected = selection;
         self.notice = None;
+    }
+
+    pub(super) fn visible_rows(&self, templates: &[&Template], rows: &[TemplateRow]) -> Vec<usize> {
+        if self.query.trim().is_empty() {
+            return (0..rows.len()).collect();
+        }
+
+        let terms = self
+            .query
+            .split_whitespace()
+            .map(str::to_lowercase)
+            .collect::<Vec<_>>();
+        rows.iter()
+            .enumerate()
+            .filter(|(_, row)| {
+                row.alternatives
+                    .iter()
+                    .any(|index| template_matches_query(templates[*index], &row.category, &terms))
+            })
+            .map(|(index, _)| index)
+            .collect()
+    }
+
+    pub(super) fn update_search(&mut self, templates: &[&Template], rows: &[TemplateRow]) {
+        let visible_rows = self.visible_rows(templates, rows);
+        if !visible_rows.contains(&self.cursor)
+            && let Some(first) = visible_rows.first()
+        {
+            self.cursor = *first;
+            self.preview_scroll = 0;
+        }
+        self.notice = None;
+    }
+
+    pub(super) fn clear_search(&mut self, templates: &[&Template], rows: &[TemplateRow]) {
+        self.query.clear();
+        self.search_mode = false;
+        self.update_search(templates, rows);
     }
 
     pub(super) fn scroll_preview_up(&mut self, amount: usize) {
@@ -213,17 +292,35 @@ fn same_output_paths(left: &Template, right: &Template) -> bool {
         })
 }
 
-pub(super) fn category_starts(rows: &[TemplateRow]) -> Vec<usize> {
+pub(super) fn category_starts(rows: &[TemplateRow], visible_rows: &[usize]) -> Vec<usize> {
     let mut starts = Vec::new();
     let mut previous = None;
-    for (index, row) in rows.iter().enumerate() {
-        let category = row.category.as_str();
+    for (position, index) in visible_rows.iter().enumerate() {
+        let category = rows[*index].category.as_str();
         if previous != Some(category) {
-            starts.push(index);
+            starts.push(position);
             previous = Some(category);
         }
     }
     starts
+}
+
+fn template_matches_query(template: &Template, category: &str, terms: &[String]) -> bool {
+    let id = template.id.to_lowercase();
+    let description = template.description.to_lowercase();
+    let category = category.to_lowercase();
+    let paths = template
+        .files
+        .iter()
+        .map(|file| file.path.to_string_lossy().to_lowercase())
+        .collect::<Vec<_>>();
+
+    terms.iter().all(|term| {
+        id.contains(term)
+            || description.contains(term)
+            || category.contains(term)
+            || paths.iter().any(|path| path.contains(term))
+    })
 }
 
 struct SelectionConflict<'a> {
@@ -333,6 +430,8 @@ mod tests {
             preview_scroll: 0,
             multiple: true,
             notice: None,
+            query: String::new(),
+            search_mode: false,
         };
 
         picker.move_variant(&references, &rows, false);
@@ -356,6 +455,8 @@ mod tests {
             preview_scroll: 0,
             multiple: true,
             notice: None,
+            query: String::new(),
+            search_mode: false,
         };
 
         picker.toggle_current(&references, &rows);
@@ -367,5 +468,89 @@ mod tests {
                 .as_deref()
                 .is_some_and(|notice| notice.contains("README.md"))
         );
+    }
+
+    #[test]
+    fn search_matches_ids_descriptions_categories_and_output_paths() {
+        let mut templates = [
+            template("agents-notes", "Guidance", &["AGENTS.md"]),
+            template("agents-security", "Guidance", &["SECURITY.md"]),
+            template("release-guide", "Workflow", &["docs/release.md"]),
+        ];
+        templates[2].description = "Release workflow instructions".to_owned();
+        let references = templates.iter().collect::<Vec<_>>();
+        let rows = template_rows(&references);
+        let mut picker = new_picker(rows.len());
+
+        picker.query = "AGENTS".to_owned();
+        assert_eq!(picker.visible_rows(&references, &rows), [0, 1]);
+        picker.query = "workflow".to_owned();
+        assert_eq!(picker.visible_rows(&references, &rows), [2]);
+        picker.query = "docs/release.md".to_owned();
+        assert_eq!(picker.visible_rows(&references, &rows), [2]);
+    }
+
+    #[test]
+    fn filtering_keeps_hidden_selections_and_navigates_visible_rows() {
+        let templates = [
+            template("agents-notes", "Guidance", &["AGENTS.md"]),
+            template("agents-security", "Guidance", &["SECURITY.md"]),
+            template("readme", "Project", &["README.md"]),
+        ];
+        let references = templates.iter().collect::<Vec<_>>();
+        let rows = template_rows(&references);
+        let mut picker = new_picker(rows.len());
+        picker.selected[2] = true;
+        picker.query = "agents".to_owned();
+        picker.update_search(&references, &rows);
+
+        let visible = picker.visible_rows(&references, &rows);
+        assert_eq!(visible, [0, 1]);
+        assert_eq!(picker.cursor, 0);
+        assert_eq!(picker.selected, [false, false, true]);
+
+        picker.move_down(&visible);
+        assert_eq!(picker.cursor, 1);
+        picker.move_up(&visible);
+        assert_eq!(picker.cursor, 0);
+
+        picker.clear_search(&references, &rows);
+        assert_eq!(picker.visible_rows(&references, &rows), [0, 1, 2]);
+        assert_eq!(picker.selected, [false, false, true]);
+    }
+
+    #[test]
+    fn toggling_a_filtered_category_changes_only_visible_templates() {
+        let templates = [
+            template("agents-root", "Guidance", &["AGENTS.md"]),
+            template("agents-security", "Guidance", &["SECURITY.md"]),
+            template("readme", "Project", &["README.md"]),
+        ];
+        let references = templates.iter().collect::<Vec<_>>();
+        let rows = template_rows(&references);
+        let mut picker = new_picker(rows.len());
+        picker.selected[1] = true;
+        picker.query = "agents-root".to_owned();
+        picker.update_search(&references, &rows);
+
+        let visible = picker.visible_rows(&references, &rows);
+        picker.toggle_category(&references, &rows, &visible);
+        assert_eq!(picker.selected, [true, true, false]);
+
+        picker.toggle_category(&references, &rows, &visible);
+        assert_eq!(picker.selected, [false, true, false]);
+    }
+
+    fn new_picker(row_count: usize) -> Picker {
+        Picker {
+            selected: vec![false; row_count],
+            choices: (0..row_count).collect(),
+            cursor: 0,
+            preview_scroll: 0,
+            multiple: true,
+            notice: None,
+            query: String::new(),
+            search_mode: false,
+        }
     }
 }

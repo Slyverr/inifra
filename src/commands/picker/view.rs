@@ -14,9 +14,10 @@ impl Picker {
         &mut self,
         templates: &[&Template],
         rows: &[TemplateRow],
+        visible_rows: &[usize],
         session: &TerminalSession,
     ) -> Result<()> {
-        let entries = picker_entries(rows);
+        let entries = picker_entries(rows, visible_rows);
         let cursor_row = entries
             .iter()
             .position(
@@ -142,6 +143,23 @@ impl Picker {
         write!(stdout, "{}", truncate(&title, width))?;
         reset_style(&mut stdout, colors)?;
 
+        if (self.search_mode || !self.query.is_empty()) && height > 1 {
+            queue!(
+                stdout,
+                cursor::MoveTo(0, terminal_row(top + 1)),
+                Clear(ClearType::CurrentLine)
+            )?;
+            set_style(&mut stdout, colors, palette::MUTED_HEADING)?;
+            write!(
+                stdout,
+                "{}{}{}",
+                text::FILTER_PROMPT,
+                self.query.escape_debug(),
+                if self.search_mode { "▏" } else { "" }
+            )?;
+            reset_style(&mut stdout, colors)?;
+        }
+
         for (offset, entry) in entries.iter().take(end).skip(start).enumerate() {
             let y = list_top + offset;
             match entry {
@@ -161,6 +179,21 @@ impl Picker {
                         cursor::MoveTo(terminal_row(list_x), terminal_row(y)),
                         Clear(ClearType::CurrentLine)
                     )?;
+                }
+                PickerEntry::NoResults => {
+                    queue!(
+                        stdout,
+                        cursor::MoveTo(terminal_row(list_x), terminal_row(y)),
+                        Clear(ClearType::CurrentLine)
+                    )?;
+                    set_style(&mut stdout, colors, palette::MUTED_HEADING)?;
+                    write!(
+                        stdout,
+                        "{}{}",
+                        text::INDENT,
+                        truncate(text::NO_MATCHES, list_width.saturating_sub(2))
+                    )?;
+                    reset_style(&mut stdout, colors)?;
                 }
                 PickerEntry::Template(index, row) => {
                     queue!(
@@ -272,13 +305,21 @@ impl Picker {
             write!(stdout, "{}", truncate(notice, width))?;
         } else {
             let mut remaining = width;
-            let mut footer = if self.multiple {
+            let mut footer = if self.search_mode {
+                text::FOOTER_SEARCH.to_vec()
+            } else if self.multiple {
                 text::FOOTER_MULTI.to_vec()
             } else {
                 text::FOOTER_SINGLE.to_vec()
             };
-            if rows[self.cursor].alternatives.len() > 1 {
+            if !self.search_mode && rows[self.cursor].alternatives.len() > 1 {
                 footer.insert(1, text::FOOTER_VARIANT);
+            }
+            if !self.search_mode
+                && !self.query.is_empty()
+                && let Some(last) = footer.last_mut()
+            {
+                *last = text::FOOTER_CLEAR_FILTER;
             }
             for (key, hint) in &footer {
                 set_style(&mut stdout, colors, palette::FOOTER_KEY)?;
@@ -306,16 +347,20 @@ impl Picker {
     }
 }
 
-fn picker_entries(rows: &[TemplateRow]) -> Vec<PickerEntry<'_>> {
+fn picker_entries<'a>(rows: &'a [TemplateRow], visible_rows: &[usize]) -> Vec<PickerEntry<'a>> {
+    if visible_rows.is_empty() {
+        return vec![PickerEntry::NoResults];
+    }
     let mut groups: Vec<(&str, Vec<(usize, &TemplateRow)>)> = Vec::new();
-    for (index, row) in rows.iter().enumerate() {
+    for index in visible_rows {
+        let row = &rows[*index];
         if let Some((_, group)) = groups
             .iter_mut()
             .find(|(category, _)| *category == row.category)
         {
-            group.push((index, row));
+            group.push((*index, row));
         } else {
-            groups.push((&row.category, vec![(index, row)]));
+            groups.push((&row.category, vec![(*index, row)]));
         }
     }
 
