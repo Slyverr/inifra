@@ -48,6 +48,44 @@ Store project-specific packs and shared input definitions in the repository:
 └── templates/<template-id>/
 ```
 
+### Git sources
+
+Use a Git source when several projects or teams share template packs. The
+project records the source URL and a resolved commit ID in
+`.inifra/sources.toml`; the cache stays in Inifra's user configuration. Add a
+source from its default branch or a chosen ref:
+
+```sh
+inifra source add team https://github.com/example/project-templates.git --revision main
+```
+
+The command fetches and validates the source, then records the immutable commit
+ID. A pack with ID `agents` is selected as `team/agents`. The repository should
+store packs under `templates/<template-id>/` by default; use `--directory` to
+select another pack directory. Source names and template IDs use lowercase
+letters, digits, and hyphens.
+
+After checking out a project that declares sources, fetch its pinned content
+with:
+
+```sh
+inifra source sync --path .
+```
+
+`list`, `validate`, `init`, and `generate` use the cached pinned commit and do
+not fetch or update sources implicitly. `inifra source update NAME --revision
+REF` resolves a new ref and changes the project's pin. `inifra source remove
+NAME` removes the declaration; cached data is left in the user config. Git is
+required for adding, updating, or syncing sources.
+
+Remote packs use the same manifest and validation rules as local packs. Inifra
+reads Git objects directly, rejects symlinks and non-file entries, and never
+executes repository content. Do not put passwords or tokens in source URLs;
+use Git's configured authentication. Remote packs are read-only in
+`inifra edit`. To customize one, copy its files into a local pack under
+`.inifra/templates/<local-template-id>/` and edit that copy; it appears under
+the local ID while the remote version keeps its `SOURCE/TEMPLATE_ID` ID.
+
 Use `inifra list --path PROJECT` to inspect the effective catalog. `init`,
 `generate`, and `validate --path PROJECT` include project packs for their
 selected destination; `edit TEMPLATE_ID --path PROJECT` opens or creates a
@@ -117,11 +155,11 @@ any files are written. License templates share the `copyright_year` and
 ## Discovery and overrides
 
 `inifra list` shows bundled and user-local templates. Pass `--path PROJECT` to
-include that project's packs. A project-local pack replaces a user-local pack
-with the same ID, and a user-local pack replaces a bundled pack. Thus the
-precedence is project-local, user-local, then built-in. IDs must be unique
-within each template collection; the winning source is shown in the listing
-and picker preview.
+include that project's packs and declared Git sources. A project-local pack
+replaces a user-local pack with the same ID, and a user-local pack replaces a
+bundled pack. Thus the precedence is project-local, user-local, then built-in.
+Remote IDs are namespaced by source and do not shadow local IDs. The winning
+source is shown in the listing and picker preview.
 
 Pack directories may contain regular files and directories. Symlinks and
 special files are rejected to keep template reads within the user's pack.

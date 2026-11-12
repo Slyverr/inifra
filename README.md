@@ -25,6 +25,11 @@ config or shared with a project under `.inifra/`. See
 [template packs](docs/templates.md) for discovery and precedence rules, and
 [presets](docs/presets.md) for saving reusable selections.
 
+Projects can also pin shared template packs from a Git repository. Run
+`inifra source add NAME URL --revision REF` to add and fetch a source, then use
+its templates as `NAME/TEMPLATE_ID`. Git is required for adding or syncing
+sources; generation uses the cached pinned revision offline.
+
 Inifra also supports dynamic completions for Bash, Elvish, Fish, PowerShell,
 and Zsh. Run `inifra completions SHELL --install` to install them without
 changing shell startup files.
