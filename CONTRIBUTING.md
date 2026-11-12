@@ -55,11 +55,30 @@ Record notable user-facing changes in `CHANGELOG.md` under `Unreleased`,
 grouped as `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`
 as needed. Curate entries for users; do not copy the commit log.
 
-For a release, move entries to `## [X.Y.Z] - YYYY-MM-DD`, add a fresh
-`Unreleased` section, and keep the Cargo package version, changelog, and Git
-tag aligned. Regenerate `Cargo.lock` with Cargo, then run the development
-checks above and `cargo package --locked`. Use `chore(release): prepare vX.Y.Z`
-for the release-preparation commit.
+Prepare a release in the final change commit for that release. Move changelog
+entries to `## [X.Y.Z] - YYYY-MM-DD`, add a fresh `Unreleased` section, update
+the package version in `Cargo.toml`, regenerate `Cargo.lock` with Cargo, and
+update the README install tag. Keep that commit focused on the final feature or
+fix; do not add a separate release-only commit. Its subject should describe the
+actual change.
+
+Before tagging, run the development checks above and `cargo package --locked`
+on `develop`. Create a signed annotated tag directly on the final change
+commit in the `develop` worktree. Then fast-forward `main` from the `main`
+worktree and push both branches and the tag:
+
+```sh
+# In the develop worktree
+git tag -s vX.Y.Z -m "Inifra vX.Y.Z" develop
+
+# In the main worktree
+git merge --ff-only develop
+git push origin develop main vX.Y.Z
+```
+
+Wait for tag CI to pass before publishing the GitHub release. Use the matching
+changelog entry for its notes. CI verifies that the tag points to the commit
+being checked and that its package, lockfile, and changelog versions agree.
 
 ## Commit conventions
 

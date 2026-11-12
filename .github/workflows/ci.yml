@@ -29,6 +29,19 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
           components: clippy, rustfmt
+      - name: Fetch annotated release tag
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'ubuntu-latest' && matrix.toolchain == 'stable'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: git fetch --force --no-tags origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+      - name: Verify release metadata
+        if: startsWith(github.ref, 'refs/tags/v') && matrix.os == 'ubuntu-latest' && matrix.toolchain == 'stable'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: bash scripts/check-release-metadata.sh "$RELEASE_TAG" "$RELEASE_COMMIT"
       - run: cargo fmt --all -- --check
       - run: cargo check --locked
       - run: cargo test --locked
