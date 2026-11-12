@@ -88,7 +88,9 @@ fn update(project: &Path, name: &str, revision: &str) -> Result<()> {
         .sources
         .get(name)
         .with_context(|| format!("unknown project template source {name:?}"))?;
+    let previous = current.clone();
     let source = templates::fetch_source(name, &current.url, revision, &current.directory)?;
+    let changes = templates::compare_cached_templates(name, &previous, &source)?;
     registry.sources.insert(name.to_owned(), source.clone());
     templates::write_project_registry(project, &registry)?;
     println!(
@@ -96,7 +98,28 @@ fn update(project: &Path, name: &str, revision: &str) -> Result<()> {
         theme::paint_stdout(name, Tone::Success, true),
         theme::paint_stdout(source.revision, Tone::Muted, false)
     );
+    match changes {
+        Some(changes)
+            if changes.added.is_empty()
+                && changes.updated.is_empty()
+                && changes.removed.is_empty() =>
+        {
+            println!("No template changes.");
+        }
+        Some(changes) => {
+            print_template_changes("Added", &changes.added);
+            print_template_changes("Updated", &changes.updated);
+            print_template_changes("Removed", &changes.removed);
+        }
+        None => println!("Template changes unavailable: previous revision was not cached."),
+    }
     Ok(())
+}
+
+fn print_template_changes(label: &str, templates: &[String]) {
+    if !templates.is_empty() {
+        println!("  {label} templates: {}", templates.join(", "));
+    }
 }
 
 fn remove(project: &Path, name: &str) -> Result<()> {

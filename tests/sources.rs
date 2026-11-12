@@ -73,7 +73,21 @@ fn project_source_is_pinned_namespaced_and_usable_offline() {
     let temporary = tempdir().expect("create temporary directory");
     let repository = temporary.path().join("template-source");
     fs::create_dir(&repository).expect("create source repository");
-    let revision = make_template_repository(&repository, "Shared notes\n");
+    make_template_repository(&repository, "Shared notes\n");
+    let archive = repository.join("templates/archive");
+    fs::create_dir_all(&archive).expect("create archive template");
+    fs::write(
+        archive.join("template.toml"),
+        "schema_version = 1\nid = \"archive\"\ndescription = \"Archived notes\"\n\n[[files]]\nsource = \"ARCHIVE.md\"\noutput = \"ARCHIVE.md\"\n",
+    )
+    .expect("write archive manifest");
+    fs::write(archive.join("ARCHIVE.md"), "Archived\n").expect("write archive template");
+    git(&repository, &["add", "--all"]);
+    commit(&repository, "add archive template");
+    let revision = String::from_utf8(git(&repository, &["rev-parse", "HEAD"]).stdout)
+        .expect("initial commit ID is UTF-8")
+        .trim()
+        .to_owned();
     let project = temporary.path().join("project");
     let config = temporary.path().join("config");
     fs::create_dir(&project).expect("create project");
@@ -107,6 +121,16 @@ fn project_source_is_pinned_namespaced_and_usable_offline() {
         "Updated shared notes\n",
     )
     .expect("update source template");
+    let guide = Path::new(&repository).join("templates/guide");
+    fs::create_dir_all(&guide).expect("create guide template");
+    fs::write(
+        guide.join("template.toml"),
+        "schema_version = 1\nid = \"guide\"\ndescription = \"Project guide\"\n\n[[files]]\nsource = \"GUIDE.md\"\noutput = \"GUIDE.md\"\n",
+    )
+    .expect("write guide manifest");
+    fs::write(guide.join("GUIDE.md"), "Guide\n").expect("write guide template");
+    fs::remove_dir_all(Path::new(&repository).join("templates/archive"))
+        .expect("remove archive template");
     git(Path::new(&repository), &["add", "--all"]);
     commit(Path::new(&repository), "update test template");
     let updated_revision =
@@ -135,6 +159,34 @@ fn project_source_is_pinned_namespaced_and_usable_offline() {
         .expect("read updated project source registry");
     assert!(registry.contains(&updated_revision));
     assert!(!registry.contains(&revision));
+    let update_output = String::from_utf8_lossy(&update.stdout);
+    assert!(
+        update_output.contains("Updated templates: notes"),
+        "{update_output}"
+    );
+    assert!(
+        update_output.contains("Added templates: guide"),
+        "{update_output}"
+    );
+    assert!(
+        update_output.contains("Removed templates: archive"),
+        "{update_output}"
+    );
+
+    let unchanged = run_cli(
+        &config,
+        &[
+            "source",
+            "update",
+            "team",
+            "--revision",
+            "HEAD",
+            "--path",
+            &project_path,
+        ],
+    );
+    assert!(unchanged.status.success());
+    assert!(String::from_utf8_lossy(&unchanged.stdout).contains("No template changes."));
 
     let saved = run_cli(
         &config,

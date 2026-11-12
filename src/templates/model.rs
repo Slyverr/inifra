@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Template {
     pub(crate) id: String,
     pub(crate) description: String,
@@ -29,7 +29,7 @@ impl TemplateOrigin {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct TemplateFile {
     pub(crate) path: PathBuf,
     pub(crate) contents: Vec<u8>,

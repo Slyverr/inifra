@@ -74,7 +74,9 @@ inifra source sync --path .
 
 `list`, `validate`, `init`, and `generate` use the cached pinned commit and do
 not fetch or update sources implicitly. `inifra source update NAME --revision
-REF` resolves a new ref and changes the project's pin. `inifra source remove
+REF` resolves a new ref, changes the project's pin, and reports templates that
+were added, changed, or removed. If the previous revision is not cached,
+Inifra reports that it cannot compare the template sets. `inifra source remove
 NAME` removes the declaration; cached data is left in the user config. Git is
 required for adding, updating, or syncing sources.
 

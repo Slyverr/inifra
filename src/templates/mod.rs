@@ -29,8 +29,8 @@ pub(crate) fn discover_for(project_directory: Option<&std::path::Path>) -> Resul
 }
 
 pub(crate) use sources::{
-    fetch_source, read_project_registry, source_is_cached, sync_project_sources,
-    write_project_registry,
+    compare_cached_templates, fetch_source, read_project_registry, source_is_cached,
+    sync_project_sources, write_project_registry,
 };
 
 fn project_templates_root(project_directory: &std::path::Path) -> Result<std::path::PathBuf> {

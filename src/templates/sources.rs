@@ -1,6 +1,7 @@
 mod git;
 mod registry;
 
+use std::collections::BTreeMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -15,6 +16,67 @@ use registry::CacheIdentity;
 const CACHE_DIRECTORY: &str = "source-cache";
 
 pub(crate) use registry::{ProjectSource, SourceRegistry};
+
+#[derive(Debug, Default)]
+pub(crate) struct TemplateChanges {
+    pub(crate) added: Vec<String>,
+    pub(crate) updated: Vec<String>,
+    pub(crate) removed: Vec<String>,
+}
+
+pub(crate) fn compare_cached_templates(
+    name: &str,
+    previous: &ProjectSource,
+    current: &ProjectSource,
+) -> Result<Option<TemplateChanges>> {
+    let Some(previous_templates) = cached_templates(name, previous)? else {
+        return Ok(None);
+    };
+    let Some(current_templates) = cached_templates(name, current)? else {
+        bail!("newly fetched source {name:?} is missing from the cache");
+    };
+
+    let previous_by_id = previous_templates
+        .iter()
+        .map(|template| (template.id.as_str(), template))
+        .collect::<BTreeMap<_, _>>();
+    let current_by_id = current_templates
+        .iter()
+        .map(|template| (template.id.as_str(), template))
+        .collect::<BTreeMap<_, _>>();
+    let mut changes = TemplateChanges::default();
+
+    for (id, template) in &current_by_id {
+        match previous_by_id.get(id) {
+            None => changes.added.push((*id).to_owned()),
+            Some(previous) if *previous != *template => changes.updated.push((*id).to_owned()),
+            Some(_) => {}
+        }
+    }
+    for id in previous_by_id.keys() {
+        if !current_by_id.contains_key(id) {
+            changes.removed.push((*id).to_owned());
+        }
+    }
+
+    Ok(Some(changes))
+}
+
+fn cached_templates(name: &str, source: &ProjectSource) -> Result<Option<Vec<Template>>> {
+    let path = cache_path(name, source)?;
+    match fs::symlink_metadata(&path) {
+        Ok(_) => {
+            let root = cached_template_root(&path, name, source)?;
+            let templates = local::discover_at(Some(&root), TemplateOrigin::Remote)
+                .with_context(|| format!("invalid cached template source {name:?}"))?;
+            Ok(Some(templates))
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => {
+            Err(error).with_context(|| format!("could not inspect source cache {}", path.display()))
+        }
+    }
+}
 
 pub(crate) fn read_project_registry(project: &Path) -> Result<SourceRegistry> {
     registry::read_project_registry(project)
