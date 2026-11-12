@@ -4,6 +4,15 @@ Inifra is a Rust command-line tool for adding reusable project files. Browse
 built-in or personal templates, preview their contents, and generate selected
 files while keeping existing files unchanged by default.
 
+## Install
+
+Install the latest published release with Cargo. This requires Rust 1.88 or
+newer and Git:
+
+```sh
+cargo install --git https://github.com/Slyverr/inifra --tag v0.5.0 --locked
+```
+
 ## Get started
 
 Use Rust 1.88 or newer, or run commands inside the Nix development shell.
@@ -17,6 +26,9 @@ cargo run --locked -- init --path ./my-project
 `init` opens the interactive template picker in a terminal. Use
 `cargo run --locked -- --help` to see all commands and options. `validate`
 checks bundled and personal templates without writing project files.
+In the picker, press `/` to filter by template ID, description, category, or
+output path. Press `Esc` to leave filter editing; press it again to clear the
+filter.
 
 ## Templates and configuration
 
