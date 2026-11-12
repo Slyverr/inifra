@@ -20,6 +20,28 @@ pub(crate) fn template_candidates(current: &OsStr) -> Vec<CompletionCandidate> {
         .collect()
 }
 
+pub(crate) fn remove_template_candidates(current: &OsStr) -> Vec<CompletionCandidate> {
+    let Some(prefix) = current.to_str() else {
+        return Vec::new();
+    };
+    let arguments = completion_arguments();
+    let project_directory = project_directory_for(&arguments);
+    let origin = if project_directory.is_some() {
+        crate::templates::TemplateOrigin::ProjectLocal
+    } else {
+        crate::templates::TemplateOrigin::UserLocal
+    };
+    let Ok(templates) = crate::templates::discover_for(project_directory.as_deref()) else {
+        return Vec::new();
+    };
+
+    templates
+        .into_iter()
+        .filter(|template| template.origin == origin && template.id.starts_with(prefix))
+        .map(|template| CompletionCandidate::new(template.id))
+        .collect()
+}
+
 pub(crate) fn preset_candidates(current: &OsStr) -> Vec<CompletionCandidate> {
     let Some(prefix) = current.to_str() else {
         return Vec::new();
@@ -152,7 +174,7 @@ fn project_directory_for(arguments: &[String]) -> Option<PathBuf> {
 
     match command {
         "generate" | "init" => Some(path.unwrap_or_else(|| PathBuf::from("."))),
-        "list" | "validate" | "edit" => path,
+        "list" | "validate" | "edit" | "remove" => path,
         "preset-save" => Some(path.unwrap_or_else(|| PathBuf::from("."))),
         _ => None,
     }

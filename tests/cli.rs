@@ -18,6 +18,8 @@ mod init;
 mod presets;
 #[path = "cli/project_templates.rs"]
 mod project_templates;
+#[path = "cli/remove.rs"]
+mod remove;
 #[path = "cli/rendering.rs"]
 mod rendering;
 

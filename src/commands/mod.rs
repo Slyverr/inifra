@@ -4,6 +4,7 @@ mod generate;
 mod list;
 mod picker;
 mod preset;
+mod remove;
 mod setup;
 mod source;
 mod validate;
@@ -43,6 +44,7 @@ pub(crate) fn run(command: Command) -> Result<()> {
         ),
         Command::Preset { command } => preset::run(command),
         Command::Source { command } => source::run(command),
+        Command::Remove { template, path } => remove::run(&template, path.as_deref()),
         Command::Edit { template, path } => edit::run(&template, path.as_deref()),
         Command::Completions { shell, install } => completions::run(shell, install),
     }

@@ -101,6 +101,13 @@ Use `inifra edit TEMPLATE_ID` to open an existing local pack in `$VISUAL` or
 this directory, so changes remain local to your user config. In a terminal,
 the same command can create a starter pack for an unknown ID.
 
+Use `inifra remove TEMPLATE_ID` to remove a user-local pack, or pass
+`--path PROJECT` to remove a project-local pack. This removes only the template
+source; generated project files, shared inputs, and source declarations are
+left alone. Removing an override reveals the next matching template in the
+catalog. Built-ins and remote templates cannot be removed this way; remove a
+remote source with `inifra source remove SOURCE --path PROJECT`.
+
 Each pack contains a `template.toml` manifest and its source files:
 
 ```text

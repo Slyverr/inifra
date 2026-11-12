@@ -7,6 +7,11 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Remove user-local or project-local template packs without deleting generated
+  files.
+
 ## [0.6.2] - 2026-11-12
 
 ### Fixed

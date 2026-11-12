@@ -12,6 +12,7 @@ fn help_lists_available_commands() {
     assert!(help.contains("init"));
     assert!(help.contains("preset"));
     assert!(help.contains("source"));
+    assert!(help.contains("remove"));
     assert!(help.contains("completions"));
 }
 

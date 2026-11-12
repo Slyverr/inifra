@@ -98,6 +98,71 @@ fn fish_dynamic_completions_include_matching_template_ids() {
 }
 
 #[test]
+fn remove_completions_include_only_user_local_templates() {
+    let config = tempdir().expect("create isolated config directory");
+    write_local_pack(
+        config.path(),
+        "custom-notes",
+        "Personal notes",
+        "NOTES.md",
+        "notes\n",
+    );
+    let mut command = Command::new(env!("CARGO_BIN_EXE_inifra"));
+    command
+        .args(["--", "inifra", "remove", "custom"])
+        .env("COMPLETE", "fish");
+    set_config_directory(&mut command, config.path());
+    let output = command.output().expect("run removal completion");
+    let candidates = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        candidates
+            .lines()
+            .any(|candidate| candidate == "custom-notes")
+    );
+    assert!(!candidates.lines().any(|candidate| candidate == "readme"));
+}
+
+#[test]
+fn remove_completions_include_project_local_templates_with_path() {
+    let config = tempdir().expect("create isolated config directory");
+    let project = tempdir().expect("create project directory");
+    write_project_pack(
+        project.path(),
+        "team-notes",
+        "Team notes",
+        "NOTES.md",
+        "notes\n",
+    );
+    let mut command = Command::new(env!("CARGO_BIN_EXE_inifra"));
+    command
+        .args([
+            "--",
+            "inifra",
+            "remove",
+            "--path",
+            project.path().to_str().expect("UTF-8 project path"),
+            "team",
+        ])
+        .env("COMPLETE", "fish")
+        .env("_CLAP_COMPLETE_INDEX", "4");
+    set_config_directory(&mut command, config.path());
+    let output = command
+        .output()
+        .expect("run project-local removal completion");
+    let candidates = String::from_utf8_lossy(&output.stdout);
+
+    assert!(output.status.success());
+    assert!(
+        candidates
+            .lines()
+            .any(|candidate| candidate == "team-notes")
+    );
+    assert!(!candidates.lines().any(|candidate| candidate == "readme"));
+}
+
+#[test]
 fn completions_include_project_templates_for_the_requested_destination() {
     let config = tempdir().expect("create isolated config directory");
     let project = tempdir().expect("create project directory");

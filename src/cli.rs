@@ -108,6 +108,15 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: SourceCommand,
     },
+    /// Remove a user-local template, or a project's local template with --path
+    Remove {
+        /// Local template ID to remove
+        #[arg(add = ArgValueCompleter::new(crate::completions::remove_template_candidates))]
+        template: String,
+        /// Project directory containing .inifra/templates
+        #[arg(short, long, value_name = "DIR", value_hint = ValueHint::DirPath)]
+        path: Option<PathBuf>,
+    },
     /// Open a local template in the configured editor
     Edit {
         /// Template ID to edit or create
