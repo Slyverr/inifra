@@ -14,7 +14,7 @@ use crate::cli::Command;
 
 pub(crate) fn run(command: Command) -> Result<()> {
     match command {
-        Command::List { path } => list::run(path.as_deref()),
+        Command::List { filter, path } => list::run(path.as_deref(), filter.as_deref()),
         Command::Validate { template, path } => validate::run(template.as_deref(), path.as_deref()),
         Command::Generate {
             template,

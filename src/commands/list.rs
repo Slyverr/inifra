@@ -5,12 +5,32 @@ use anyhow::Result;
 use crate::templates;
 use crate::theme::{self, Tone};
 
-pub(super) fn run(project_directory: Option<&Path>) -> Result<()> {
+pub(super) fn run(project_directory: Option<&Path>, filter: Option<&str>) -> Result<()> {
+    let query = filter.map(templates::TemplateQuery::new);
+    let mut templates = templates::discover_for(project_directory)?;
+    if let Some(query) = query {
+        templates.retain(|template| query.matches(template, template.category.as_deref()));
+    }
+
     println!(
         "{}",
         theme::paint_stdout("Available templates:", Tone::Accent, true)
     );
-    for template in templates::discover_for(project_directory)? {
+    if templates.is_empty()
+        && let Some(filter) = filter
+    {
+        println!(
+            "{}",
+            theme::paint_stdout(
+                format!("No templates match {filter:?}."),
+                Tone::Muted,
+                false
+            )
+        );
+        return Ok(());
+    }
+
+    for template in templates {
         let category = template
             .category
             .as_deref()

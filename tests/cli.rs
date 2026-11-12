@@ -659,6 +659,42 @@ fn list_shows_bundled_templates_and_output_paths() {
 }
 
 #[test]
+fn list_filter_searches_template_fields_case_insensitively() {
+    let config = tempdir().expect("create isolated config directory");
+    let pack = templates_root(config.path()).join("ops-guide");
+    std::fs::create_dir_all(&pack).expect("create local template pack");
+    std::fs::write(
+        pack.join("template.toml"),
+        "schema_version = 1\nid = \"ops-guide\"\ndescription = \"Team operations handbook\"\ncategory = \"Operations\"\n\n[[files]]\nsource = \"source.md\"\noutput = \"docs/on-call.md\"\n",
+    )
+    .expect("write local manifest");
+    std::fs::write(pack.join("source.md"), "On-call procedures\n").expect("write template source");
+
+    let output = run_cli_with_config(&["list", "--filter", "HANDBOOK on-call"], config.path());
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let listing = String::from_utf8_lossy(&output.stdout);
+    assert!(listing.contains("ops-guide"));
+    assert!(listing.contains("docs/on-call.md"));
+    assert!(!listing.contains("agents"));
+}
+
+#[test]
+fn list_filter_reports_when_nothing_matches() {
+    let output = run_cli(&["list", "--filter", "no-such-template"]);
+
+    assert!(output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stdout)
+            .contains("No templates match \"no-such-template\".")
+    );
+}
+
+#[test]
 fn list_discovers_templates_from_the_user_config_directory() {
     let config = tempdir().expect("create isolated config directory");
     write_local_pack(

@@ -19,13 +19,16 @@ Use Rust 1.88 or newer, or run commands inside the Nix development shell.
 
 ```sh
 cargo run --locked -- list
+cargo run --locked -- list --filter license
 cargo run --locked -- validate
 cargo run --locked -- init --path ./my-project
 ```
 
 `init` opens the interactive template picker in a terminal. Use
 `cargo run --locked -- --help` to see all commands and options. `validate`
-checks bundled and personal templates without writing project files.
+checks bundled and personal templates without writing project files. Add
+`--filter QUERY` to `list` to search template IDs, descriptions, categories, and
+output paths.
 In the picker, press `/` to filter by template ID, description, category, or
 output path. Press `Esc` to leave filter editing; press it again to clear the
 filter.

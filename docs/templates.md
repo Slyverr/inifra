@@ -92,7 +92,9 @@ Use `inifra list --path PROJECT` to inspect the effective catalog. `init`,
 `generate`, and `validate --path PROJECT` include project packs for their
 selected destination; `edit TEMPLATE_ID --path PROJECT` opens or creates a
 project pack. Plain `inifra list` remains independent of the current
-directory.
+directory. Add `--filter QUERY` to restrict the listing by template ID,
+description, category, or output path. Matching ignores case, and every
+whitespace-separated query term must match at least one of those fields.
 
 Use `inifra edit TEMPLATE_ID` to open an existing local pack in `$VISUAL` or
 `$EDITOR`. Editing a built-in first copies its manifest and source files into

@@ -1,5 +1,5 @@
 use super::text;
-use crate::templates::Template;
+use crate::templates::{Template, TemplateQuery};
 use std::path::Path;
 
 pub(super) enum PickerEntry<'a> {
@@ -167,17 +167,13 @@ impl Picker {
             return (0..rows.len()).collect();
         }
 
-        let terms = self
-            .query
-            .split_whitespace()
-            .map(str::to_lowercase)
-            .collect::<Vec<_>>();
+        let query = TemplateQuery::new(&self.query);
         rows.iter()
             .enumerate()
             .filter(|(_, row)| {
                 row.alternatives
                     .iter()
-                    .any(|index| template_matches_query(templates[*index], &row.category, &terms))
+                    .any(|index| query.matches(templates[*index], Some(&row.category)))
             })
             .map(|(index, _)| index)
             .collect()
@@ -303,24 +299,6 @@ pub(super) fn category_starts(rows: &[TemplateRow], visible_rows: &[usize]) -> V
         }
     }
     starts
-}
-
-fn template_matches_query(template: &Template, category: &str, terms: &[String]) -> bool {
-    let id = template.id.to_lowercase();
-    let description = template.description.to_lowercase();
-    let category = category.to_lowercase();
-    let paths = template
-        .files
-        .iter()
-        .map(|file| file.path.to_string_lossy().to_lowercase())
-        .collect::<Vec<_>>();
-
-    terms.iter().all(|term| {
-        id.contains(term)
-            || description.contains(term)
-            || category.contains(term)
-            || paths.iter().any(|path| path.contains(term))
-    })
 }
 
 struct SelectionConflict<'a> {

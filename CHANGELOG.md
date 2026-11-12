@@ -9,7 +9,8 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Filter picker templates by ID, description, category, or output path.
+- Filter templates by ID, description, category, or output path in the picker
+  and with `inifra list --filter`.
 
 ## [0.5.0] - 2026-11-12
 

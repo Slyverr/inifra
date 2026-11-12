@@ -5,6 +5,7 @@ mod local;
 mod manifest;
 mod model;
 mod render;
+mod search;
 mod sources;
 
 use anyhow::{Context, Result};
@@ -13,6 +14,7 @@ pub(crate) use inputs::{parse_assignments, resolve_values, validation_values};
 pub(crate) use model::TemplateFile;
 pub(crate) use model::{Template, TemplateOrigin};
 pub(crate) use render::render_text_files;
+pub(crate) use search::TemplateQuery;
 pub(crate) use sources::SourceRegistry;
 
 pub(crate) fn discover_for(project_directory: Option<&std::path::Path>) -> Result<Vec<Template>> {

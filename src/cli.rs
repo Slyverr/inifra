@@ -19,6 +19,9 @@ struct Cli {
 pub(crate) enum Command {
     /// List available starter templates
     List {
+        /// Filter by ID, description, category, or output path (all terms must match)
+        #[arg(short, long, value_name = "QUERY")]
+        filter: Option<String>,
         /// Include templates from this project's .inifra directory
         #[arg(short, long, value_name = "DIR", value_hint = ValueHint::DirPath)]
         path: Option<PathBuf>,
