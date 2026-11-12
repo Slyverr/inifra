@@ -1,18 +1,16 @@
+use std::path::Path;
+
 use anyhow::Result;
 
-use crate::templates::{self, TemplateOrigin};
+use crate::templates;
 use crate::theme::{self, Tone};
 
-pub(super) fn run() -> Result<()> {
+pub(super) fn run(project_directory: Option<&Path>) -> Result<()> {
     println!(
         "{}",
         theme::paint_stdout("Available templates:", Tone::Accent, true)
     );
-    for template in templates::discover()? {
-        let origin = match template.origin {
-            TemplateOrigin::Builtin => "built-in",
-            TemplateOrigin::Local => "local",
-        };
+    for template in templates::discover_for(project_directory)? {
         let category = template
             .category
             .as_deref()
@@ -33,7 +31,7 @@ pub(super) fn run() -> Result<()> {
             "  {} {} {}{} — {}",
             theme::paint_stdout(format!("{:<16}", template.id), Tone::Accent, true),
             template.description,
-            theme::paint_stdout(format!("[{origin}]"), Tone::Muted, false),
+            theme::paint_stdout(format!("[{}]", template.origin.label()), Tone::Muted, false,),
             category,
             theme::paint_stdout(outputs, Tone::Path, false)
         );

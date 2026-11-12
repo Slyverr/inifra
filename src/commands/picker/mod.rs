@@ -31,6 +31,7 @@ pub(super) mod text {
     pub const OUTPUT_CONFLICT_NOTICE: &str = " both write ";
     pub const CONFLICT_NOTICE_SUFFIX: &str = "; deselect one before continuing";
     pub const DESCRIPTION: &str = "Description";
+    pub const ORIGIN: &str = "Origin";
     pub const FILES: &str = "Files";
     pub const TEMPLATE_VALUES: &str = "Template values";
     pub const SOURCE_PREVIEW: &str = "Source preview";

@@ -54,6 +54,20 @@ pub(super) fn copy_builtin(id: &str, destination: &Path) -> Result<()> {
 }
 
 pub(super) fn discover(local_root: Option<&Path>) -> Result<Vec<Template>> {
+    discover_with_roots(local_root, None)
+}
+
+pub(super) fn discover_with_project(
+    user_root: Option<&Path>,
+    project_root: Option<&Path>,
+) -> Result<Vec<Template>> {
+    discover_with_roots(user_root, project_root)
+}
+
+fn discover_with_roots(
+    user_root: Option<&Path>,
+    project_root: Option<&Path>,
+) -> Result<Vec<Template>> {
     let mut catalog = BTreeMap::new();
 
     for pack in PACKS {
@@ -107,7 +121,11 @@ pub(super) fn discover(local_root: Option<&Path>) -> Result<Vec<Template>> {
         }
     }
 
-    for template in local::discover_at(local_root)? {
+    for template in local::discover_at(user_root, TemplateOrigin::UserLocal)? {
+        catalog.insert(template.id.clone(), template);
+    }
+
+    for template in local::discover_at(project_root, TemplateOrigin::ProjectLocal)? {
         catalog.insert(template.id.clone(), template);
     }
 

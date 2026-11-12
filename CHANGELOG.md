@@ -7,6 +7,10 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Discover project-local packs and shared input definitions under `.inifra/` for a selected project path.
+
 ## [0.4.0] - 2026-11-12
 
 ### Added

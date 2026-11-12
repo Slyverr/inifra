@@ -1,8 +1,9 @@
 # Template packs
 
-Inifra loads templates bundled with the program and templates in the user's
-configuration directory. Local packs let users add templates or replace a
-built-in template without changing the project or the Inifra installation.
+Inifra loads bundled templates and templates from the user's configuration
+directory. When a project path is selected, it also loads packs stored in that
+project. Project packs let teams share and version their own conventions with
+the repository.
 
 ## Built-in templates
 
@@ -38,6 +39,20 @@ The user config directory follows the operating system convention. For example,
 on Linux it is usually `~/.config`; `XDG_CONFIG_HOME` can change it. Set
 `INIFRA_CONFIG_DIR` to an absolute path to override the config root on any
 platform.
+
+Store project-specific packs and shared input definitions in the repository:
+
+```text
+<project>/.inifra/
+├── inputs.toml
+└── templates/<template-id>/
+```
+
+Use `inifra list --path PROJECT` to inspect the effective catalog. `init`,
+`generate`, and `validate --path PROJECT` include project packs for their
+selected destination; `edit TEMPLATE_ID --path PROJECT` opens or creates a
+project pack. Plain `inifra list` remains independent of the current
+directory.
 
 Use `inifra edit TEMPLATE_ID` to open an existing local pack in `$VISUAL` or
 `$EDITOR`. Editing a built-in first copies its manifest and source files into
@@ -80,11 +95,13 @@ write to `README.md`.
 
 Shared input prompts and defaults are defined in `templates/inputs.toml`. Each
 pack lists the input names it uses in its manifest, and template text refers to
-those names directly. Pass values with repeatable `--set KEY=VALUE` options. A
-local registry at `<user config directory>/inifra/inputs.toml` can add or
-override prompts, required status, and defaults. Required values must be
-non-empty; optional values without defaults render as empty strings. Unknown,
-duplicate, and undeclared `--set` names are errors.
+those names directly. Pass values with repeatable `--set KEY=VALUE` options.
+The user registry at `<user config directory>/inifra/inputs.toml` and the
+optional project registry at `.inifra/inputs.toml` can add or override prompts,
+required status, and defaults. Definitions merge in this order: built-in, user,
+then project. Required values must be non-empty; optional values without
+defaults render as empty strings. Unknown, duplicate, and undeclared `--set`
+names are errors.
 
 When a required value is unavailable and both input and error output are
 terminals, Inifra prompts once for that shared input. In non-interactive runs,
@@ -99,10 +116,12 @@ any files are written. License templates share the `copyright_year` and
 
 ## Discovery and overrides
 
-`inifra list` shows both bundled and local templates, including category labels
-when provided. Local template IDs must be unique. A local template with the
-same ID as a bundled template replaces that bundled entry, so
-`inifra generate <id>` uses the local manifest and files.
+`inifra list` shows bundled and user-local templates. Pass `--path PROJECT` to
+include that project's packs. A project-local pack replaces a user-local pack
+with the same ID, and a user-local pack replaces a bundled pack. Thus the
+precedence is project-local, user-local, then built-in. IDs must be unique
+within each template collection; the winning source is shown in the listing
+and picker preview.
 
 Pack directories may contain regular files and directories. Symlinks and
 special files are rejected to keep template reads within the user's pack.

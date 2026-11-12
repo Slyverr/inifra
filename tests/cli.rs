@@ -63,6 +63,37 @@ fn templates_root(config: &std::path::Path) -> std::path::PathBuf {
     config.join("inifra/templates")
 }
 
+fn write_project_pack(
+    project: &std::path::Path,
+    id: &str,
+    description: &str,
+    output: &str,
+    body: &str,
+) {
+    let pack = project.join(".inifra/templates").join(id);
+    std::fs::create_dir_all(&pack).expect("create project template pack");
+    std::fs::write(
+        pack.join("template.toml"),
+        format!(
+            "schema_version = 1\nid = {id:?}\ndescription = {description:?}\n\n[[files]]\nsource = \"source.txt\"\noutput = {output:?}\n"
+        ),
+    )
+    .expect("write project template manifest");
+    std::fs::write(pack.join("source.txt"), body).expect("write project template source");
+}
+
+fn write_project_inputs(project: &std::path::Path, name: &str, default: &str) {
+    let config = project.join(".inifra");
+    std::fs::create_dir_all(&config).expect("create project Inifra config");
+    std::fs::write(
+        config.join("inputs.toml"),
+        format!(
+            "schema_version = 1\n\n[inputs.{name}]\nprompt = {name:?}\ndefault = {default:?}\n"
+        ),
+    )
+    .expect("write project input definitions");
+}
+
 #[test]
 fn help_lists_available_commands() {
     let output = run_cli(&["--help"]);
@@ -363,6 +394,54 @@ fn edit_copies_builtin_template_to_user_config_before_opening() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn edit_opens_the_project_local_template_when_given_a_project_path() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let config = tempdir().expect("create isolated config directory");
+    let project = tempdir().expect("create project directory");
+    write_project_pack(
+        project.path(),
+        "team-guide",
+        "Team guide",
+        "TEAM.md",
+        "team\n",
+    );
+    let editor = config.path().join("fake-editor");
+    std::fs::write(&editor, "#!/bin/sh\nprintf 'edited\\n' >> \"$2\"\n")
+        .expect("write fake editor");
+    std::fs::set_permissions(&editor, std::fs::Permissions::from_mode(0o755))
+        .expect("make fake editor executable");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_inifra"));
+    command
+        .args([
+            "edit",
+            "team-guide",
+            "--path",
+            project.path().to_str().expect("UTF-8 project path"),
+        ])
+        .env("VISUAL", &editor);
+    set_config_directory(&mut command, config.path());
+    let output = command.output().expect("run project template editor");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(
+            project
+                .path()
+                .join(".inifra/templates/team-guide/source.txt")
+        )
+        .expect("read edited project template"),
+        "team\nedited\n"
+    );
+    assert!(!templates_root(config.path()).exists());
+}
+
 #[test]
 fn edit_unknown_template_requires_an_interactive_terminal() {
     let output = run_cli(&["edit", "new-template"]);
@@ -389,6 +468,44 @@ fn fish_dynamic_completions_include_matching_template_ids() {
         String::from_utf8_lossy(&output.stdout)
             .lines()
             .any(|line| line == "readme")
+    );
+}
+
+#[test]
+fn completions_include_project_templates_for_the_requested_destination() {
+    let config = tempdir().expect("create isolated config directory");
+    let project = tempdir().expect("create project directory");
+    write_project_pack(
+        project.path(),
+        "team-guide",
+        "Team guide",
+        "TEAM.md",
+        "team\n",
+    );
+    let mut command = Command::new(env!("CARGO_BIN_EXE_inifra"));
+    command
+        .args([
+            "--",
+            "inifra",
+            "generate",
+            "--path",
+            project.path().to_str().expect("UTF-8 project path"),
+            "team",
+        ])
+        .env("COMPLETE", "fish")
+        .env("_CLAP_COMPLETE_INDEX", "4");
+    set_config_directory(&mut command, config.path());
+    let output = command.output().expect("run project template completion");
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("team-guide"),
+        "completion output: {}",
+        String::from_utf8_lossy(&output.stdout)
     );
 }
 
@@ -560,7 +677,7 @@ fn list_discovers_templates_from_the_user_config_directory() {
     );
     let listing = String::from_utf8_lossy(&output.stdout);
     assert!(listing.contains("notes"));
-    assert!(listing.contains("[local]"));
+    assert!(listing.contains("[user-local]"));
     assert!(listing.contains("NOTES.md"));
 }
 
@@ -579,7 +696,7 @@ fn local_template_with_a_builtin_id_overrides_the_builtin() {
     let listing = run_cli_with_config(&["list"], config.path());
     assert!(listing.status.success());
     let listing = String::from_utf8_lossy(&listing.stdout);
-    assert!(listing.contains("Custom editor settings [local]"));
+    assert!(listing.contains("Custom editor settings [user-local]"));
     assert!(!listing.contains("Portable editor formatting defaults [built-in]"));
 
     let output = run_cli_with_config(
@@ -1040,10 +1157,213 @@ fn generate_fails_on_undefined_template_values_before_writing() {
 #[test]
 fn list_is_independent_of_the_current_directory() {
     let destination = tempdir().expect("create temporary directory");
+    write_project_pack(
+        destination.path(),
+        "project-only",
+        "Project-only template",
+        "PROJECT.md",
+        "project\n",
+    );
     let output = run_cli_in(&["list"], destination.path());
 
     assert!(output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stdout).contains("project-only"));
     assert!(!destination.path().join("CHANGELOG.md").exists());
+}
+
+#[test]
+fn list_includes_project_templates_only_when_given_a_project_path() {
+    let project = tempdir().expect("create project directory");
+    write_project_pack(
+        project.path(),
+        "team-guide",
+        "Team guide",
+        "TEAM.md",
+        "team\n",
+    );
+
+    let output = run_cli(&[
+        "list",
+        "--path",
+        project.path().to_str().expect("UTF-8 project path"),
+    ]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let listing = String::from_utf8_lossy(&output.stdout);
+    assert!(listing.contains("team-guide"));
+    assert!(listing.contains("[project-local]"));
+}
+
+#[test]
+fn project_templates_override_user_templates_for_generation() {
+    let config = tempdir().expect("create isolated config directory");
+    write_local_pack(
+        config.path(),
+        "editorconfig",
+        "User editor settings",
+        ".editorconfig",
+        "user\n",
+    );
+    let project = tempdir().expect("create project directory");
+    write_project_pack(
+        project.path(),
+        "editorconfig",
+        "Project editor settings",
+        ".editorconfig",
+        "project\n",
+    );
+
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "editorconfig",
+            "--path",
+            project.path().to_str().expect("UTF-8 project path"),
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(project.path().join(".editorconfig")).expect("read generated file"),
+        "project\n"
+    );
+}
+
+#[test]
+fn validate_includes_project_templates_when_given_a_project_path() {
+    let project = tempdir().expect("create project directory");
+    write_project_pack(
+        project.path(),
+        "team-guide",
+        "Team guide",
+        "TEAM.md",
+        "team\n",
+    );
+
+    let output = run_cli(&[
+        "validate",
+        "--path",
+        project.path().to_str().expect("UTF-8 project path"),
+    ]);
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("valid team-guide"));
+}
+
+#[test]
+fn project_templates_use_project_shared_input_definitions() {
+    let config = tempdir().expect("create isolated config directory");
+    let project = tempdir().expect("create project directory");
+    let user_config = config.path().join("inifra");
+    std::fs::create_dir_all(&user_config).expect("create user Inifra config");
+    std::fs::write(
+        user_config.join("inputs.toml"),
+        "schema_version = 1\n\n[inputs.team_name]\nprompt = \"Team name\"\ndefault = \"Personal team\"\n",
+    )
+    .expect("write user input definitions");
+    write_project_inputs(project.path(), "team_name", "Platform team");
+    let pack = project.path().join(".inifra/templates/team-guide");
+    std::fs::create_dir_all(&pack).expect("create project template pack");
+    std::fs::write(
+        pack.join("template.toml"),
+        "schema_version = 1\nid = \"team-guide\"\ndescription = \"Team guide\"\ninputs = [\"team_name\"]\n\n[[files]]\nsource = \"TEAM.md.j2\"\noutput = \"TEAM.md\"\n",
+    )
+    .expect("write project template manifest");
+    std::fs::write(pack.join("TEAM.md.j2"), "# {{ team_name }}\n")
+        .expect("write project template source");
+
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "team-guide",
+            "--path",
+            project.path().to_str().expect("UTF-8 project path"),
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(project.path().join("TEAM.md")).expect("read generated file"),
+        "# Platform team\n"
+    );
+    let validation = run_cli_with_config(
+        &[
+            "validate",
+            "team-guide",
+            "--path",
+            project.path().to_str().expect("UTF-8 project path"),
+        ],
+        config.path(),
+    );
+    assert!(
+        validation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&validation.stderr)
+    );
+}
+
+#[test]
+fn project_input_registry_is_ignored_for_templates_that_use_no_inputs() {
+    let config = tempdir().expect("create isolated config directory");
+    let project = tempdir().expect("create project directory");
+    let project_config = project.path().join(".inifra");
+    std::fs::create_dir_all(&project_config).expect("create project Inifra config");
+    std::fs::write(project_config.join("inputs.toml"), "malformed = [")
+        .expect("write unrelated malformed input registry");
+
+    let output = run_cli_with_config(
+        &[
+            "generate",
+            "editorconfig",
+            "--path",
+            project.path().to_str().expect("UTF-8 project path"),
+        ],
+        config.path(),
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(project.path().join(".editorconfig").is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn project_template_discovery_rejects_a_symlinked_config_directory() {
+    use std::os::unix::fs::symlink;
+
+    let project = tempdir().expect("create project directory");
+    let outside = tempdir().expect("create outside directory");
+    symlink(outside.path(), project.path().join(".inifra")).expect("create config symlink");
+
+    let output = run_cli(&[
+        "list",
+        "--path",
+        project.path().to_str().expect("UTF-8 project path"),
+    ]);
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("regular directory"));
 }
 
 #[test]

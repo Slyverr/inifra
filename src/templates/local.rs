@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use super::manifest;
 use super::model::{Template, TemplateFile, TemplateOrigin};
 
-pub(super) fn discover_at(root: Option<&Path>) -> Result<Vec<Template>> {
+pub(super) fn discover_at(root: Option<&Path>, origin: TemplateOrigin) -> Result<Vec<Template>> {
     let Some(root) = root else {
         return Ok(Vec::new());
     };
@@ -61,7 +61,7 @@ pub(super) fn discover_at(root: Option<&Path>) -> Result<Vec<Template>> {
     let mut templates = Vec::with_capacity(pack_dirs.len());
     for pack_dir in pack_dirs {
         validate_pack_tree(&pack_dir)?;
-        let template = load_pack(&pack_dir)?;
+        let template = load_pack(&pack_dir, origin)?;
         if !ids.insert(template.id.clone()) {
             bail!("multiple local templates use the same ID: {}", template.id);
         }
@@ -96,7 +96,7 @@ fn validate_pack_tree(directory: &Path) -> Result<()> {
     Ok(())
 }
 
-fn load_pack(root: &Path) -> Result<Template> {
+fn load_pack(root: &Path, origin: TemplateOrigin) -> Result<Template> {
     let manifest_path = root.join("template.toml");
     let metadata = fs::symlink_metadata(&manifest_path).with_context(|| {
         format!(
@@ -135,7 +135,7 @@ fn load_pack(root: &Path) -> Result<Template> {
         description: manifest.description,
         category: manifest.category,
         inputs: manifest.inputs,
-        origin: TemplateOrigin::Local,
+        origin,
         files,
     })
 }
@@ -216,6 +216,6 @@ mod tests {
         let outside = tempfile::tempdir().expect("create outside directory");
         symlink(outside.path(), pack.join("unused-link")).expect("create symlink");
 
-        assert!(discover_at(Some(&root)).is_err());
+        assert!(discover_at(Some(&root), TemplateOrigin::UserLocal).is_err());
     }
 }

@@ -26,7 +26,7 @@ pub(super) fn run(
         Some(preset) => (preset.templates, preset.values),
         None => (template_ids.to_vec(), Default::default()),
     };
-    let catalog = templates::discover()?;
+    let catalog = templates::discover_for(Some(destination))?;
     let interactive = preset_name.is_none() && selected_ids.is_empty();
     let selected_ids = if interactive {
         if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {

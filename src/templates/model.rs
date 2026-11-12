@@ -13,7 +13,18 @@ pub(crate) struct Template {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TemplateOrigin {
     Builtin,
-    Local,
+    UserLocal,
+    ProjectLocal,
+}
+
+impl TemplateOrigin {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Builtin => "built-in",
+            Self::UserLocal => "user-local",
+            Self::ProjectLocal => "project-local",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

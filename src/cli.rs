@@ -18,12 +18,19 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
     /// List available starter templates
-    List,
-    /// Validate bundled and user-local templates without writing files
+    List {
+        /// Include templates from this project's .inifra directory
+        #[arg(short, long, value_name = "DIR", value_hint = ValueHint::DirPath)]
+        path: Option<PathBuf>,
+    },
+    /// Validate available templates without writing project files
     Validate {
         /// Validate only this template ID
         #[arg(add = ArgValueCompleter::new(crate::completions::template_candidates))]
         template: Option<String>,
+        /// Include templates from this project's .inifra directory
+        #[arg(short, long, value_name = "DIR", value_hint = ValueHint::DirPath)]
+        path: Option<PathBuf>,
     },
     /// Generate one template in a project directory
     Generate {
@@ -98,6 +105,9 @@ pub(crate) enum Command {
         /// Template ID to edit or create
         #[arg(add = ArgValueCompleter::new(crate::completions::template_candidates))]
         template: String,
+        /// Project directory containing .inifra/templates
+        #[arg(short, long, value_name = "DIR", value_hint = ValueHint::DirPath)]
+        path: Option<PathBuf>,
     },
     /// Generate shell completion scripts
     Completions {

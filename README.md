@@ -20,9 +20,10 @@ checks bundled and personal templates without writing project files.
 
 ## Templates and configuration
 
-Templates can generate one or more files and can be customized or extended in
-your user config directory. See [template packs](docs/templates.md) for the
-manifest format and [presets](docs/presets.md) for saving reusable selections.
+Templates can generate one or more files and can be customized in your user
+config or shared with a project under `.inifra/`. See
+[template packs](docs/templates.md) for discovery and precedence rules, and
+[presets](docs/presets.md) for saving reusable selections.
 
 Inifra also supports dynamic completions for Bash, Elvish, Fish, PowerShell,
 and Zsh. Run `inifra completions SHELL --install` to install them without

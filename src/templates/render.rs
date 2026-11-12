@@ -66,7 +66,7 @@ mod tests {
             description: "test".to_owned(),
             category: None,
             inputs: Vec::new(),
-            origin: TemplateOrigin::Local,
+            origin: TemplateOrigin::UserLocal,
             files: vec![TemplateFile {
                 path: PathBuf::from("README.md"),
                 contents: source.as_bytes().to_vec(),

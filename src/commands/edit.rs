@@ -6,15 +6,26 @@ use anyhow::{Context, Result, bail};
 
 use crate::{output, templates};
 
-pub(super) fn run(id: &str) -> Result<()> {
+pub(super) fn run(id: &str, project_directory: Option<&Path>) -> Result<()> {
     templates::validate_id(id)?;
-    let catalog = templates::discover()?;
-    let pack_path = templates::local_pack_path(id)?;
+    let catalog = templates::discover_for(project_directory)?;
+    let user_pack_path = templates::local_pack_path(id)?;
+    let project_pack_path = project_directory
+        .map(|directory| templates::project_pack_path(directory, id))
+        .transpose()?;
     if let Some(template) = catalog.iter().find(|template| template.id == id) {
-        if template.origin == templates::TemplateOrigin::Builtin {
-            copy_builtin_to_config(id, &pack_path)?;
-        }
-        let files = templates::source_files(&pack_path)?;
+        let pack_path = match template.origin {
+            templates::TemplateOrigin::Builtin => {
+                let destination = project_pack_path.as_ref().unwrap_or(&user_pack_path);
+                copy_builtin_to_path(id, destination)?;
+                destination
+            }
+            templates::TemplateOrigin::UserLocal => &user_pack_path,
+            templates::TemplateOrigin::ProjectLocal => project_pack_path
+                .as_ref()
+                .context("project template has no project directory")?,
+        };
+        let files = templates::source_files(pack_path)?;
         return output::open_files_in_editor(&files)
             .with_context(|| format!("could not edit template {id:?}"));
     }
@@ -31,12 +42,13 @@ pub(super) fn run(id: &str) -> Result<()> {
         return Ok(());
     }
 
-    create_template_pack(id, &pack_path)?;
-    let files = templates::source_files(&pack_path)?;
+    let destination = project_pack_path.as_ref().unwrap_or(&user_pack_path);
+    create_template_pack(id, destination)?;
+    let files = templates::source_files(destination)?;
     output::open_files_in_editor(&files).with_context(|| format!("could not edit template {id:?}"))
 }
 
-fn copy_builtin_to_config(id: &str, destination: &Path) -> Result<()> {
+fn copy_builtin_to_path(id: &str, destination: &Path) -> Result<()> {
     match fs::symlink_metadata(destination) {
         Ok(_) => bail!(
             "local template path already exists: {}",
@@ -50,7 +62,7 @@ fn copy_builtin_to_config(id: &str, destination: &Path) -> Result<()> {
         }
     }
     templates::copy_builtin(id, destination)
-        .with_context(|| format!("could not copy built-in template {id:?} to user config"))
+        .with_context(|| format!("could not copy built-in template {id:?} to a local pack"))
 }
 
 fn create_template_pack(id: &str, destination: &Path) -> Result<()> {

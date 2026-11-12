@@ -34,7 +34,11 @@ pub(crate) fn resolve_values(
     preset_values: &BTreeMap<String, String>,
     directory: &Path,
 ) -> Result<BTreeMap<String, String>> {
-    let definitions = definitions()?;
+    let definitions = if input_names.is_empty() {
+        BTreeMap::new()
+    } else {
+        definitions(Some(directory))?
+    };
 
     let mut values = preset_values.clone();
     let declared = input_names
@@ -91,8 +95,13 @@ pub(crate) fn resolve_values(
 pub(crate) fn validation_values(
     template_id: &str,
     input_names: &[String],
+    project_directory: Option<&Path>,
 ) -> Result<BTreeMap<String, String>> {
-    let definitions = definitions()?;
+    let definitions = if input_names.is_empty() {
+        BTreeMap::new()
+    } else {
+        definitions(project_directory)?
+    };
     input_names
         .iter()
         .map(|name| {
@@ -104,37 +113,53 @@ pub(crate) fn validation_values(
         .collect()
 }
 
-fn definitions() -> Result<BTreeMap<String, InputDefinition>> {
+fn definitions(project_directory: Option<&Path>) -> Result<BTreeMap<String, InputDefinition>> {
     let mut definitions = parse(BUILTIN_INPUTS)?;
-    let path = user_input_path()?;
-    match fs::symlink_metadata(&path) {
+    extend_definitions(&mut definitions, &user_input_path()?, "user")?;
+    if let Some(project_directory) = project_directory {
+        extend_definitions(
+            &mut definitions,
+            &project_directory.join(".inifra/inputs.toml"),
+            "project",
+        )?;
+    }
+    Ok(definitions)
+}
+
+fn extend_definitions(
+    definitions: &mut BTreeMap<String, InputDefinition>,
+    path: &Path,
+    scope: &str,
+) -> Result<()> {
+    match fs::symlink_metadata(path) {
         Ok(metadata) => {
             if metadata.file_type().is_symlink() || !metadata.is_file() {
                 bail!(
-                    "user input definitions must be a regular file: {}",
-                    path.display()
+                    "{scope} input definitions must be a regular file: {}",
+                    path.display(),
                 );
             }
-            let source = fs::read_to_string(&path).with_context(|| {
-                format!("could not read user input definitions {}", path.display())
+            let source = fs::read_to_string(path).with_context(|| {
+                format!(
+                    "could not read {scope} input definitions {}",
+                    path.display()
+                )
             })?;
-            definitions.extend(
-                parse(&source).with_context(|| {
-                    format!("invalid user input definitions {}", path.display())
-                })?,
-            );
+            definitions.extend(parse(&source).with_context(|| {
+                format!("invalid {scope} input definitions {}", path.display())
+            })?);
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(error) => {
             return Err(error).with_context(|| {
                 format!(
-                    "could not inspect user input definitions {}",
+                    "could not inspect {scope} input definitions {}",
                     path.display()
                 )
             });
         }
     }
-    Ok(definitions)
+    Ok(())
 }
 
 pub(crate) fn parse_assignments(

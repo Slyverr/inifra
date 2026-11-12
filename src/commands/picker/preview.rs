@@ -30,6 +30,9 @@ pub(super) fn preview_lines(template: &Template) -> Vec<PreviewLine> {
             PreviewStyle::Text,
         ),
         preview_line(String::new(), PreviewStyle::Text),
+        preview_line(text::ORIGIN, PreviewStyle::Section),
+        preview_line(template.origin.label(), PreviewStyle::Text),
+        preview_line(String::new(), PreviewStyle::Text),
         preview_line(text::FILES, PreviewStyle::Section),
     ];
     for file in &template.files {

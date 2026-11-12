@@ -13,8 +13,8 @@ use crate::cli::Command;
 
 pub(crate) fn run(command: Command) -> Result<()> {
     match command {
-        Command::List => list::run(),
-        Command::Validate { template } => validate::run(template.as_deref()),
+        Command::List { path } => list::run(path.as_deref()),
+        Command::Validate { template, path } => validate::run(template.as_deref(), path.as_deref()),
         Command::Generate {
             template,
             path,
@@ -41,7 +41,7 @@ pub(crate) fn run(command: Command) -> Result<()> {
             &inputs,
         ),
         Command::Preset { command } => preset::run(command),
-        Command::Edit { template } => edit::run(&template),
+        Command::Edit { template, path } => edit::run(&template, path.as_deref()),
         Command::Completions { shell, install } => completions::run(shell, install),
     }
 }
