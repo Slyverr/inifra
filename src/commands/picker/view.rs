@@ -26,71 +26,18 @@ impl Picker {
             .unwrap_or_default();
         let (width, terminal_height) = terminal::size()?;
         let width = usize::from(width);
-        let terminal_height = usize::from(terminal_height);
-        let top = usize::from(session.top).min(terminal_height.saturating_sub(1));
-        let height = session.rows.min(terminal_height.saturating_sub(top)).max(1);
-        let footer_y = top + height - 1;
-        let footer_gap = usize::from(height >= layout::FOOTER_GAP_MIN_HEIGHT);
-        let content_bottom = footer_y.saturating_sub(footer_gap);
-        let content_top = top + 2;
-        let side_by_side =
-            width >= layout::SIDE_BY_SIDE_MIN_WIDTH && height >= layout::SIDE_BY_SIDE_MIN_HEIGHT;
-        let (
-            list_x,
-            list_width,
-            list_top,
-            list_rows,
-            detail_x,
-            detail_width,
-            detail_top,
-            detail_rows,
-        ) = if side_by_side {
-            let list_width = (width * layout::LIST_WIDTH_PERCENT / 100)
-                .max(layout::LIST_MIN_WIDTH)
-                .min(width.saturating_sub(layout::DETAIL_MIN_WIDTH));
-            let detail_x = list_width + 4;
-            let list_top = content_top;
-            let detail_top = content_top;
-            let rows = content_bottom.saturating_sub(list_top);
-            (
-                0,
-                list_width,
-                list_top,
-                rows.min(entries.len()).max(1),
-                detail_x,
-                width.saturating_sub(detail_x),
-                detail_top,
-                content_bottom.saturating_sub(detail_top),
-            )
-        } else {
-            let list_x = 0;
-            let list_width = width;
-            let list_top = content_top;
-            let max_list_rows = content_bottom
-                .saturating_sub(list_top + layout::STACKED_DETAIL_RESERVE)
-                .max(1);
-            let list_rows = ((height.saturating_sub(layout::STACKED_HEIGHT_RESERVE) / 2)
-                .clamp(layout::STACKED_LIST_MIN_ROWS, layout::STACKED_LIST_MAX_ROWS))
-            .min(max_list_rows)
-            .min(entries.len().max(1));
-            let detail_top = list_top + list_rows + 1;
-            let detail_rows = content_bottom.saturating_sub(detail_top);
-            (
-                list_x,
-                list_width,
-                list_top,
-                list_rows,
-                0,
-                width,
-                detail_top,
-                detail_rows,
-            )
-        };
+        let layout = layout::PickerLayout::calculate(
+            width,
+            usize::from(terminal_height),
+            session.top,
+            session.rows,
+            entries.len(),
+        );
         let start = cursor_row
-            .saturating_sub(list_rows.saturating_sub(1) / 2)
-            .min(entries.len().saturating_sub(list_rows));
-        let end = (start + list_rows).min(entries.len());
-        let preview_width = detail_width.max(1);
+            .saturating_sub(layout.list_rows.saturating_sub(1) / 2)
+            .min(entries.len().saturating_sub(layout.list_rows));
+        let end = (start + layout.list_rows).min(entries.len());
+        let preview_width = layout.detail_width.max(1);
         let preview = preview_lines(templates[self.choices[self.cursor]])
             .into_iter()
             .flat_map(|line| {
@@ -102,8 +49,8 @@ impl Picker {
                     })
             })
             .collect::<Vec<_>>();
-        let max_scroll = if detail_rows > 0 {
-            preview.len().saturating_sub(detail_rows)
+        let max_scroll = if layout.detail_rows > 0 {
+            preview.len().saturating_sub(layout.detail_rows)
         } else {
             0
         };
@@ -116,14 +63,14 @@ impl Picker {
         let mut stdout = io::stdout();
         execute!(
             stdout,
-            cursor::MoveTo(0, terminal_row(top)),
+            cursor::MoveTo(0, terminal_row(layout.top)),
             Clear(ClearType::FromCursorDown),
             cursor::Hide
         )?;
 
         queue!(
             stdout,
-            cursor::MoveTo(0, terminal_row(top)),
+            cursor::MoveTo(0, terminal_row(layout.top)),
             Clear(ClearType::CurrentLine)
         )?;
         set_style(&mut stdout, colors, palette::TITLE)?;
@@ -143,10 +90,10 @@ impl Picker {
         write!(stdout, "{}", truncate(&title, width))?;
         reset_style(&mut stdout, colors)?;
 
-        if (self.search_mode || !self.query.is_empty()) && height > 1 {
+        if (self.search_mode || !self.query.is_empty()) && layout.height > 1 {
             queue!(
                 stdout,
-                cursor::MoveTo(0, terminal_row(top + 1)),
+                cursor::MoveTo(0, terminal_row(layout.top + 1)),
                 Clear(ClearType::CurrentLine)
             )?;
             set_style(&mut stdout, colors, palette::MUTED_HEADING)?;
@@ -161,29 +108,29 @@ impl Picker {
         }
 
         for (offset, entry) in entries.iter().take(end).skip(start).enumerate() {
-            let y = list_top + offset;
+            let y = layout.list_top + offset;
             match entry {
                 PickerEntry::Category(category) => {
                     draw_category(
                         &mut stdout,
                         colors,
-                        list_x,
+                        layout.list_x,
                         y,
                         &category.escape_debug().to_string(),
-                        list_width,
+                        layout.list_width,
                     )?;
                 }
                 PickerEntry::Blank => {
                     queue!(
                         stdout,
-                        cursor::MoveTo(terminal_row(list_x), terminal_row(y)),
+                        cursor::MoveTo(terminal_row(layout.list_x), terminal_row(y)),
                         Clear(ClearType::CurrentLine)
                     )?;
                 }
                 PickerEntry::NoResults => {
                     queue!(
                         stdout,
-                        cursor::MoveTo(terminal_row(list_x), terminal_row(y)),
+                        cursor::MoveTo(terminal_row(layout.list_x), terminal_row(y)),
                         Clear(ClearType::CurrentLine)
                     )?;
                     set_style(&mut stdout, colors, palette::MUTED_HEADING)?;
@@ -191,14 +138,14 @@ impl Picker {
                         stdout,
                         "{}{}",
                         text::INDENT,
-                        truncate(text::NO_MATCHES, list_width.saturating_sub(2))
+                        truncate(text::NO_MATCHES, layout.list_width.saturating_sub(2))
                     )?;
                     reset_style(&mut stdout, colors)?;
                 }
                 PickerEntry::Template(index, row) => {
                     queue!(
                         stdout,
-                        cursor::MoveTo(terminal_row(list_x), terminal_row(y)),
+                        cursor::MoveTo(terminal_row(layout.list_x), terminal_row(y)),
                         Clear(ClearType::CurrentLine)
                     )?;
                     let active = *index == self.cursor;
@@ -249,26 +196,29 @@ impl Picker {
                         templates,
                         self.choices[*index],
                         active,
-                        list_width.saturating_sub(6),
+                        layout.list_width.saturating_sub(6),
                     )?;
                 }
             }
         }
 
-        if detail_rows > 0
+        if layout.detail_rows > 0
             && let Some(index) = sticky_heading_index
         {
-            let clear = if detail_x == 0 {
+            let clear = if layout.detail_x == 0 {
                 ClearType::CurrentLine
             } else {
                 ClearType::UntilNewLine
             };
             queue!(
                 stdout,
-                cursor::MoveTo(terminal_row(detail_x), terminal_row(detail_top)),
+                cursor::MoveTo(
+                    terminal_row(layout.detail_x),
+                    terminal_row(layout.detail_top)
+                ),
                 Clear(clear)
             )?;
-            write_preview_line(&mut stdout, colors, &preview[index], detail_width)?;
+            write_preview_line(&mut stdout, colors, &preview[index], layout.detail_width)?;
             reset_style(&mut stdout, colors)?;
         }
 
@@ -277,27 +227,27 @@ impl Picker {
             .enumerate()
             .skip(self.preview_scroll)
             .filter(|(index, _)| Some(*index) != sticky_heading_index)
-            .take(detail_rows.saturating_sub(1))
+            .take(layout.detail_rows.saturating_sub(1))
             .enumerate()
         {
-            let y = detail_top + 1 + offset;
-            let clear = if detail_x == 0 {
+            let y = layout.detail_top + 1 + offset;
+            let clear = if layout.detail_x == 0 {
                 ClearType::CurrentLine
             } else {
                 ClearType::UntilNewLine
             };
             queue!(
                 stdout,
-                cursor::MoveTo(terminal_row(detail_x), terminal_row(y)),
+                cursor::MoveTo(terminal_row(layout.detail_x), terminal_row(y)),
                 Clear(clear)
             )?;
-            write_preview_line(&mut stdout, colors, line, detail_width)?;
+            write_preview_line(&mut stdout, colors, line, layout.detail_width)?;
             reset_style(&mut stdout, colors)?;
         }
 
         queue!(
             stdout,
-            cursor::MoveTo(0, terminal_row(footer_y)),
+            cursor::MoveTo(0, terminal_row(layout.footer_y)),
             Clear(ClearType::CurrentLine)
         )?;
         if let Some(notice) = self.notice.as_deref() {

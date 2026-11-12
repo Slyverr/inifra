@@ -8,6 +8,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::templates::Template;
 
+mod layout;
 mod preview;
 mod state;
 mod view;
@@ -155,22 +156,6 @@ pub(super) mod palette {
     pub const NOTICE: TextStyle = TEMPLATE_VALUE;
     pub const FOOTER_KEY: TextStyle = TITLE;
     pub const FOOTER_TEXT: TextStyle = SOURCE_TEXT;
-}
-
-pub(super) mod layout {
-    pub const PREVIEW_SCROLL_ROWS: usize = 8;
-    pub const MAX_TERMINAL_ROWS: usize = 32;
-    pub const TERMINAL_ROW_RESERVE: u16 = 6;
-    pub const SIDE_BY_SIDE_MIN_WIDTH: usize = 100;
-    pub const SIDE_BY_SIDE_MIN_HEIGHT: usize = 18;
-    pub const LIST_WIDTH_PERCENT: usize = 42;
-    pub const LIST_MIN_WIDTH: usize = 36;
-    pub const DETAIL_MIN_WIDTH: usize = 48;
-    pub const FOOTER_GAP_MIN_HEIGHT: usize = 16;
-    pub const STACKED_DETAIL_RESERVE: usize = 9;
-    pub const STACKED_HEIGHT_RESERVE: usize = 7;
-    pub const STACKED_LIST_MIN_ROWS: usize = 4;
-    pub const STACKED_LIST_MAX_ROWS: usize = 14;
 }
 
 pub(super) fn choose(catalog: &[Template]) -> Result<Option<Vec<String>>> {
