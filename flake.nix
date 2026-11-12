@@ -31,6 +31,7 @@
             version = cargoToml.package.version;
             src = pkgs.lib.cleanSource ./.;
             cargoLock.lockFile = ./Cargo.lock;
+            nativeCheckInputs = [ pkgs.git ];
             meta = {
               description = cargoToml.package.description;
               mainProgram = "inifra";

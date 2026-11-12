@@ -9,7 +9,9 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add project-pinned Git template sources with explicit syncing and offline generation.
+- Discover project-local packs and shared input definitions under `.inifra/` for a selected project path.
+- Add pinned Git template sources with explicit syncing and offline generation.
+- Report added, updated, and removed templates when updating a cached Git source.
 
 ## [0.4.0] - 2026-11-12
 
