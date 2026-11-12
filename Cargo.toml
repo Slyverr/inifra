@@ -5,6 +5,7 @@ edition = "2024"
 rust-version = "1.88"
 description = "CLI for adding reusable starter files to a project"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/Slyverr/inifra"
 include = [
   "/Cargo.lock",
   "/CHANGELOG.md",

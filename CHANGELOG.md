@@ -9,11 +9,11 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add `inifra validate [TEMPLATE_ID]` to check templates without writing files.
 - Allow `INIFRA_CONFIG_DIR` to override the platform's user config directory.
 - Add a contributor guide starter and MIT and Apache-2.0 license templates.
 - Add agent, architecture, development, GitHub collaboration, and security policy starters.
 - Install dynamic completions for supported shells without editing startup files.
+- Add `inifra validate [TEMPLATE_ID]` to check bundled and user-local templates without writing files.
 
 ### Removed
 
