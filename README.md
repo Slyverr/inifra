@@ -10,7 +10,7 @@ Install the latest published release with Cargo. This requires Rust 1.88 or
 newer and Git:
 
 ```sh
-cargo install --git https://github.com/Slyverr/inifra --tag v0.5.0 --locked
+cargo install --git https://github.com/Slyverr/inifra --tag v0.6.0 --locked
 ```
 
 ## Get started
