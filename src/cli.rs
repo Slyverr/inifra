@@ -100,6 +100,11 @@ pub(crate) enum Command {
         #[command(subcommand)]
         command: PresetCommand,
     },
+    /// Manage pinned Git template sources for a project
+    Source {
+        #[command(subcommand)]
+        command: SourceCommand,
+    },
     /// Open a local template in the configured editor
     Edit {
         /// Template ID to edit or create
@@ -145,9 +150,63 @@ pub(crate) enum PresetCommand {
             add = ArgValueCompleter::new(crate::completions::input_candidates)
         )]
         inputs: Vec<String>,
+        /// Project directory whose templates may be saved in the preset
+        #[arg(short, long, value_name = "DIR", default_value = ".", value_hint = ValueHint::DirPath)]
+        path: PathBuf,
         /// Replace an existing preset
         #[arg(long)]
         overwrite: bool,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum SourceCommand {
+    /// List the project's pinned template sources
+    List {
+        /// Project directory containing .inifra/sources.toml
+        #[arg(short, long, value_name = "DIR", default_value = ".", value_hint = ValueHint::DirPath)]
+        path: PathBuf,
+    },
+    /// Add a Git source and pin the fetched revision
+    Add {
+        /// Source name used to qualify template IDs
+        name: String,
+        /// Git repository URL
+        url: String,
+        /// Branch, tag, or commit to resolve and pin
+        #[arg(long, value_name = "REF")]
+        revision: String,
+        /// Directory inside the repository containing template packs
+        #[arg(long, default_value = "templates", value_name = "DIR")]
+        directory: String,
+        /// Project directory to update
+        #[arg(short, long, value_name = "DIR", default_value = ".", value_hint = ValueHint::DirPath)]
+        path: PathBuf,
+    },
+    /// Fetch missing pinned revisions into the local cache
+    Sync {
+        /// Project directory whose source registry should be synced
+        #[arg(short, long, value_name = "DIR", default_value = ".", value_hint = ValueHint::DirPath)]
+        path: PathBuf,
+    },
+    /// Update a source pin to a newly resolved revision
+    Update {
+        /// Source name
+        name: String,
+        /// Branch, tag, or commit to resolve and pin
+        #[arg(long, value_name = "REF")]
+        revision: String,
+        /// Project directory containing the source registry
+        #[arg(short, long, value_name = "DIR", default_value = ".", value_hint = ValueHint::DirPath)]
+        path: PathBuf,
+    },
+    /// Remove a source declaration from the project
+    Remove {
+        /// Source name
+        name: String,
+        /// Project directory containing the source registry
+        #[arg(short, long, value_name = "DIR", default_value = ".", value_hint = ValueHint::DirPath)]
+        path: PathBuf,
     },
 }
 

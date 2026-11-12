@@ -7,8 +7,17 @@ use anyhow::{Context, Result, bail};
 use crate::{output, templates};
 
 pub(super) fn run(id: &str, project_directory: Option<&Path>) -> Result<()> {
-    templates::validate_id(id)?;
+    if !id.contains('/') {
+        templates::validate_id(id)?;
+    }
     let catalog = templates::discover_for(project_directory)?;
+    if catalog
+        .iter()
+        .any(|template| template.id == id && template.origin == templates::TemplateOrigin::Remote)
+    {
+        bail!("remote templates are read-only; copy the pack into .inifra/templates to edit it");
+    }
+    templates::validate_id(id)?;
     let user_pack_path = templates::local_pack_path(id)?;
     let project_pack_path = project_directory
         .map(|directory| templates::project_pack_path(directory, id))
@@ -24,6 +33,11 @@ pub(super) fn run(id: &str, project_directory: Option<&Path>) -> Result<()> {
             templates::TemplateOrigin::ProjectLocal => project_pack_path
                 .as_ref()
                 .context("project template has no project directory")?,
+            templates::TemplateOrigin::Remote => {
+                bail!(
+                    "remote templates are read-only; copy the pack into .inifra/templates to edit it"
+                )
+            }
         };
         let files = templates::source_files(pack_path)?;
         return output::open_files_in_editor(&files)

@@ -129,7 +129,12 @@ fn completion_arguments() -> Vec<String> {
 }
 
 fn project_directory_for(arguments: &[String]) -> Option<PathBuf> {
-    let command = arguments.first()?.as_str();
+    let first = arguments.first()?.as_str();
+    let command = if first == "preset" && arguments.get(1).is_some_and(|arg| arg == "save") {
+        "preset-save"
+    } else {
+        first
+    };
     let mut path = None;
     let mut index = 1;
     while index < arguments.len() {
@@ -148,6 +153,7 @@ fn project_directory_for(arguments: &[String]) -> Option<PathBuf> {
     match command {
         "generate" | "init" => Some(path.unwrap_or_else(|| PathBuf::from("."))),
         "list" | "validate" | "edit" => path,
+        "preset-save" => Some(path.unwrap_or_else(|| PathBuf::from("."))),
         _ => None,
     }
 }

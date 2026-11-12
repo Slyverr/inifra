@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::Path;
 
 use anyhow::{Result, bail};
 
@@ -14,8 +15,16 @@ pub(super) fn run(command: PresetCommand) -> Result<()> {
             description,
             templates: template_ids,
             inputs,
+            path,
             overwrite,
-        } => save(&name, &description, &template_ids, &inputs, overwrite),
+        } => save(
+            &name,
+            &description,
+            &template_ids,
+            &inputs,
+            &path,
+            overwrite,
+        ),
     }
 }
 
@@ -48,12 +57,13 @@ fn save(
     description: &str,
     template_ids: &[String],
     assignments: &[String],
+    project_directory: &Path,
     overwrite: bool,
 ) -> Result<()> {
     if template_ids.is_empty() {
         bail!("save at least one template with --template ID");
     }
-    let catalog = templates::discover()?;
+    let catalog = templates::discover_for(Some(project_directory))?;
     let mut input_names = Vec::new();
     let mut seen_ids = HashSet::new();
     for template_id in template_ids {

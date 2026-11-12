@@ -5,6 +5,7 @@ mod list;
 mod picker;
 mod preset;
 mod setup;
+mod source;
 mod validate;
 
 use anyhow::Result;
@@ -41,6 +42,7 @@ pub(crate) fn run(command: Command) -> Result<()> {
             &inputs,
         ),
         Command::Preset { command } => preset::run(command),
+        Command::Source { command } => source::run(command),
         Command::Edit { template, path } => edit::run(&template, path.as_deref()),
         Command::Completions { shell, install } => completions::run(shell, install),
     }

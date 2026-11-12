@@ -15,6 +15,7 @@ pub(crate) enum TemplateOrigin {
     Builtin,
     UserLocal,
     ProjectLocal,
+    Remote,
 }
 
 impl TemplateOrigin {
@@ -23,6 +24,7 @@ impl TemplateOrigin {
             Self::Builtin => "built-in",
             Self::UserLocal => "user-local",
             Self::ProjectLocal => "project-local",
+            Self::Remote => "remote",
         }
     }
 }

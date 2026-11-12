@@ -5,6 +5,7 @@ mod local;
 mod manifest;
 mod model;
 mod render;
+mod sources;
 
 use anyhow::{Context, Result};
 
@@ -12,10 +13,7 @@ pub(crate) use inputs::{parse_assignments, resolve_values, validation_values};
 pub(crate) use model::TemplateFile;
 pub(crate) use model::{Template, TemplateOrigin};
 pub(crate) use render::render_text_files;
-
-pub(crate) fn discover() -> Result<Vec<Template>> {
-    discover_for(None)
-}
+pub(crate) use sources::SourceRegistry;
 
 pub(crate) fn discover_for(project_directory: Option<&std::path::Path>) -> Result<Vec<Template>> {
     let local_root = crate::paths::config_root()?
@@ -25,8 +23,15 @@ pub(crate) fn discover_for(project_directory: Option<&std::path::Path>) -> Resul
         return catalog::discover(Some(&local_root));
     };
     let project_root = project_templates_root(project_directory)?;
-    catalog::discover_with_project(Some(&local_root), Some(&project_root))
+    let mut templates = catalog::discover_with_project(Some(&local_root), Some(&project_root))?;
+    templates.extend(sources::discover_project_sources(project_directory)?);
+    Ok(templates)
 }
+
+pub(crate) use sources::{
+    fetch_source, read_project_registry, source_is_cached, sync_project_sources,
+    write_project_registry,
+};
 
 fn project_templates_root(project_directory: &std::path::Path) -> Result<std::path::PathBuf> {
     match std::fs::metadata(project_directory) {
