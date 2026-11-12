@@ -3,6 +3,20 @@
 Read [README.md](README.md) for the current project state and follow
 [CONTRIBUTING.md](CONTRIBUTING.md) for development and commit conventions.
 
+## Commits and Releases
+
+- Follow the commit, versioning, changelog, and release policy in
+  [CONTRIBUTING.md](CONTRIBUTING.md); keep that file as the detailed source of
+  truth.
+- During ordinary development, record noteworthy user-facing changes under
+  `Unreleased`. Do not bump versions or prepare releases unless explicitly
+  requested.
+- When explicitly asked to prepare a release, agents may update required
+  version and changelog files. Do not create or push version tags, push
+  branches, or publish a GitHub Release without explicit authorization.
+- Keep `Cargo.toml`, `Cargo.lock`, `CHANGELOG.md`, and the release tag
+  consistent. Never move an existing published tag.
+
 ## Goal
 
 - Build a useful Rust CLI for selecting and generating reusable project files

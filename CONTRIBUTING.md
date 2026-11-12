@@ -49,54 +49,106 @@ Benchmark only when a change has a concrete performance goal or a measured
 performance concern. Use representative workloads and compare against a
 baseline; do not add benchmark infrastructure speculatively.
 
+## Public interface and versioning
+
+Inifra's public interface includes its CLI commands, options, prompts and
+interactive picker behavior; template pack and shared-input formats; project
+and user configuration formats; and the files and effects produced by those
+features. Internal Rust modules and implementation details are not public
+interfaces unless they become a documented library API.
+
+Use Semantic Versioning (`MAJOR.MINOR.PATCH`). Before `1.0.0`, the public
+interface is unstable: use MINOR for meaningful new functionality or
+incompatible changes, and PATCH for backward-compatible bug fixes. Choose the
+highest applicable increment for a release. Use `1.0.0` when the interface is
+ready for compatibility guarantees. Prerelease identifiers such as
+`0.8.0-alpha.1`, `0.8.0-beta.1`, and `0.8.0-rc.1` may be used when appropriate.
+
+A commit does not imply a release. Group changes into deliberate releases;
+there is no minimum number of commits or fixed release schedule. A PATCH can
+group fixes, a MINOR can include features and fixes, and a MAJOR can include
+breaking changes, features, and fixes. Critical fixes may be released sooner.
+Keep internal changes unreleased when publication is unnecessary.
+
 ## Changelog and releases
 
 Record notable user-facing changes in `CHANGELOG.md` under `Unreleased`,
 grouped as `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`
-as needed. Curate entries for users; do not copy the commit log.
+as needed. Curate entries for users; do not copy the commit log. When preparing
+a release, move applicable entries to a versioned section with its release
+date and retain all historical entries.
 
-Prepare a release in the final change commit for that release. Move changelog
-entries to `## [X.Y.Z] - YYYY-MM-DD`, add a fresh `Unreleased` section, update
-the package version in `Cargo.toml`, regenerate `Cargo.lock` with Cargo, and
-update the README install tag. Keep that commit focused on the final feature or
-fix; do not add a separate release-only commit. Its subject should describe the
-actual change.
+Use `vX.Y.Z` for release tags. Every published version has one annotated,
+signed tag on its exact validated release commit. Published tags and release
+identifiers are immutable. Publish a GitHub Release for distributed versions,
+with concise notes based on the changelog and artifacts when applicable.
 
-Before tagging, run the development checks above and `cargo package --locked`
-on `develop`. Create a signed annotated tag directly on the final change
-commit in the `develop` worktree. Then fast-forward `main` from the `main`
-worktree and push both branches and the tag:
+Prepare a release as follows:
 
-```sh
-# In the develop worktree
-git tag -s vX.Y.Z -m "Inifra vX.Y.Z" develop
+1. Complete the intended changes on `develop` and run the development checks.
+2. Choose the highest applicable SemVer increment. Move noteworthy entries
+   from `Unreleased` to `## [X.Y.Z] - YYYY-MM-DD`, add a fresh `Unreleased`
+   section, update `Cargo.toml`, regenerate `Cargo.lock` with
+   `cargo update --workspace`, and update release-specific metadata such as
+   the README install tag when needed.
+3. Release-preparation commits are optional. Make a non-empty
+   `chore(release): prepare vX.Y.Z` commit when tracked release files need
+   changes. Do not create an empty commit merely to mark a release. In Inifra,
+   the package version, lockfile, and changelog normally require this commit.
+4. Run the development checks and `cargo package --locked` on the exact
+   candidate commit. Fast-forward `main` to that validated commit, push both
+   branches, and wait for branch CI to pass.
+5. Create and push a signed annotated tag on that exact commit:
 
-# In the main worktree
-git merge --ff-only develop
-git push origin develop main vX.Y.Z
-```
+   ```sh
+   git tag -s vX.Y.Z -m "Inifra vX.Y.Z" main
+   git push origin vX.Y.Z
+   ```
 
-Wait for tag CI to pass before publishing the GitHub release. Use the matching
-changelog entry for its notes. CI verifies that the tag points to the commit
-being checked and that its package, lockfile, and changelog versions agree.
+6. Wait for tag CI to pass, then publish the GitHub Release with the matching
+   changelog entry as its notes. Attach distributable artifacts when
+   applicable.
+
+CI runs on pushes, pull requests, and tags. On release tags it verifies that
+the tag is annotated, points to the checked commit, and agrees with the
+package, lockfile, and changelog versions. CI does not publish releases.
+Version declarations, tags, artifacts, and published package versions must
+agree.
+
+## Branches and pull requests
+
+Keep the established two-branch workflow: `develop` is the integration branch
+and `main` is kept at validated release commits. Contributors should work in
+short-lived branches, including branches in forks, and target pull requests to
+`develop`. After a release candidate on `develop` passes checks, fast-forward
+`main` to the same commit. Do not add permanent release branches or change the
+branch and worktree layout without an explicit project decision.
 
 ## Commit conventions
 
-Use `type(scope): message`, for example:
+Use Conventional Commits, with a type and an optional scope:
 
 ```text
 feat(templates): add shared template inputs
-chore(deps): add TOML manifest parsing
+fix(cli): handle an empty destination
+refactor(output): isolate editor workflows
+perf(templates): reduce repeated parsing
+docs: explain template sources
+test(cli): cover invalid options
+build: update Rust dependencies
+ci: validate release metadata
+chore: maintain repository tooling
 ```
 
-Choose a type such as `feat`, `fix`, `refactor`, `test`, `docs`, `chore`,
-`perf`, or `ci`. Use the affected command or area as the scope, with at most
-two path segments (`A/B`). Omit an unnecessary scope (`docs: explain setup`).
-Use `chore(deps): message` for dependency changes.
+Use `!` in the subject or a `BREAKING CHANGE:` footer for incompatible public
+interface changes. Other commit types do not imply a version increment by
+themselves. Keep each commit logically cohesive; avoid unrelated work and
+unnecessary administrative commits.
 
-Add a brief body only when the subject cannot express useful context. A body
-may have a paragraph, related bullets, a closing note, and a trailer; include
-only what helps and put trailers last:
+Add a body only when it conveys useful context that does not fit in the
+subject. When present, use this order: one short introductory paragraph, a
+bullet list of changes or details, optional short concluding paragraph(s),
+then any trailers. Keep that structure consistent:
 
 ```text
 fix(templates): reject empty output paths
@@ -106,9 +158,13 @@ Reject empty paths before planning generated files.
 - Cover empty and whitespace-only paths.
 - Keep the existing error message.
 
+This validation runs before any output files are written.
+
 Verified with `cargo test --locked`.
 Refs: #123
 ```
 
-Make each commit one coherent change; fold fixes into it instead of adding a
-chain of generic `fix` commits.
+Use `#123` to refer to a GitHub issue or pull request when useful. Use closing
+keywords such as `Closes #123` when the commit or pull request should close an
+issue. Put trailers last. Do not create a chain of generic fix commits when a
+cohesive correction can be folded into its logical change.
