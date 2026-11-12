@@ -41,12 +41,28 @@ fn validate(manifest: &Manifest) -> Result<()> {
     if manifest.description.trim().is_empty() {
         bail!("template {} must have a description", manifest.id);
     }
+    if has_control_characters(&manifest.description) {
+        bail!(
+            "template {} description must not contain control characters",
+            manifest.id
+        );
+    }
     if manifest
         .category
         .as_ref()
         .is_some_and(|category| category.trim().is_empty())
     {
         bail!("template {} must not have an empty category", manifest.id);
+    }
+    if manifest
+        .category
+        .as_ref()
+        .is_some_and(|category| has_control_characters(category))
+    {
+        bail!(
+            "template {} category must not contain control characters",
+            manifest.id
+        );
     }
     let mut input_names = HashSet::with_capacity(manifest.inputs.len());
     for input in &manifest.inputs {
@@ -106,7 +122,7 @@ pub(super) fn validate_id(id: &str) -> Result<()> {
 
 fn validate_relative_path(label: &str, value: &str) -> Result<std::path::PathBuf> {
     let path = Path::new(value);
-    if value.contains('\0')
+    if has_control_characters(value)
         || path.as_os_str().is_empty()
         || path
             .components()
@@ -117,6 +133,10 @@ fn validate_relative_path(label: &str, value: &str) -> Result<std::path::PathBuf
         );
     }
     Ok(path.to_path_buf())
+}
+
+fn has_control_characters(value: &str) -> bool {
+    value.chars().any(char::is_control)
 }
 
 #[cfg(test)]
@@ -175,6 +195,30 @@ output = "docs/NOTES.md"
         assert!(parse(&unsafe_source).is_err());
 
         let unsafe_output = BASE.replace("output = \"docs/NOTES.md\"", "output = \"/absolute\"");
+        assert!(parse(&unsafe_output).is_err());
+    }
+
+    #[test]
+    fn rejects_control_characters_in_display_metadata_and_paths() {
+        let unsafe_description = BASE.replace(
+            "description = \"Project notes\"",
+            "description = \"Project\\u001b[2J notes\"",
+        );
+        assert!(parse(&unsafe_description).is_err());
+
+        let unsafe_category = BASE.replace(
+            "description = \"Project notes\"",
+            "description = \"Project notes\"\ncategory = \"Project\\nGuidance\"",
+        );
+        assert!(parse(&unsafe_category).is_err());
+
+        let unsafe_source = BASE.replace("source = \"NOTES.md\"", "source = \"NOTES\\t.md\"");
+        assert!(parse(&unsafe_source).is_err());
+
+        let unsafe_output = BASE.replace(
+            "output = \"docs/NOTES.md\"",
+            "output = \"docs/NOTES\\u001b[2J.md\"",
+        );
         assert!(parse(&unsafe_output).is_err());
     }
 

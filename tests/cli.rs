@@ -800,6 +800,27 @@ fn malformed_local_manifests_report_an_error() {
 }
 
 #[test]
+fn list_rejects_terminal_control_characters_in_template_metadata() {
+    let config = tempdir().expect("create isolated config directory");
+    let pack = templates_root(config.path()).join("unsafe-description");
+    std::fs::create_dir_all(&pack).expect("create local template pack");
+    std::fs::write(
+        pack.join("template.toml"),
+        "schema_version = 1\nid = \"unsafe-description\"\ndescription = \"Safe text\\u001b[2J\"\n\n[[files]]\nsource = \"source.txt\"\noutput = \"NOTES.md\"\n",
+    )
+    .expect("write manifest with terminal control character");
+    std::fs::write(pack.join("source.txt"), "Notes\n").expect("write template source");
+
+    let output = run_cli_with_config(&["list"], config.path());
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("description must not contain control characters"));
+    assert!(!output.stdout.contains(&0x1b));
+    assert!(!output.stderr.contains(&0x1b));
+}
+
+#[test]
 fn generate_renders_jinja_text_sources() {
     let config = tempdir().expect("create isolated config directory");
     let pack = templates_root(config.path()).join("rendered");
