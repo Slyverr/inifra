@@ -96,13 +96,56 @@ fn validate_checks_all_bundled_templates_without_creating_config_files() {
 #[test]
 fn validate_filters_by_template_id() {
     let config = tempdir().expect("create isolated config directory");
-    let output = run_cli_with_config(&["validate", "agents"], config.path());
+    write_local_pack(
+        config.path(),
+        "notes",
+        "Project notes",
+        "NOTES.md",
+        "Notes\n",
+    );
+    let output = run_cli_with_config(&["validate", "notes"], config.path());
 
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
-        "valid agents"
+        "valid notes"
     );
+}
+
+#[test]
+fn validate_rejects_malformed_local_manifests() {
+    let config = tempdir().expect("create isolated config directory");
+    let pack = templates_root(config.path()).join("broken");
+    std::fs::create_dir_all(&pack).expect("create local template pack");
+    std::fs::write(pack.join("template.toml"), "schema_version = [")
+        .expect("write malformed manifest");
+
+    let output = run_cli_with_config(&["validate"], config.path());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("template.toml"));
+    assert!(stderr.contains("could not parse template manifest"));
+}
+
+#[test]
+fn validate_rejects_template_inputs_without_shared_definitions() {
+    let config = tempdir().expect("create isolated config directory");
+    let pack = templates_root(config.path()).join("broken");
+    std::fs::create_dir_all(&pack).expect("create local template pack");
+    std::fs::write(
+        pack.join("template.toml"),
+        "schema_version = 1\nid = \"broken\"\ndescription = \"Broken template\"\ninputs = [\"missing_input\"]\n\n[[files]]\nsource = \"README.md.j2\"\noutput = \"README.md\"\n",
+    )
+    .expect("write manifest");
+    std::fs::write(pack.join("README.md.j2"), "# Example\n").expect("write template source");
+
+    let output = run_cli_with_config(&["validate", "broken"], config.path());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("missing_input"));
+    assert!(stderr.contains("undefined input"));
 }
 
 #[test]
