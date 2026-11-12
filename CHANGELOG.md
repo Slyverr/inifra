@@ -7,6 +7,8 @@ and this project uses [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-12
+
 ### Added
 
 - Allow `INIFRA_CONFIG_DIR` to override the platform's user config directory.
