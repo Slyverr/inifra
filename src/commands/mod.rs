@@ -5,6 +5,7 @@ mod list;
 mod picker;
 mod preset;
 mod setup;
+mod validate;
 
 use anyhow::Result;
 
@@ -13,6 +14,7 @@ use crate::cli::Command;
 pub(crate) fn run(command: Command) -> Result<()> {
     match command {
         Command::List => list::run(),
+        Command::Validate { template } => validate::run(template.as_deref()),
         Command::Generate {
             template,
             path,

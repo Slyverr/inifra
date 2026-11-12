@@ -88,6 +88,22 @@ pub(crate) fn resolve_values(
     Ok(values)
 }
 
+pub(crate) fn validation_values(
+    template_id: &str,
+    input_names: &[String],
+) -> Result<BTreeMap<String, String>> {
+    let definitions = definitions()?;
+    input_names
+        .iter()
+        .map(|name| {
+            if !definitions.contains_key(name) {
+                bail!("template {template_id:?} refers to undefined input {name:?}");
+            }
+            Ok((name.clone(), format!("inifra-validation-{name}")))
+        })
+        .collect()
+}
+
 fn definitions() -> Result<BTreeMap<String, InputDefinition>> {
     let mut definitions = parse(BUILTIN_INPUTS)?;
     let path = user_input_path()?;

@@ -70,10 +70,80 @@ fn help_lists_available_commands() {
     assert!(output.status.success());
     let help = String::from_utf8_lossy(&output.stdout);
     assert!(help.contains("list"));
+    assert!(help.contains("validate"));
     assert!(help.contains("generate"));
     assert!(help.contains("init"));
     assert!(help.contains("preset"));
     assert!(help.contains("completions"));
+}
+
+#[test]
+fn validate_checks_all_bundled_templates_without_creating_config_files() {
+    let config = tempdir().expect("create isolated config directory");
+    let output = run_cli_with_config(&["validate"], config.path());
+
+    assert!(
+        output.status.success(),
+        "validation failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("valid agents"));
+    assert!(stdout.contains("valid readme"));
+    assert!(!config.path().join("inifra").exists());
+}
+
+#[test]
+fn validate_filters_by_template_id() {
+    let config = tempdir().expect("create isolated config directory");
+    let output = run_cli_with_config(&["validate", "agents"], config.path());
+
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        "valid agents"
+    );
+}
+
+#[test]
+fn validate_reports_undefined_values_with_the_template_and_output_path() {
+    let config = tempdir().expect("create isolated config directory");
+    let pack = templates_root(config.path()).join("broken");
+    std::fs::create_dir_all(&pack).expect("create local template pack");
+    std::fs::write(
+        pack.join("template.toml"),
+        "schema_version = 1\nid = \"broken\"\ndescription = \"Broken template\"\n\n[[files]]\nsource = \"README.md.j2\"\noutput = \"README.md\"\n",
+    )
+    .expect("write manifest");
+    std::fs::write(pack.join("README.md.j2"), "# {{ missing_value }}\n")
+        .expect("write template source");
+
+    let output = run_cli_with_config(&["validate", "broken"], config.path());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("broken"));
+    assert!(stderr.contains("README.md"));
+    assert!(stderr.contains("undefined"));
+    assert!(!config.path().join("inifra/inputs.toml").exists());
+}
+
+#[test]
+fn validate_reports_missing_template_sources() {
+    let config = tempdir().expect("create isolated config directory");
+    let pack = templates_root(config.path()).join("broken");
+    std::fs::create_dir_all(&pack).expect("create local template pack");
+    std::fs::write(
+        pack.join("template.toml"),
+        "schema_version = 1\nid = \"broken\"\ndescription = \"Broken template\"\n\n[[files]]\nsource = \"missing.md\"\noutput = \"README.md\"\n",
+    )
+    .expect("write manifest");
+
+    let output = run_cli_with_config(&["validate"], config.path());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("missing.md"));
 }
 
 #[test]

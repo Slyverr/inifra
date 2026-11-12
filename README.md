@@ -10,11 +10,13 @@ Use Rust 1.88 or newer, or run commands inside the Nix development shell.
 
 ```sh
 cargo run --locked -- list
+cargo run --locked -- validate
 cargo run --locked -- init --path ./my-project
 ```
 
 `init` opens the interactive template picker in a terminal. Use
-`cargo run --locked -- --help` to see all commands and options.
+`cargo run --locked -- --help` to see all commands and options. `validate`
+checks bundled and personal templates without writing project files.
 
 ## Templates and configuration
 

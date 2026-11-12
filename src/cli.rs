@@ -19,6 +19,12 @@ struct Cli {
 pub(crate) enum Command {
     /// List available starter templates
     List,
+    /// Validate bundled and user-local templates without writing files
+    Validate {
+        /// Validate only this template ID
+        #[arg(add = ArgValueCompleter::new(crate::completions::template_candidates))]
+        template: Option<String>,
+    },
     /// Generate one template in a project directory
     Generate {
         /// Template ID to generate
