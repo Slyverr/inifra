@@ -91,6 +91,29 @@ fn missing_required_input_does_not_create_target() {
 }
 
 #[test]
+fn overwrite_must_be_explicit() {
+    let target = tempfile::tempdir().unwrap();
+    let path = target.path().join(".editorconfig");
+    std::fs::write(&path, "custom").unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "generate",
+            "editorconfig",
+            "--target",
+            target.path().to_str().unwrap(),
+            "--overwrite",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_ne!(std::fs::read_to_string(path).unwrap(), "custom");
+}
+
+#[test]
 fn validate_rejects_invalid_template_syntax() {
     let root = tempfile::tempdir().unwrap();
     let pack = root.path().join("category/broken");
