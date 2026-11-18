@@ -1,5 +1,6 @@
 //! Discovery of categorized template packs on disk.
 
+use include_dir::{Dir, include_dir};
 use serde::Deserialize;
 use std::{
     collections::BTreeSet,
@@ -7,6 +8,16 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
 };
+
+static BUNDLED: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../templates");
+
+/// Extracts the compile-time bundled catalog into an existing private directory.
+///
+/// # Errors
+/// Returns an error when catalog files cannot be written.
+pub fn extract_bundled(destination: &Path) -> Result<(), std::io::Error> {
+    BUNDLED.extract(destination)
+}
 
 /// A discovered template and its location in the catalog.
 #[derive(Debug, Clone, PartialEq, Eq)]
