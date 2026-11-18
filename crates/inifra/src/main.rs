@@ -91,8 +91,27 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .find(|pack| pack.id == id)
                 .ok_or_else(|| format!("unknown template {id:?}"))?;
             println!("{}: {}", pack.id, pack.description);
+            println!("Files:");
             for source in sources::discover(&pack.directory)? {
                 println!("  {}", source.output.display());
+            }
+            if !pack.inputs.is_empty() {
+                let definitions = inputs::load(&catalog_path.join("inputs.toml"))?;
+                println!("Inputs:");
+                for name in &pack.inputs {
+                    let definition = definitions.get(name).ok_or_else(|| {
+                        format!("template {:?} references unknown input {name:?}", pack.id)
+                    })?;
+                    let requirement = if definition.required {
+                        "required"
+                    } else {
+                        "optional"
+                    };
+                    println!("  {name} ({requirement})  {}", definition.prompt);
+                    if let Some(default) = &definition.default {
+                        println!("    Default: {default}");
+                    }
+                }
             }
         }
         Command::Validate => {
