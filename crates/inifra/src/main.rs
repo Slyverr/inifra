@@ -1,10 +1,6 @@
 use clap::{Parser, Subcommand};
-use inifra_core::{apply, catalog, inputs, render, sources, workflow};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    error::Error,
-    path::PathBuf,
-};
+use inifra_core::{apply, catalog, inputs, sources, workflow};
+use std::{collections::BTreeMap, error::Error, path::PathBuf};
 
 #[derive(Parser)]
 #[command(version, about = "Create project files from reusable templates")]
@@ -78,33 +74,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
         }
         Command::Validate => {
-            let definitions = inputs::load(&catalog_path.join("inputs.toml"))?;
-            for pack in &packs {
-                for name in &pack.inputs {
-                    if !definitions.contains_key(name) {
-                        return Err(format!(
-                            "template {:?} references unknown input {name:?}",
-                            pack.id
-                        )
-                        .into());
-                    }
-                }
-                let files = sources::discover(&pack.directory)?;
-                if files.is_empty() {
-                    return Err(format!("template {:?} has no sources", pack.id).into());
-                }
-                let mut outputs = BTreeSet::new();
-                for source in files {
-                    if !outputs.insert(source.output.to_string_lossy().to_lowercase()) {
-                        return Err(
-                            format!("template {:?} has conflicting outputs", pack.id).into()
-                        );
-                    }
-                    if source.render {
-                        render::validate_template(&pack.directory.join(source.source))?;
-                    }
-                }
-            }
+            catalog::validate(catalog_path, &packs)?;
             println!("Validated {} templates", packs.len());
         }
         Command::Generate {
