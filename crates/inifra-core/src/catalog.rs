@@ -35,6 +35,7 @@ pub struct Pack {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct Manifest {
     schema_version: u32,
     description: String,
