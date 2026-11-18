@@ -300,6 +300,94 @@ fn validate_rejects_file_and_directory_output_overlap() {
     );
 }
 
+#[test]
+fn resolves_explicit_output_overrides_and_rejects_rules_for_missing_sources() {
+    let root = Fixture::new();
+    root.pack(
+        "project",
+        "guide",
+        "schema_version = 2\ndescription = 'Guide'\n[[output_rules]]\nsource = 'guide.md.j2'\noutput = 'docs/README.md'\n",
+    );
+    root.write("project/guide/guide.md.j2", "# Guide\n");
+    root.write("project/guide/NOTICE.txt", "Notice\n");
+
+    let catalog = Catalog::load(&root.0).unwrap();
+    catalog.validate().unwrap();
+    let outputs = catalog.resolve_outputs(&["guide".into()]).unwrap();
+    assert_eq!(outputs[0].source.source, PathBuf::from("NOTICE.txt"));
+    assert_eq!(outputs[0].output, PathBuf::from("NOTICE.txt"));
+    assert_eq!(outputs[1].source.source, PathBuf::from("guide.md.j2"));
+    assert_eq!(outputs[1].output, PathBuf::from("docs/README.md"));
+
+    let missing = Fixture::new();
+    missing.pack(
+        "project",
+        "guide",
+        "schema_version = 2\ndescription = 'Guide'\n[[output_rules]]\nsource = 'missing.md.j2'\noutput = 'README.md'\n",
+    );
+    missing.write("project/guide/actual.md", "Guide\n");
+    let catalog = Catalog::load(&missing.0).unwrap();
+    let error = catalog.validate().unwrap_err().to_string();
+    assert!(error.contains("references missing source"), "{error}");
+}
+
+#[test]
+fn resolves_co_selected_output_alternatives_only_for_matching_groups() {
+    let root = Fixture::new();
+    for (id, alternative) in [
+        ("license-mit", "LICENSE-MIT"),
+        ("license-apache", "LICENSE-APACHE"),
+    ] {
+        root.pack(
+            "project-policies",
+            id,
+            &format!(
+                "schema_version = 2\ndescription = 'License'\n[[output_rules]]\nsource = 'LICENSE.j2'\nco_selected_output = {{ group = 'licenses', path = '{alternative}' }}\n"
+            ),
+        );
+        root.write(&format!("project-policies/{id}/LICENSE.j2"), id);
+    }
+
+    let catalog = Catalog::load(&root.0).unwrap();
+    catalog.validate().unwrap();
+    let single = catalog.resolve_outputs(&["license-mit".into()]).unwrap();
+    assert_eq!(single[0].output, PathBuf::from("LICENSE"));
+    let paired = catalog
+        .resolve_outputs(&["license-mit".into(), "license-apache".into()])
+        .unwrap();
+    assert_eq!(
+        paired
+            .iter()
+            .map(|output| output.output.as_path())
+            .collect::<Vec<_>>(),
+        [
+            PathBuf::from("LICENSE-MIT"),
+            PathBuf::from("LICENSE-APACHE")
+        ]
+    );
+}
+
+#[test]
+fn rejects_unsafe_output_rule_paths_and_invalid_groups() {
+    for rule in [
+        "[[output_rules]]\nsource = 'README.md'\noutput = '../README.md'\n",
+        "[[output_rules]]\nsource = 'README.md'\nco_selected_output = { group = 'License Files', path = 'LICENSE-MIT' }\n",
+    ] {
+        let root = Fixture::new();
+        root.pack(
+            "project",
+            "example",
+            &format!("schema_version = 2\ndescription = 'Example'\n{rule}"),
+        );
+        root.write("project/example/README.md", "Example");
+        let error = Catalog::load(&root.0).unwrap_err().to_string();
+        assert!(
+            error.contains("unsafe output path") || error.contains("invalid output-rule group"),
+            "{error}"
+        );
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn rejects_symlinked_manifest() {

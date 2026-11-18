@@ -2,6 +2,7 @@
 
 use crate::{
     inputs::{self, InputDefinition},
+    output_rules::{self, OutputRule, ResolvedPackOutput},
     plan, render, safe_fs, sources,
 };
 use include_dir::{Dir, include_dir};
@@ -62,6 +63,8 @@ pub struct Pack {
     pub local_inputs: BTreeMap<String, InputDefinition>,
     /// Intentionally empty output directories declared by this pack.
     pub directories: Vec<PathBuf>,
+    /// Optional output path overrides and co-selected alternatives.
+    pub output_rules: Vec<OutputRule>,
 }
 
 /// A catalog discovery or validation error.
@@ -100,6 +103,8 @@ struct Manifest {
     local_inputs: BTreeMap<String, InputDefinition>,
     #[serde(default)]
     directories: Vec<String>,
+    #[serde(default)]
+    output_rules: Vec<output_rules::OutputRuleDefinition>,
 }
 
 impl Catalog {
@@ -199,6 +204,8 @@ impl Catalog {
                     .collect();
                 plan::validate_paths(directories.iter().map(PathBuf::as_path))
                     .map_err(|error| CatalogError(format!("{}: {error}", path.display())))?;
+                let output_rules =
+                    output_rules::parse(manifest.output_rules, &path).map_err(CatalogError)?;
                 packs.push(Pack {
                     id,
                     category: category_id.clone(),
@@ -207,6 +214,7 @@ impl Catalog {
                     inputs: manifest.inputs,
                     local_inputs: manifest.local_inputs,
                     directories,
+                    output_rules,
                 });
             }
         }
@@ -251,6 +259,36 @@ impl Catalog {
         Ok(definitions)
     }
 
+    /// Resolves final source destinations for selected template IDs.
+    ///
+    /// Co-selected alternatives are used only when selected packs declare the same group and
+    /// their default destinations collide. The returned source paths stay relative to each pack.
+    ///
+    /// # Errors
+    /// Returns an error for an empty or invalid selection, missing sources, or conflicting paths.
+    pub fn resolve_outputs(
+        &self,
+        selected: &[String],
+    ) -> Result<Vec<ResolvedPackOutput>, CatalogError> {
+        if selected.is_empty() {
+            return Err(CatalogError("select at least one template".into()));
+        }
+        let mut seen = BTreeSet::new();
+        let mut packs = Vec::with_capacity(selected.len());
+        for id in selected {
+            if !seen.insert(id) {
+                return Err(CatalogError(format!("duplicate template {id:?}")));
+            }
+            let pack = self
+                .packs
+                .iter()
+                .find(|pack| &pack.id == id)
+                .ok_or_else(|| CatalogError(format!("unknown template {id:?}")))?;
+            packs.push(pack);
+        }
+        self.resolve_outputs_for_packs(&packs)
+    }
+
     /// Validates all pack inputs, sources, paths, and template syntax.
     ///
     /// # Errors
@@ -259,6 +297,24 @@ impl Catalog {
     pub fn validate(&self) -> Result<(), CatalogError> {
         for pack in &self.packs {
             self.input_definitions_for(pack)?;
+            let outputs = self.resolve_outputs_for_packs(&[pack])?;
+            for output in outputs {
+                if output.source.render {
+                    render::validate_template(&pack.directory.join(output.source.source))
+                        .map_err(|error| CatalogError(error.to_string()))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn resolve_outputs_for_packs(
+        &self,
+        packs: &[&Pack],
+    ) -> Result<Vec<ResolvedPackOutput>, CatalogError> {
+        let mut discovered = Vec::with_capacity(packs.len());
+        let mut directories = BTreeSet::new();
+        for pack in packs {
             let files = sources::discover(&pack.directory)
                 .map_err(|error| CatalogError(error.to_string()))?;
             if files.is_empty() && pack.directories.is_empty() {
@@ -267,21 +323,22 @@ impl Catalog {
                     pack.id
                 )));
             }
-            plan::validate_paths(
-                files
-                    .iter()
-                    .map(|source| source.output.as_path())
-                    .chain(pack.directories.iter().map(PathBuf::as_path)),
-            )
-            .map_err(|error| CatalogError(format!("template {:?}: {error}", pack.id)))?;
-            for source in files {
-                if source.render {
-                    render::validate_template(&pack.directory.join(source.source))
-                        .map_err(|error| CatalogError(error.to_string()))?;
-                }
-            }
+            directories.extend(pack.directories.iter().cloned());
+            discovered.push((*pack, files));
         }
-        Ok(())
+        let source_sets: Vec<_> = discovered
+            .iter()
+            .map(|(pack, files)| (*pack, files.as_slice()))
+            .collect();
+        let outputs = output_rules::resolve(&source_sets).map_err(CatalogError)?;
+        plan::validate_paths(
+            outputs
+                .iter()
+                .map(|output| output.output.as_path())
+                .chain(directories.iter().map(PathBuf::as_path)),
+        )
+        .map_err(|error| CatalogError(error.to_string()))?;
+        Ok(outputs)
     }
 }
 

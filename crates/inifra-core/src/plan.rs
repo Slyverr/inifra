@@ -174,7 +174,7 @@ pub(crate) fn validate_paths<'a>(
         if !seen.insert(path.to_path_buf()) {
             return Err(PlanError(format!("duplicate output {}", path.display())));
         }
-        let portable = path.to_string_lossy().replace('\\', "/").to_lowercase();
+        let portable = portable_path_key(path);
         if !portable_paths.insert(portable) {
             return Err(PlanError(format!(
                 "output conflicts on case-insensitive filesystems: {}",
@@ -199,6 +199,10 @@ pub(crate) fn validate_paths<'a>(
         }
     }
     Ok(())
+}
+
+pub(crate) fn portable_path_key(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/").to_lowercase()
 }
 
 fn inspect_directory(path: &Path) -> Result<(), PlanError> {

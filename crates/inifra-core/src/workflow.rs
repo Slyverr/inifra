@@ -4,7 +4,7 @@ use crate::{
     catalog::Catalog,
     inputs,
     plan::{self, GenerationPlan},
-    render, sources,
+    render,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -67,18 +67,23 @@ pub fn prepare(
         packs.push(pack);
     }
     let values = inputs::resolve(&used, supplied).map_err(|e| WorkflowError(e.to_string()))?;
+    let resolved_outputs = catalog
+        .resolve_outputs_for_packs(&packs)
+        .map_err(|error| WorkflowError(error.to_string()))?;
     let mut outputs = Vec::new();
     for pack in packs {
-        let files = sources::discover(&pack.directory).map_err(|e| WorkflowError(e.to_string()))?;
-        if files.is_empty() && pack.directories.is_empty() {
-            return Err(WorkflowError(format!(
-                "template {:?} has no files or directories",
-                pack.id
-            )));
-        }
         directories.extend(pack.directories.iter().cloned());
+        let sources = resolved_outputs
+            .iter()
+            .filter(|output| output.template_id == pack.id)
+            .map(|output| {
+                let mut source = output.source.clone();
+                source.output.clone_from(&output.output);
+                source
+            })
+            .collect::<Vec<_>>();
         outputs.extend(
-            render::render(&pack.directory, &files, &values)
+            render::render(&pack.directory, &sources, &values)
                 .map_err(|e| WorkflowError(e.to_string()))?,
         );
     }
