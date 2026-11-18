@@ -30,3 +30,16 @@ fn detects_changes_before_writing_any_file() {
     assert!(!root.join("first").exists());
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn refuses_to_replace_a_file_edited_after_review() {
+    let root = std::env::temp_dir().join(format!("inifra-apply-edited-{}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let path = root.join("existing");
+    fs::write(&path, b"original").unwrap();
+    let plan = build(&root, vec![output("existing")], true).unwrap();
+    fs::write(&path, b"edited").unwrap();
+    assert!(apply(&root, &plan).is_err());
+    assert_eq!(fs::read(&path).unwrap(), b"edited");
+    fs::remove_dir_all(root).unwrap();
+}
