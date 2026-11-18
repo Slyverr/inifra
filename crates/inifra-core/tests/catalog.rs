@@ -105,6 +105,28 @@ fn rejects_unsupported_manifest_fields() {
     assert!(error.contains("directories"), "{error}");
 }
 
+#[test]
+fn validate_rejects_file_and_directory_output_overlap() {
+    let root = Fixture::new();
+    root.pack(
+        "project",
+        "example",
+        "schema_version = 2\ndescription = 'Example'\n",
+    );
+    fs::write(root.0.join("inputs.toml"), "schema_version = 1\n").unwrap();
+    let pack = root.0.join("project/example");
+    fs::write(pack.join("docs.j2"), "hello").unwrap();
+    fs::create_dir(pack.join("docs")).unwrap();
+    fs::write(pack.join("docs/guide.md"), "hello").unwrap();
+    let packs = discover(&root.0).unwrap();
+    assert!(
+        inifra_core::catalog::validate(&root.0, &packs)
+            .unwrap_err()
+            .to_string()
+            .contains("overlapping")
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn rejects_symlinked_manifest() {

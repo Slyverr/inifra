@@ -52,54 +52,7 @@ pub fn build(
     outputs: Vec<RenderedOutput>,
     overwrite: bool,
 ) -> Result<Vec<PlannedFile>, PlanError> {
-    let mut seen = BTreeSet::new();
-    let mut portable_paths = BTreeSet::new();
-    for output in &outputs {
-        if output.path.as_os_str().is_empty()
-            || !output
-                .path
-                .components()
-                .all(|c| matches!(c, Component::Normal(name) if name.to_str().is_some_and(safe_component)))
-        {
-            return Err(PlanError(format!(
-                "unsafe output path {}",
-                output.path.display()
-            )));
-        }
-        if !seen.insert(output.path.clone()) {
-            return Err(PlanError(format!(
-                "duplicate output {}",
-                output.path.display()
-            )));
-        }
-        let portable = output
-            .path
-            .to_string_lossy()
-            .replace('\\', "/")
-            .to_lowercase();
-        if !portable_paths.insert(portable) {
-            return Err(PlanError(format!(
-                "output conflicts on case-insensitive filesystems: {}",
-                output.path.display()
-            )));
-        }
-    }
-    for path in &seen {
-        if path.ancestors().skip(1).any(|parent| seen.contains(parent)) {
-            return Err(PlanError(format!("overlapping output {}", path.display())));
-        }
-    }
-    for path in &portable_paths {
-        let mut prefix = path.as_str();
-        while let Some((parent, _)) = prefix.rsplit_once('/') {
-            if portable_paths.contains(parent) {
-                return Err(PlanError(format!(
-                    "overlapping output on case-insensitive filesystems: {path}"
-                )));
-            }
-            prefix = parent;
-        }
-    }
+    validate_paths(outputs.iter().map(|output| output.path.as_path()))?;
     outputs
         .into_iter()
         .map(|output| {
@@ -145,6 +98,52 @@ pub fn build(
             })
         })
         .collect()
+}
+
+pub(crate) fn validate_paths<'a>(
+    paths: impl IntoIterator<Item = &'a Path>,
+) -> Result<(), PlanError> {
+    let mut seen = BTreeSet::new();
+    let mut portable_paths = BTreeSet::new();
+    for path in paths {
+        if path.as_os_str().is_empty()
+            || !path
+                .components()
+                .all(|c| matches!(c, Component::Normal(name) if name.to_str().is_some_and(safe_component)))
+        {
+            return Err(PlanError(format!(
+                "unsafe output path {}",
+                path.display()
+            )));
+        }
+        if !seen.insert(path.to_path_buf()) {
+            return Err(PlanError(format!("duplicate output {}", path.display())));
+        }
+        let portable = path.to_string_lossy().replace('\\', "/").to_lowercase();
+        if !portable_paths.insert(portable) {
+            return Err(PlanError(format!(
+                "output conflicts on case-insensitive filesystems: {}",
+                path.display()
+            )));
+        }
+    }
+    for path in &seen {
+        if path.ancestors().skip(1).any(|parent| seen.contains(parent)) {
+            return Err(PlanError(format!("overlapping output {}", path.display())));
+        }
+    }
+    for path in &portable_paths {
+        let mut prefix = path.as_str();
+        while let Some((parent, _)) = prefix.rsplit_once('/') {
+            if portable_paths.contains(parent) {
+                return Err(PlanError(format!(
+                    "overlapping output on case-insensitive filesystems: {path}"
+                )));
+            }
+            prefix = parent;
+        }
+    }
+    Ok(())
 }
 
 fn inspect_directory(path: &Path) -> Result<(), PlanError> {
