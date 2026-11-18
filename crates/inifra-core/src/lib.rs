@@ -3,4 +3,5 @@
 
 pub mod catalog;
 pub mod inputs;
+pub mod render;
 pub mod sources;
