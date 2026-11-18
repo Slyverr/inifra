@@ -34,4 +34,17 @@ fn rejects_duplicate_overlapping_and_escaping_outputs() {
     assert!(build(&root, vec![output("a"), output("a")], false).is_err());
     assert!(build(&root, vec![output("a"), output("a/b")], false).is_err());
     assert!(build(&root, vec![output("../escape")], false).is_err());
+    assert!(build(&root, vec![output("C:\\escape")], false).is_err());
+    assert!(build(&root, vec![output("NUL.txt")], false).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn rejects_symlinked_parent_directory() {
+    use std::os::unix::fs::symlink;
+    let root = std::env::temp_dir().join(format!("inifra-plan-link-{}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    symlink(std::env::temp_dir(), root.join("linked")).unwrap();
+    assert!(build(&root, vec![output("linked/file")], false).is_err());
+    fs::remove_dir_all(root).unwrap();
 }

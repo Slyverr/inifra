@@ -1,6 +1,6 @@
 //! Read-only planning of generated file operations.
 
-use crate::render::RenderedOutput;
+use crate::{render::RenderedOutput, sources::safe_component};
 use std::{
     collections::BTreeSet,
     error::Error,
@@ -56,7 +56,7 @@ pub fn build(
             || !output
                 .path
                 .components()
-                .all(|c| matches!(c, Component::Normal(_)))
+                .all(|c| matches!(c, Component::Normal(name) if name.to_str().is_some_and(safe_component)))
         {
             return Err(PlanError(format!(
                 "unsafe output path {}",

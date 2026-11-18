@@ -87,7 +87,7 @@ fn visit(root: &Path, relative: &Path, result: &mut Vec<Source>) -> Result<(), S
     Ok(())
 }
 
-fn safe_component(name: &str) -> bool {
+pub(crate) fn safe_component(name: &str) -> bool {
     if name.is_empty()
         || name == "."
         || name == ".."
