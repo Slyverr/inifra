@@ -81,7 +81,7 @@ fn initial_catalog_packs_load_and_have_sources() {
             .iter()
             .map(|pack| pack.id.as_str())
             .collect::<Vec<_>>(),
-        ["changelog", "editorconfig", "readme"]
+        ["agents", "changelog", "editorconfig", "readme"]
     );
     for pack in packs {
         assert!(
