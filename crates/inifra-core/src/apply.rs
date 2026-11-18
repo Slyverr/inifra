@@ -4,6 +4,7 @@ use crate::{
     plan::{self, Action, PlannedFile},
     render::RenderedOutput,
 };
+use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::{
     ambient_authority,
     fs::{Dir, OpenOptions},
@@ -71,6 +72,7 @@ pub fn apply(root: &Path, files: &[PlannedFile]) -> Result<(), ApplyError> {
         }
         let mut options = OpenOptions::new();
         options.write(true);
+        options.follow(FollowSymlinks::No);
         match file.action {
             Action::Create => {
                 options.create_new(true);
