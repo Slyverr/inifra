@@ -84,9 +84,7 @@ pub fn resolve(
         if definition.required && value.is_none_or(|v| v.trim().is_empty()) {
             return Err(InputError(format!("input {name:?} is required")));
         }
-        if let Some(value) = value {
-            values.insert(name.clone(), value.clone());
-        }
+        values.insert(name.clone(), value.cloned().unwrap_or_default());
     }
     Ok(values)
 }
