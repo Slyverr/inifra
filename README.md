@@ -12,11 +12,15 @@ cargo install --path crates/inifra --locked
 
 ## Quick Start
 
-From the repository root, build and launch Inifra with Cargo:
+List bundled templates, inspect one, and preview its output:
 
 ```sh
-cargo run --locked -p inifra
+inifra list
+inifra inspect readme
+inifra generate readme --set project_name=Example --dry-run
 ```
+
+Remove `--dry-run` to write the files. Existing files are skipped by default; use `--overwrite` to replace them. Pass `--target PATH` to choose a destination, and use `inifra --help` for the available commands. An alternative on-disk catalog can be selected with `--catalog PATH`.
 
 ## Contributing
 
