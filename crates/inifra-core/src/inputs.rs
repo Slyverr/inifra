@@ -5,6 +5,7 @@ use std::{collections::BTreeMap, error::Error, fmt, fs, path::Path};
 
 /// A single value requested by a template.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct InputDefinition {
     /// Text shown when asking for the value.
     pub prompt: String,
@@ -27,6 +28,7 @@ impl fmt::Display for InputError {
 impl Error for InputError {}
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct InputFile {
     schema_version: u32,
     #[serde(default)]

@@ -92,3 +92,15 @@ fn initial_catalog_packs_load_and_have_sources() {
     }
     assert!(inifra_core::inputs::load(&root.join("inputs.toml")).is_ok());
 }
+
+#[test]
+fn rejects_unsupported_manifest_fields() {
+    let root = Fixture::new();
+    root.pack(
+        "project",
+        "example",
+        "schema_version = 2\ndescription = 'Example'\ndirectories = ['empty']\n",
+    );
+    let error = discover(&root.0).unwrap_err().to_string();
+    assert!(error.contains("directories"), "{error}");
+}
