@@ -1,6 +1,6 @@
 //! Discovery of categorized template packs on disk.
 
-use crate::{inputs, render, sources};
+use crate::{inputs, plan, render, sources};
 use include_dir::{Dir, include_dir};
 use serde::Deserialize;
 use std::{
@@ -44,14 +44,9 @@ pub fn validate(root: &Path, packs: &[Pack]) -> Result<(), CatalogError> {
                 pack.id
             )));
         }
-        let mut outputs = BTreeSet::new();
+        plan::validate_paths(files.iter().map(|source| source.output.as_path()))
+            .map_err(|error| CatalogError(format!("template {:?}: {error}", pack.id)))?;
         for source in files {
-            if !outputs.insert(source.output.to_string_lossy().to_lowercase()) {
-                return Err(CatalogError(format!(
-                    "template {:?} has conflicting outputs",
-                    pack.id
-                )));
-            }
             if source.render {
                 render::validate_template(&pack.directory.join(source.source))
                     .map_err(|e| CatalogError(e.to_string()))?;
