@@ -4,7 +4,7 @@ use crate::{
     plan::{self, Action, PlannedFile},
     render::RenderedOutput,
 };
-use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
+use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 use cap_std::{
     ambient_authority,
     fs::{Dir, OpenOptions},
@@ -70,10 +70,28 @@ pub fn apply(root: &Path, files: &[PlannedFile]) -> Result<(), ApplyError> {
             .path
             .parent()
             .ok_or_else(|| ApplyError(format!("{}: no parent", target.display())))?;
-        if !parent.as_os_str().is_empty() {
-            directory
-                .create_dir_all(parent)
-                .map_err(|e| ApplyError(format!("{}: {e}", parent.display())))?;
+        let mut parent_dir = directory
+            .try_clone()
+            .map_err(|e| ApplyError(e.to_string()))?;
+        for component in parent.components() {
+            let name = component.as_os_str();
+            let next = match parent_dir.open_dir_nofollow(name) {
+                Ok(dir) => dir,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    match parent_dir.create_dir(name) {
+                        Ok(()) => {}
+                        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                        Err(error) => {
+                            return Err(ApplyError(format!("{}: {error}", parent.display())));
+                        }
+                    }
+                    parent_dir
+                        .open_dir_nofollow(name)
+                        .map_err(|error| ApplyError(format!("{}: {error}", parent.display())))?
+                }
+                Err(error) => return Err(ApplyError(format!("{}: {error}", parent.display()))),
+            };
+            parent_dir = next;
         }
         let mut options = OpenOptions::new();
         options.write(true);
@@ -87,8 +105,12 @@ pub fn apply(root: &Path, files: &[PlannedFile]) -> Result<(), ApplyError> {
             }
             Action::Skip => unreachable!(),
         }
-        let mut output = directory
-            .open_with(&file.path, &options)
+        let filename = file
+            .path
+            .file_name()
+            .ok_or_else(|| ApplyError(format!("{}: no file name", target.display())))?;
+        let mut output = parent_dir
+            .open_with(filename, &options)
             .map_err(|e| ApplyError(format!("{}: {e}", target.display())))?;
         if file.action == Action::Replace {
             let mut current = Vec::new();
