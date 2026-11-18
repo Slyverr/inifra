@@ -106,6 +106,22 @@ fn rejects_unsupported_manifest_fields() {
 }
 
 #[test]
+fn rejects_duplicate_input_declarations() {
+    let root = Fixture::new();
+    root.pack(
+        "project",
+        "example",
+        "schema_version = 2\ndescription = 'Example'\ninputs = ['name', 'name']\n",
+    );
+    assert!(
+        discover(&root.0)
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate input")
+    );
+}
+
+#[test]
 fn validate_rejects_file_and_directory_output_overlap() {
     let root = Fixture::new();
     root.pack(
