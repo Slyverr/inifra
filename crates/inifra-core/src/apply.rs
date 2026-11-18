@@ -37,7 +37,10 @@ pub fn apply(root: &Path, files: &[PlannedFile]) -> Result<(), ApplyError> {
     for (old, new) in files.iter().zip(&fresh) {
         let valid = match old.action {
             Action::Create => new.action == Action::Create,
-            Action::Replace | Action::Skip => new.action == Action::Replace,
+            Action::Replace => {
+                new.action == Action::Replace && old.existing_contents == new.existing_contents
+            }
+            Action::Skip => new.action == Action::Replace,
         };
         if !valid {
             return Err(ApplyError(format!(

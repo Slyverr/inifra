@@ -28,6 +28,8 @@ pub struct PlannedFile {
     pub action: Action,
     /// Bytes to write when creating or replacing the file.
     pub contents: Vec<u8>,
+    /// Contents observed for an existing file at planning time.
+    pub existing_contents: Option<Vec<u8>>,
 }
 
 /// Invalid output or destination state.
@@ -127,10 +129,19 @@ pub fn build(
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Action::Create,
                 Err(error) => return Err(PlanError(format!("{}: {error}", current.display()))),
             };
+            let existing_contents = if action == Action::Replace {
+                Some(
+                    fs::read(&current)
+                        .map_err(|error| PlanError(format!("{}: {error}", current.display())))?,
+                )
+            } else {
+                None
+            };
             Ok(PlannedFile {
                 path: output.path,
                 action,
                 contents: output.contents,
+                existing_contents,
             })
         })
         .collect()
