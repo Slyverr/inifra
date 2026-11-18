@@ -6,8 +6,8 @@ use std::{collections::BTreeMap, error::Error, path::PathBuf};
 #[command(version, about = "Create project files from reusable templates")]
 struct Cli {
     /// Path to a template catalog.
-    #[arg(long, global = true, default_value = "templates")]
-    catalog: PathBuf,
+    #[arg(long, global = true)]
+    catalog: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -44,7 +44,19 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
-    let packs = catalog::discover(&cli.catalog)?;
+    let temporary_catalog = if cli.catalog.is_none() {
+        let dir = tempfile::tempdir()?;
+        catalog::extract_bundled(dir.path())?;
+        Some(dir)
+    } else {
+        None
+    };
+    let catalog_path = cli
+        .catalog
+        .as_deref()
+        .or_else(|| temporary_catalog.as_ref().map(|dir| dir.path()))
+        .ok_or("catalog unavailable")?;
+    let packs = catalog::discover(catalog_path)?;
     match cli.command {
         Command::List => {
             for pack in &packs {
@@ -62,7 +74,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
         }
         Command::Validate => {
-            inputs::load(&cli.catalog.join("inputs.toml"))?;
+            inputs::load(&catalog_path.join("inputs.toml"))?;
             for pack in &packs {
                 sources::discover(&pack.directory)?;
             }
@@ -84,7 +96,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                     return Err(format!("duplicate input {key:?}").into());
                 }
             }
-            let definitions = inputs::load(&cli.catalog.join("inputs.toml"))?;
+            let definitions = inputs::load(&catalog_path.join("inputs.toml"))?;
             let plan = workflow::prepare(&packs, &definitions, &ids, &values, &target, overwrite)?;
             for file in &plan {
                 println!("{:?} {}", file.action, file.path.display());
