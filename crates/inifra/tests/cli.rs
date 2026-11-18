@@ -147,6 +147,42 @@ fn validate_rejects_invalid_template_syntax() {
 }
 
 #[test]
+fn generation_failure_does_not_write_other_selected_outputs() {
+    let root = tempfile::tempdir().unwrap();
+    let catalog = root.path().join("catalog");
+    for (name, file, content) in [
+        ("good", "good.txt", "ready"),
+        ("broken", "broken.txt.j2", "{{ missing }}"),
+    ] {
+        let pack = catalog.join("project").join(name);
+        std::fs::create_dir_all(&pack).unwrap();
+        std::fs::write(
+            pack.join("template.toml"),
+            "schema_version = 2\ndescription = 'Example'\n",
+        )
+        .unwrap();
+        std::fs::write(pack.join(file), content).unwrap();
+    }
+    std::fs::write(catalog.join("inputs.toml"), "schema_version = 1\n").unwrap();
+    let target = root.path().join("target");
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "--catalog",
+            catalog.to_str().unwrap(),
+            "generate",
+            "good",
+            "broken",
+            "--target",
+            target.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("broken.txt.j2"));
+    assert!(!target.exists());
+}
+
+#[test]
 fn lists_catalog_and_dry_run_does_not_create_target() {
     let catalog = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../templates");
     let target = std::env::temp_dir().join(format!("inifra-cli-dry-run-{}", std::process::id()));
