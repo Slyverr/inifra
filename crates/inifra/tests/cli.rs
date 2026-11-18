@@ -30,6 +30,19 @@ fn bundled_catalog_is_available_outside_checkout() {
 }
 
 #[test]
+fn inspect_shows_template_inputs_and_outputs() {
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args(["inspect", "readme"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("README.md"));
+    assert!(text.contains("project_name (required)"));
+    assert!(text.contains("project_description (optional)"));
+}
+
+#[test]
 fn generates_and_preserves_existing_files_without_overwrite() {
     let target = tempfile::tempdir().unwrap();
     let run = || {
