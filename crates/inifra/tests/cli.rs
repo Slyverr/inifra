@@ -143,6 +143,7 @@ fn lists_catalog_and_dry_run_does_not_create_target() {
         .unwrap();
     assert!(list.status.success());
     assert!(String::from_utf8_lossy(&list.stdout).contains("editorconfig"));
+    assert!(String::from_utf8_lossy(&list.stdout).contains("Project Files\n"));
     let dry_run = Command::new(env!("CARGO_BIN_EXE_inifra"))
         .args([
             "--catalog",

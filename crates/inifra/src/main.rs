@@ -59,8 +59,30 @@ fn run() -> Result<(), Box<dyn Error>> {
     let packs = catalog::discover(catalog_path)?;
     match cli.command {
         Command::List => {
+            let mut category = "";
+            let width = packs.iter().map(|pack| pack.id.len()).max().unwrap_or(0);
             for pack in &packs {
-                println!("{}\t{}\t{}", pack.category, pack.id, pack.description);
+                if category != pack.category {
+                    if !category.is_empty() {
+                        println!();
+                    }
+                    category = &pack.category;
+                    let label = category
+                        .split('-')
+                        .map(|word| {
+                            let mut chars = word.chars();
+                            chars
+                                .next()
+                                .map(|first| {
+                                    first.to_uppercase().collect::<String>() + chars.as_str()
+                                })
+                                .unwrap_or_default()
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    println!("{label}");
+                }
+                println!("  {:width$}  {}", pack.id, pack.description);
             }
         }
         Command::Inspect { id } => {
