@@ -28,6 +28,19 @@ impl fmt::Display for RenderError {
 }
 impl Error for RenderError {}
 
+/// Checks a template source for valid UTF-8 and template syntax.
+///
+/// # Errors
+/// Returns an error if the source cannot be read or parsed.
+pub fn validate_template(path: &Path) -> Result<(), RenderError> {
+    let text = fs::read_to_string(path)
+        .map_err(|error| RenderError(format!("{}: {error}", path.display())))?;
+    Environment::new()
+        .template_from_str(&text)
+        .map_err(|error| RenderError(format!("{}: {error}", path.display())))?;
+    Ok(())
+}
+
 /// Reads and renders all sources using the supplied input values.
 ///
 /// # Errors
