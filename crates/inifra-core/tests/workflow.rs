@@ -79,3 +79,33 @@ fn prepares_a_selected_pack_without_writing_destination() {
     assert!(!destination.exists());
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn conflicting_selected_packs_fail_without_creating_destination() {
+    let root =
+        std::env::temp_dir().join(format!("inifra-conflicting-packs-{}", std::process::id()));
+    for id in ["first", "second"] {
+        let dir = root.join("catalog/project").join(id);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("template.toml"),
+            "schema_version = 2\ndescription = 'Example'\n",
+        )
+        .unwrap();
+        fs::write(dir.join("README.md"), id).unwrap();
+    }
+    let catalog = catalog::discover(&root.join("catalog")).unwrap();
+    let destination = root.join("target");
+    let error = workflow::prepare(
+        &catalog,
+        &BTreeMap::new(),
+        &["first".into(), "second".into()],
+        &BTreeMap::new(),
+        &destination,
+        false,
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("duplicate output"));
+    assert!(!destination.exists());
+    fs::remove_dir_all(root).unwrap();
+}
