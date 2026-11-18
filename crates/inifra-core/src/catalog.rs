@@ -131,6 +131,15 @@ pub fn discover(root: &Path) -> Result<Vec<Pack>, CatalogError> {
                     path.display()
                 )));
             }
+            let mut input_names = BTreeSet::new();
+            for name in &manifest.inputs {
+                if !input_names.insert(name) {
+                    return Err(CatalogError(format!(
+                        "{}: duplicate input {name:?}",
+                        path.display()
+                    )));
+                }
+            }
             packs.push(Pack {
                 id,
                 category: category_id.clone(),
