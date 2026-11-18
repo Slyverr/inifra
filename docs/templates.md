@@ -50,6 +50,20 @@ For a shared input name, the nearest definition wins: pack-local, then category,
 
 Every regular file in a pack is an output source except its root `template.toml`. Files ending in `.j2` are rendered with MiniJinja and lose that suffix; other files are copied as bytes. Nested directories and dotfiles are preserved. Symbolic links and unsupported file types are rejected. Output paths must be portable, and conflicting outputs are rejected before writing.
 
+## Output paths and coordinated alternatives
+
+Ordinary outputs use their source paths with only the final `.j2` suffix removed. Use `output_rules` only when a source needs a different destination or when packs intentionally share a destination on their own:
+
+```toml
+[[output_rules]]
+source = "LICENSE"
+co_selected_output = { group = "licenses", path = "LICENSE-MIT" }
+```
+
+The rule above leaves the pack's output as `LICENSE` when used alone. If another selected pack also resolves to `LICENSE` and declares the same `licenses` group, both packs use their declared alternative paths. Every pack in that collision must declare the same group; otherwise generation reports the collision before writing. Alternative destinations are validated together too, so alternatives that still conflict are rejected.
+
+An explicit default destination can be declared with `output = "docs/TERMS.md"`; it can be combined with `co_selected_output` when that default may collide. `inspect` shows the output used alone and any declared paired destination.
+
 Version control does not preserve intentionally empty directories, so declare those output paths in `directories`:
 
 ```toml
