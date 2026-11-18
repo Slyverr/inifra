@@ -43,6 +43,75 @@ fn inspect_shows_template_inputs_and_outputs() {
 }
 
 #[test]
+fn inspect_describes_an_output_alternative() {
+    let root = tempfile::tempdir().unwrap();
+    let catalog = root.path().join("catalog");
+    write_catalog_file(
+        &catalog,
+        "project/terms/template.toml",
+        "schema_version = 2\ndescription = 'Terms'\n[[output_rules]]\nsource = 'TERMS.md'\nco_selected_output = { group = 'terms', path = 'TERMS-WEB.md' }\n",
+    );
+    write_catalog_file(&catalog, "project/terms/TERMS.md", "Terms\n");
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args(["--catalog", catalog.to_str().unwrap(), "inspect", "terms"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("TERMS.md"));
+    assert!(text.contains("when paired (terms)  TERMS-WEB.md"));
+}
+
+#[test]
+fn generate_uses_co_selected_output_alternatives() {
+    let root = tempfile::tempdir().unwrap();
+    let catalog = root.path().join("catalog");
+    for (id, alternative) in [
+        ("license-mit", "LICENSE-MIT"),
+        ("license-apache", "LICENSE-APACHE"),
+    ] {
+        write_catalog_file(
+            &catalog,
+            &format!("project-policies/{id}/template.toml"),
+            &format!(
+                "schema_version = 2\ndescription = 'License'\n[[output_rules]]\nsource = 'LICENSE.txt'\nco_selected_output = {{ group = 'licenses', path = '{alternative}' }}\n"
+            ),
+        );
+        write_catalog_file(&catalog, &format!("project-policies/{id}/LICENSE.txt"), id);
+    }
+    let target = root.path().join("target");
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "--catalog",
+            catalog.to_str().unwrap(),
+            "generate",
+            "license-mit",
+            "license-apache",
+            "--target",
+            target.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(target.join("LICENSE-MIT")).unwrap(),
+        "license-mit"
+    );
+    assert_eq!(
+        std::fs::read_to_string(target.join("LICENSE-APACHE")).unwrap(),
+        "license-apache"
+    );
+}
+
+#[test]
 fn generates_and_preserves_existing_files_without_overwrite() {
     let target = tempfile::tempdir().unwrap();
     let run = || {

@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use inifra_core::{apply, catalog, sources, workflow};
+use inifra_core::{apply, catalog, workflow};
 use std::{collections::BTreeMap, error::Error, path::PathBuf};
 
 #[derive(Parser)]
@@ -84,11 +84,18 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .find(|pack| pack.id == id)
                 .ok_or_else(|| format!("unknown template {id:?}"))?;
             println!("{}: {}", pack.id, pack.description);
-            let files = sources::discover(&pack.directory)?;
-            if !files.is_empty() {
+            let output_paths = catalog.resolve_outputs(std::slice::from_ref(&id))?;
+            if !output_paths.is_empty() {
                 println!("Files:");
-                for source in files {
-                    println!("  {}", source.output.display());
+                for output in output_paths {
+                    println!("  {}", output.output.display());
+                    if let Some(alternative) = output.co_selected_output {
+                        println!(
+                            "    when paired ({})  {}",
+                            alternative.group,
+                            alternative.path.display()
+                        );
+                    }
                 }
             }
             if !pack.directories.is_empty() {
