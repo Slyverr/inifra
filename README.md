@@ -22,6 +22,8 @@ inifra generate readme --set project_name=Example --dry-run
 
 Remove `--dry-run` to write the files. Existing files are skipped by default; use `--overwrite` to replace them. Pass `--target PATH` to choose a destination, and use `inifra --help` for the available commands. An alternative on-disk catalog can be selected with `--catalog PATH`.
 
+See [the template catalog guide](docs/templates.md) for pack layout and input definitions.
+
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, checks, test organization, and contribution guidance.
