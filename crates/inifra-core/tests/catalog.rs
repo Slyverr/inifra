@@ -71,3 +71,24 @@ fn rejects_duplicate_ids_and_invalid_manifests() {
             .contains("schema version")
     );
 }
+
+#[test]
+fn initial_catalog_packs_load_and_have_sources() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../templates");
+    let packs = discover(&root).unwrap();
+    assert_eq!(
+        packs
+            .iter()
+            .map(|pack| pack.id.as_str())
+            .collect::<Vec<_>>(),
+        ["changelog", "editorconfig"]
+    );
+    for pack in packs {
+        assert!(
+            !inifra_core::sources::discover(&pack.directory)
+                .unwrap()
+                .is_empty()
+        );
+    }
+    assert!(inifra_core::inputs::load(&root.join("inputs.toml")).is_ok());
+}
