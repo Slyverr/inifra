@@ -36,6 +36,8 @@ fn rejects_duplicate_overlapping_and_escaping_outputs() {
     assert!(build(&root, vec![output("../escape")], false).is_err());
     assert!(build(&root, vec![output("C:\\escape")], false).is_err());
     assert!(build(&root, vec![output("NUL.txt")], false).is_err());
+    assert!(build(&root, vec![output("README.md"), output("readme.md")], false).is_err());
+    assert!(build(&root, vec![output("Docs"), output("docs/guide.md")], false).is_err());
 }
 
 #[cfg(unix)]
