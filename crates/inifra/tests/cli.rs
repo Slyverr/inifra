@@ -52,6 +52,32 @@ fn generates_and_preserves_existing_files_without_overwrite() {
 }
 
 #[test]
+fn generates_readme_with_required_input_and_no_optional_description() {
+    let target = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "generate",
+            "readme",
+            "--set",
+            "project_name=Example",
+            "--target",
+            target.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        std::fs::read_to_string(target.path().join("README.md"))
+            .unwrap()
+            .starts_with("# Example\n")
+    );
+}
+
+#[test]
 fn lists_catalog_and_dry_run_does_not_create_target() {
     let catalog = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../templates");
     let target = std::env::temp_dir().join(format!("inifra-cli-dry-run-{}", std::process::id()));
