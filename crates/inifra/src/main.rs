@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use inifra_core::{apply, catalog, inputs, sources, workflow};
+use inifra_core::{apply, catalog, sources, workflow};
 use std::{collections::BTreeMap, error::Error, path::PathBuf};
 
 #[derive(Parser)]
@@ -56,37 +56,30 @@ fn run() -> Result<(), Box<dyn Error>> {
         .as_deref()
         .or_else(|| temporary_catalog.as_ref().map(|dir| dir.path()))
         .ok_or("catalog unavailable")?;
-    let packs = catalog::discover(catalog_path)?;
+    let catalog = catalog::Catalog::load(catalog_path)?;
     match cli.command {
         Command::List => {
             let mut category = "";
-            let width = packs.iter().map(|pack| pack.id.len()).max().unwrap_or(0);
-            for pack in &packs {
+            let width = catalog
+                .packs
+                .iter()
+                .map(|pack| pack.id.len())
+                .max()
+                .unwrap_or(0);
+            for pack in &catalog.packs {
                 if category != pack.category {
                     if !category.is_empty() {
                         println!();
                     }
                     category = &pack.category;
-                    let label = category
-                        .split('-')
-                        .map(|word| {
-                            let mut chars = word.chars();
-                            chars
-                                .next()
-                                .map(|first| {
-                                    first.to_uppercase().collect::<String>() + chars.as_str()
-                                })
-                                .unwrap_or_default()
-                        })
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    println!("{label}");
+                    println!("{}", catalog.categories[category].name);
                 }
                 println!("  {:width$}  {}", pack.id, pack.description);
             }
         }
         Command::Inspect { id } => {
-            let pack = packs
+            let pack = catalog
+                .packs
                 .iter()
                 .find(|pack| pack.id == id)
                 .ok_or_else(|| format!("unknown template {id:?}"))?;
@@ -95,13 +88,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             for source in sources::discover(&pack.directory)? {
                 println!("  {}", source.output.display());
             }
-            if !pack.inputs.is_empty() {
-                let definitions = inputs::load(&catalog_path.join("inputs.toml"))?;
+            let definitions = catalog.input_definitions_for(pack)?;
+            if !definitions.is_empty() {
                 println!("Inputs:");
-                for name in &pack.inputs {
-                    let definition = definitions.get(name).ok_or_else(|| {
-                        format!("template {:?} references unknown input {name:?}", pack.id)
-                    })?;
+                for (name, definition) in definitions {
                     let requirement = if definition.required {
                         "required"
                     } else {
@@ -115,8 +105,8 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
         }
         Command::Validate => {
-            catalog::validate(catalog_path, &packs)?;
-            println!("Validated {} templates", packs.len());
+            catalog.validate()?;
+            println!("Validated {} templates", catalog.packs.len());
         }
         Command::Generate {
             ids,
@@ -134,8 +124,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                     return Err(format!("duplicate input {key:?}").into());
                 }
             }
-            let definitions = inputs::load(&catalog_path.join("inputs.toml"))?;
-            let plan = workflow::prepare(&packs, &definitions, &ids, &values, &target, overwrite)?;
+            let plan = workflow::prepare(&catalog, &ids, &values, &target, overwrite)?;
             for file in &plan {
                 let action = match file.action {
                     inifra_core::plan::Action::Create => "create",

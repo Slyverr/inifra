@@ -1,8 +1,8 @@
 //! Coordinate catalog selection, input resolution, rendering, and planning.
 
 use crate::{
-    catalog::Pack,
-    inputs::{self, InputDefinition},
+    catalog::Catalog,
+    inputs,
     plan::{self, PlannedFile},
     render, sources,
 };
@@ -29,8 +29,7 @@ impl Error for WorkflowError {}
 /// Returns an error for unknown or repeated IDs, undeclared inputs, missing required
 /// values, source or rendering failures, and invalid output destinations.
 pub fn prepare(
-    catalog: &[Pack],
-    definitions: &BTreeMap<String, InputDefinition>,
+    catalog: &Catalog,
     selected: &[String],
     supplied: &BTreeMap<String, String>,
     destination: &Path,
@@ -47,14 +46,22 @@ pub fn prepare(
             return Err(WorkflowError(format!("duplicate template {id:?}")));
         }
         let pack = catalog
+            .packs
             .iter()
             .find(|pack| &pack.id == id)
             .ok_or_else(|| WorkflowError(format!("unknown template {id:?}")))?;
-        for name in &pack.inputs {
-            let definition = definitions.get(name).ok_or_else(|| {
-                WorkflowError(format!("template {id:?} references unknown input {name:?}"))
-            })?;
-            used.insert(name.clone(), definition.clone());
+        for (name, definition) in catalog
+            .input_definitions_for(pack)
+            .map_err(|error| WorkflowError(error.to_string()))?
+        {
+            if let Some(existing) = used.get(&name)
+                && existing != &definition
+            {
+                return Err(WorkflowError(format!(
+                    "selected templates have conflicting definitions for input {name:?}"
+                )));
+            }
+            used.insert(name, definition);
         }
         packs.push(pack);
     }

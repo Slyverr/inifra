@@ -6,5 +6,6 @@ pub mod catalog;
 pub mod inputs;
 pub mod plan;
 pub mod render;
+mod safe_fs;
 pub mod sources;
 pub mod workflow;
