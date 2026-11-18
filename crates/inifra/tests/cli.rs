@@ -1,12 +1,44 @@
 use std::process::Command;
 
 #[test]
-fn running_cli_prints_hello_inifra() {
+fn help_lists_catalog_commands() {
     let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .arg("--help")
         .output()
-        .expect("run Inifra");
-
+        .unwrap();
     assert!(output.status.success());
-    assert!(output.stdout == b"Hello, Inifra!\n" || output.stdout == b"Hello, Inifra!\r\n");
-    assert!(output.stderr.is_empty());
+    let help = String::from_utf8(output.stdout).unwrap();
+    for command in ["list", "inspect", "validate", "generate"] {
+        assert!(help.contains(command));
+    }
+}
+
+#[test]
+fn lists_catalog_and_dry_run_does_not_create_target() {
+    let catalog = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../templates");
+    let target = std::env::temp_dir().join(format!("inifra-cli-dry-run-{}", std::process::id()));
+    let list = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args(["--catalog", catalog.to_str().unwrap(), "list"])
+        .output()
+        .unwrap();
+    assert!(list.status.success());
+    assert!(String::from_utf8_lossy(&list.stdout).contains("editorconfig"));
+    let dry_run = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "--catalog",
+            catalog.to_str().unwrap(),
+            "generate",
+            "editorconfig",
+            "--target",
+            target.to_str().unwrap(),
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        dry_run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dry_run.stderr)
+    );
+    assert!(!target.exists());
 }

@@ -1,3 +1,98 @@
+use clap::{Parser, Subcommand};
+use inifra_core::{apply, catalog, inputs, sources, workflow};
+use std::{collections::BTreeMap, error::Error, path::PathBuf};
+
+#[derive(Parser)]
+#[command(version, about = "Create project files from reusable templates")]
+struct Cli {
+    /// Path to a template catalog.
+    #[arg(long, global = true, default_value = "templates")]
+    catalog: PathBuf,
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// List available template packs.
+    List,
+    /// Show details and outputs for a pack.
+    Inspect { id: String },
+    /// Validate catalog manifests and source paths.
+    Validate,
+    /// Generate files from selected template packs.
+    Generate {
+        #[arg(required = true)]
+        ids: Vec<String>,
+        #[arg(long, default_value = ".")]
+        target: PathBuf,
+        #[arg(long, value_name = "NAME=VALUE")]
+        set: Vec<String>,
+        #[arg(long)]
+        overwrite: bool,
+        #[arg(long)]
+        dry_run: bool,
+    },
+}
+
 fn main() {
-    println!("Hello, Inifra!");
+    if let Err(error) = run() {
+        eprintln!("error: {error}");
+        std::process::exit(1);
+    }
+}
+
+fn run() -> Result<(), Box<dyn Error>> {
+    let cli = Cli::parse();
+    let packs = catalog::discover(&cli.catalog)?;
+    match cli.command {
+        Command::List => {
+            for pack in &packs {
+                println!("{}\t{}\t{}", pack.category, pack.id, pack.description);
+            }
+        }
+        Command::Inspect { id } => {
+            let pack = packs
+                .iter()
+                .find(|pack| pack.id == id)
+                .ok_or_else(|| format!("unknown template {id:?}"))?;
+            println!("{}: {}", pack.id, pack.description);
+            for source in sources::discover(&pack.directory)? {
+                println!("  {}", source.output.display());
+            }
+        }
+        Command::Validate => {
+            inputs::load(&cli.catalog.join("inputs.toml"))?;
+            for pack in &packs {
+                sources::discover(&pack.directory)?;
+            }
+            println!("Validated {} templates", packs.len());
+        }
+        Command::Generate {
+            ids,
+            target,
+            set,
+            overwrite,
+            dry_run,
+        } => {
+            let mut values = BTreeMap::new();
+            for assignment in set {
+                let (key, value) = assignment
+                    .split_once('=')
+                    .ok_or("--set expects NAME=VALUE")?;
+                if values.insert(key.to_owned(), value.to_owned()).is_some() {
+                    return Err(format!("duplicate input {key:?}").into());
+                }
+            }
+            let definitions = inputs::load(&cli.catalog.join("inputs.toml"))?;
+            let plan = workflow::prepare(&packs, &definitions, &ids, &values, &target, overwrite)?;
+            for file in &plan {
+                println!("{:?} {}", file.action, file.path.display());
+            }
+            if !dry_run {
+                apply::apply(&target, &plan)?;
+            }
+        }
+    }
+    Ok(())
 }
