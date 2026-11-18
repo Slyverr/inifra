@@ -6,6 +6,8 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-18
+
 ### Added
 
 - Discover and inspect bundled template packs, and validate catalog definitions.
