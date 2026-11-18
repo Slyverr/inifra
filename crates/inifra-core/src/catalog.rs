@@ -1,5 +1,6 @@
 //! Discovery of categorized template packs on disk.
 
+use crate::{inputs, render, sources};
 use include_dir::{Dir, include_dir};
 use serde::Deserialize;
 use std::{
@@ -17,6 +18,47 @@ static BUNDLED: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../templates");
 /// Returns an error when catalog files cannot be written.
 pub fn extract_bundled(destination: &Path) -> Result<(), std::io::Error> {
     BUNDLED.extract(destination)
+}
+
+/// Validates definitions, source paths, and template syntax for every pack.
+///
+/// # Errors
+/// Returns an error when a pack references missing inputs, has invalid sources,
+/// conflicting outputs, or contains invalid template syntax.
+pub fn validate(root: &Path, packs: &[Pack]) -> Result<(), CatalogError> {
+    let definitions =
+        inputs::load(&root.join("inputs.toml")).map_err(|e| CatalogError(e.to_string()))?;
+    for pack in packs {
+        for name in &pack.inputs {
+            if !definitions.contains_key(name) {
+                return Err(CatalogError(format!(
+                    "template {:?} references unknown input {name:?}",
+                    pack.id
+                )));
+            }
+        }
+        let files = sources::discover(&pack.directory).map_err(|e| CatalogError(e.to_string()))?;
+        if files.is_empty() {
+            return Err(CatalogError(format!(
+                "template {:?} has no sources",
+                pack.id
+            )));
+        }
+        let mut outputs = BTreeSet::new();
+        for source in files {
+            if !outputs.insert(source.output.to_string_lossy().to_lowercase()) {
+                return Err(CatalogError(format!(
+                    "template {:?} has conflicting outputs",
+                    pack.id
+                )));
+            }
+            if source.render {
+                render::validate_template(&pack.directory.join(source.source))
+                    .map_err(|e| CatalogError(e.to_string()))?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// A discovered template and its location in the catalog.
