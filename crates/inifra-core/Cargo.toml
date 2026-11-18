@@ -12,6 +12,7 @@ description = "Template and project services for Inifra"
 workspace = true
 
 [dependencies]
+cap-std = "4.0.3"
 minijinja = "3.1.0"
 serde = { version = "1.0.229", features = ["derive"] }
 toml = "1.2.1"
