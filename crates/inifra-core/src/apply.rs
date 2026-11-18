@@ -4,6 +4,10 @@ use crate::{
     plan::{self, Action, PlannedFile},
     render::RenderedOutput,
 };
+use cap_std::{
+    ambient_authority,
+    fs::{Dir, OpenOptions},
+};
 use std::{error::Error, fmt, fs, io::Write, path::Path};
 
 /// A plan could not be applied.
@@ -42,16 +46,27 @@ pub fn apply(root: &Path, files: &[PlannedFile]) -> Result<(), ApplyError> {
             )));
         }
     }
+    if files.iter().all(|file| file.action == Action::Skip) {
+        return Ok(());
+    }
+    fs::create_dir_all(root).map_err(|e| ApplyError(format!("{}: {e}", root.display())))?;
+    let directory = Dir::open_ambient_dir(root, ambient_authority())
+        .map_err(|e| ApplyError(format!("{}: {e}", root.display())))?;
     for file in files {
         if file.action == Action::Skip {
             continue;
         }
         let target = root.join(&file.path);
-        let parent = target
+        let parent = file
+            .path
             .parent()
             .ok_or_else(|| ApplyError(format!("{}: no parent", target.display())))?;
-        fs::create_dir_all(parent).map_err(|e| ApplyError(format!("{}: {e}", parent.display())))?;
-        let mut options = fs::OpenOptions::new();
+        if !parent.as_os_str().is_empty() {
+            directory
+                .create_dir_all(parent)
+                .map_err(|e| ApplyError(format!("{}: {e}", parent.display())))?;
+        }
+        let mut options = OpenOptions::new();
         options.write(true);
         match file.action {
             Action::Create => {
@@ -62,8 +77,8 @@ pub fn apply(root: &Path, files: &[PlannedFile]) -> Result<(), ApplyError> {
             }
             Action::Skip => unreachable!(),
         }
-        let mut output = options
-            .open(&target)
+        let mut output = directory
+            .open_with(&file.path, &options)
             .map_err(|e| ApplyError(format!("{}: {e}", target.display())))?;
         output
             .write_all(&file.contents)
