@@ -2,3 +2,4 @@
 #![deny(missing_docs)]
 
 pub mod catalog;
+pub mod inputs;
