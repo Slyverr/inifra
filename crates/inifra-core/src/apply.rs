@@ -9,7 +9,12 @@ use cap_std::{
     ambient_authority,
     fs::{Dir, OpenOptions},
 };
-use std::{error::Error, fmt, fs, io::Write, path::Path};
+use std::{
+    error::Error,
+    fmt, fs,
+    io::{Read, Seek, SeekFrom, Write},
+    path::Path,
+};
 
 /// A plan could not be applied.
 #[derive(Debug)]
@@ -78,13 +83,31 @@ pub fn apply(root: &Path, files: &[PlannedFile]) -> Result<(), ApplyError> {
                 options.create_new(true);
             }
             Action::Replace => {
-                options.truncate(true);
+                options.read(true);
             }
             Action::Skip => unreachable!(),
         }
         let mut output = directory
             .open_with(&file.path, &options)
             .map_err(|e| ApplyError(format!("{}: {e}", target.display())))?;
+        if file.action == Action::Replace {
+            let mut current = Vec::new();
+            output
+                .read_to_end(&mut current)
+                .map_err(|e| ApplyError(format!("{}: {e}", target.display())))?;
+            if Some(&current) != file.existing_contents.as_ref() {
+                return Err(ApplyError(format!(
+                    "{}: destination changed since review",
+                    file.path.display()
+                )));
+            }
+            output
+                .set_len(0)
+                .map_err(|e| ApplyError(format!("{}: {e}", target.display())))?;
+            output
+                .seek(SeekFrom::Start(0))
+                .map_err(|e| ApplyError(format!("{}: {e}", target.display())))?;
+        }
         output
             .write_all(&file.contents)
             .map_err(|e| ApplyError(format!("{}: {e}", target.display())))?;
