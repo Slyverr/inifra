@@ -104,3 +104,25 @@ fn rejects_unsupported_manifest_fields() {
     let error = discover(&root.0).unwrap_err().to_string();
     assert!(error.contains("directories"), "{error}");
 }
+
+#[cfg(unix)]
+#[test]
+fn rejects_symlinked_manifest() {
+    use std::os::unix::fs::symlink;
+    let root = Fixture::new();
+    root.pack(
+        "project",
+        "example",
+        "schema_version = 2\ndescription = 'Example'\n",
+    );
+    let manifest = root.0.join("project/example/template.toml");
+    let target = root.0.join("manifest.toml");
+    fs::rename(&manifest, &target).unwrap();
+    symlink(&target, &manifest).unwrap();
+    assert!(
+        discover(&root.0)
+            .unwrap_err()
+            .to_string()
+            .contains("regular file")
+    );
+}

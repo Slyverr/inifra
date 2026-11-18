@@ -69,6 +69,14 @@ pub fn discover(root: &Path) -> Result<Vec<Pack>, CatalogError> {
                 return Err(CatalogError(format!("duplicate template ID {id:?}")));
             }
             let path = dir.join("template.toml");
+            let metadata = fs::symlink_metadata(&path)
+                .map_err(|e| CatalogError(format!("{}: {e}", path.display())))?;
+            if !metadata.file_type().is_file() {
+                return Err(CatalogError(format!(
+                    "{}: manifest must be a regular file",
+                    path.display()
+                )));
+            }
             let text = fs::read_to_string(&path)
                 .map_err(|e| CatalogError(format!("{}: {e}", path.display())))?;
             let manifest: Manifest = toml::from_str(&text)
