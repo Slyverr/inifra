@@ -6,3 +6,4 @@ pub mod inputs;
 pub mod plan;
 pub mod render;
 pub mod sources;
+pub mod workflow;
