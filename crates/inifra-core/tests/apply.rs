@@ -54,6 +54,23 @@ fn refuses_to_replace_a_file_edited_after_review() {
     fs::remove_dir_all(root).unwrap();
 }
 
+#[test]
+fn overwriting_a_hard_link_does_not_change_its_other_path() {
+    let root = std::env::temp_dir().join(format!("inifra-apply-hardlink-{}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    let target = root.join("target");
+    let linked = root.join("linked");
+    fs::write(&target, b"old").unwrap();
+    fs::hard_link(&target, &linked).unwrap();
+
+    let plan = build(&root, vec![output("target")], true).unwrap();
+    apply(&root, &plan).unwrap();
+
+    assert_eq!(fs::read(&target).unwrap(), b"new");
+    assert_eq!(fs::read(&linked).unwrap(), b"old");
+    fs::remove_dir_all(root).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn refuses_a_symlink_inserted_after_planning() {
