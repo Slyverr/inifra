@@ -1,0 +1,13 @@
+[package]
+name = "inifra-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "Template and project services for Inifra"
+
+[lints]
+workspace = true
+

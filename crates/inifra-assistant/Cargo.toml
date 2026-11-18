@@ -1,0 +1,13 @@
+[package]
+name = "inifra-assistant"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+description = "Assistant workflows and provider integrations for Inifra"
+
+[lints]
+workspace = true
+
