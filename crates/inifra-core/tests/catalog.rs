@@ -110,10 +110,43 @@ fn rejects_unsupported_manifest_fields() {
     root.pack(
         "project",
         "example",
-        "schema_version = 2\ndescription = 'Example'\ndirectories = ['empty']\n",
+        "schema_version = 2\ndescription = 'Example'\nunexpected = true\n",
     );
     let error = Catalog::load(&root.0).unwrap_err().to_string();
-    assert!(error.contains("directories"), "{error}");
+    assert!(error.contains("unexpected"), "{error}");
+}
+
+#[test]
+fn accepts_a_pack_that_only_declares_empty_directories() {
+    let root = Fixture::new();
+    root.pack(
+        "project",
+        "workspace",
+        "schema_version = 2\ndescription = 'Workspace structure'\ndirectories = ['code', 'drafts', 'research', 'worktrees']\n",
+    );
+
+    let catalog = Catalog::load(&root.0).unwrap();
+    assert_eq!(catalog.packs[0].directories.len(), 4);
+    catalog.validate().unwrap();
+}
+
+#[test]
+fn rejects_unsafe_and_duplicate_declared_directories() {
+    for directories in ["['../outside']", "['code', 'code']"] {
+        let root = Fixture::new();
+        root.pack(
+            "project",
+            "workspace",
+            &format!(
+                "schema_version = 2\ndescription = 'Workspace'\ndirectories = {directories}\n"
+            ),
+        );
+        let error = Catalog::load(&root.0).unwrap_err().to_string();
+        assert!(
+            error.contains("unsafe output path") || error.contains("duplicate output"),
+            "{error}"
+        );
+    }
 }
 
 #[test]

@@ -3,7 +3,7 @@
 use crate::{
     catalog::Catalog,
     inputs,
-    plan::{self, PlannedFile},
+    plan::{self, GenerationPlan},
     render, sources,
 };
 use std::{
@@ -34,13 +34,14 @@ pub fn prepare(
     supplied: &BTreeMap<String, String>,
     destination: &Path,
     overwrite: bool,
-) -> Result<Vec<PlannedFile>, WorkflowError> {
+) -> Result<GenerationPlan, WorkflowError> {
     if selected.is_empty() {
         return Err(WorkflowError("select at least one template".into()));
     }
     let mut seen = BTreeSet::new();
     let mut packs = Vec::new();
     let mut used = BTreeMap::new();
+    let mut directories = BTreeSet::new();
     for id in selected {
         if !seen.insert(id) {
             return Err(WorkflowError(format!("duplicate template {id:?}")));
@@ -69,16 +70,23 @@ pub fn prepare(
     let mut outputs = Vec::new();
     for pack in packs {
         let files = sources::discover(&pack.directory).map_err(|e| WorkflowError(e.to_string()))?;
-        if files.is_empty() {
+        if files.is_empty() && pack.directories.is_empty() {
             return Err(WorkflowError(format!(
-                "template {:?} has no sources",
+                "template {:?} has no files or directories",
                 pack.id
             )));
         }
+        directories.extend(pack.directories.iter().cloned());
         outputs.extend(
             render::render(&pack.directory, &files, &values)
                 .map_err(|e| WorkflowError(e.to_string()))?,
         );
     }
-    plan::build(destination, outputs, overwrite).map_err(|e| WorkflowError(e.to_string()))
+    plan::build_with_directories(
+        destination,
+        outputs,
+        directories.into_iter().collect(),
+        overwrite,
+    )
+    .map_err(|e| WorkflowError(e.to_string()))
 }

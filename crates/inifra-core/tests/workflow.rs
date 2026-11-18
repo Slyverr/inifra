@@ -51,7 +51,7 @@ fn prepares_a_selected_pack_without_writing_destination() {
         false,
     )
     .unwrap();
-    assert_eq!(result[0].contents, b"# Example\n");
+    assert_eq!(result.files[0].contents, b"# Example\n");
     assert!(!destination.exists());
     fs::remove_dir_all(root).unwrap();
 }
@@ -115,8 +115,8 @@ fn selected_packs_share_matching_effective_input_definitions() {
         false,
     )
     .unwrap();
-    assert_eq!(plan.len(), 2);
-    assert!(plan.iter().all(|file| file.contents == b"Example"));
+    assert_eq!(plan.files.len(), 2);
+    assert!(plan.files.iter().all(|file| file.contents == b"Example"));
     assert!(!root.join("target").exists());
     fs::remove_dir_all(root).unwrap();
 }

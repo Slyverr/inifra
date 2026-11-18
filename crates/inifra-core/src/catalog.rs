@@ -60,6 +60,8 @@ pub struct Pack {
     pub inputs: Vec<String>,
     /// Input definitions used only by this pack.
     pub local_inputs: BTreeMap<String, InputDefinition>,
+    /// Intentionally empty output directories declared by this pack.
+    pub directories: Vec<PathBuf>,
 }
 
 /// A catalog discovery or validation error.
@@ -96,6 +98,8 @@ struct Manifest {
     inputs: Vec<String>,
     #[serde(default)]
     local_inputs: BTreeMap<String, InputDefinition>,
+    #[serde(default)]
+    directories: Vec<String>,
 }
 
 impl Catalog {
@@ -188,6 +192,13 @@ impl Catalog {
                         path.display()
                     )));
                 }
+                let directories: Vec<_> = manifest
+                    .directories
+                    .into_iter()
+                    .map(PathBuf::from)
+                    .collect();
+                plan::validate_paths(directories.iter().map(PathBuf::as_path))
+                    .map_err(|error| CatalogError(format!("{}: {error}", path.display())))?;
                 packs.push(Pack {
                     id,
                     category: category_id.clone(),
@@ -195,6 +206,7 @@ impl Catalog {
                     directory,
                     inputs: manifest.inputs,
                     local_inputs: manifest.local_inputs,
+                    directories,
                 });
             }
         }
@@ -249,14 +261,19 @@ impl Catalog {
             self.input_definitions_for(pack)?;
             let files = sources::discover(&pack.directory)
                 .map_err(|error| CatalogError(error.to_string()))?;
-            if files.is_empty() {
+            if files.is_empty() && pack.directories.is_empty() {
                 return Err(CatalogError(format!(
-                    "template {:?} has no sources",
+                    "template {:?} has no files or directories",
                     pack.id
                 )));
             }
-            plan::validate_paths(files.iter().map(|source| source.output.as_path()))
-                .map_err(|error| CatalogError(format!("template {:?}: {error}", pack.id)))?;
+            plan::validate_paths(
+                files
+                    .iter()
+                    .map(|source| source.output.as_path())
+                    .chain(pack.directories.iter().map(PathBuf::as_path)),
+            )
+            .map_err(|error| CatalogError(format!("template {:?}: {error}", pack.id)))?;
             for source in files {
                 if source.render {
                     render::validate_template(&pack.directory.join(source.source))
