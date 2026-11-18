@@ -137,7 +137,12 @@ fn run() -> Result<(), Box<dyn Error>> {
             let definitions = inputs::load(&catalog_path.join("inputs.toml"))?;
             let plan = workflow::prepare(&packs, &definitions, &ids, &values, &target, overwrite)?;
             for file in &plan {
-                println!("{:?} {}", file.action, file.path.display());
+                let action = match file.action {
+                    inifra_core::plan::Action::Create => "create",
+                    inifra_core::plan::Action::Replace => "replace",
+                    inifra_core::plan::Action::Skip => "skip (already exists)",
+                };
+                println!("{action}: {}", file.path.display());
             }
             if !dry_run {
                 apply::apply(&target, &plan)?;
