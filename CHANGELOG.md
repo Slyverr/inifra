@@ -15,3 +15,4 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 - Replacing a file no longer changes other hard links to its original contents.
 - Reject symbolic links for shared input definitions.
+- Reject Windows-reserved superscript device names in output paths.

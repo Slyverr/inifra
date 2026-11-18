@@ -109,5 +109,22 @@ pub(crate) fn safe_component(name: &str) -> bool {
     !stem
         .strip_prefix("COM")
         .or_else(|| stem.strip_prefix("LPT"))
-        .is_some_and(|n| matches!(n, "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"))
+        .is_some_and(|n| {
+            matches!(
+                n,
+                "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "¹" | "²" | "³"
+            )
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::safe_component;
+
+    #[test]
+    fn rejects_windows_reserved_superscript_device_names() {
+        for name in ["COM¹", "COM².txt", "COM³.j2", "LPT¹.txt", "LPT²", "LPT³.j2"] {
+            assert!(!safe_component(name), "{name} must be rejected");
+        }
+    }
 }
