@@ -1,12 +1,8 @@
 //! Catalog-wide input definitions and value validation.
 
-use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
-use cap_std::{
-    ambient_authority,
-    fs::{Dir, OpenOptions},
-};
+use crate::safe_fs;
 use serde::Deserialize;
-use std::{collections::BTreeMap, error::Error, fmt, io::Read, path::Path};
+use std::{collections::BTreeMap, error::Error, fmt, fs, path::Path};
 
 /// A single value requested by a template.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
@@ -45,32 +41,7 @@ struct InputFile {
 /// # Errors
 /// Returns an error if the file is unreadable, invalid, or has an unsupported schema.
 pub fn load(path: &Path) -> Result<BTreeMap<String, InputDefinition>, InputError> {
-    let parent = path
-        .parent()
-        .filter(|parent| !parent.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    let filename = path
-        .file_name()
-        .ok_or_else(|| InputError(format!("{}: expected a file path", path.display())))?;
-    let directory = Dir::open_ambient_dir(parent, ambient_authority())
-        .map_err(|e| InputError(format!("{}: {e}", path.display())))?;
-    let metadata = directory
-        .symlink_metadata(filename)
-        .map_err(|e| InputError(format!("{}: {e}", path.display())))?;
-    if !metadata.file_type().is_file() {
-        return Err(InputError(format!(
-            "{}: input definitions must be a regular file",
-            path.display()
-        )));
-    }
-    let mut options = OpenOptions::new();
-    options.read(true).follow(FollowSymlinks::No);
-    let mut input = directory
-        .open_with(filename, &options)
-        .map_err(|e| InputError(format!("{}: {e}", path.display())))?;
-    let mut text = String::new();
-    input
-        .read_to_string(&mut text)
+    let text = safe_fs::read_regular_file(path, "input definitions")
         .map_err(|e| InputError(format!("{}: {e}", path.display())))?;
     let file: InputFile =
         toml::from_str(&text).map_err(|e| InputError(format!("{}: {e}", path.display())))?;
@@ -81,20 +52,42 @@ pub fn load(path: &Path) -> Result<BTreeMap<String, InputDefinition>, InputError
             file.schema_version
         )));
     }
-    for (name, definition) in &file.inputs {
-        if name.is_empty()
-            || !name
-                .bytes()
-                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_')
-            || definition.prompt.trim().is_empty()
-        {
+    validate_definitions(&file.inputs, path)?;
+    Ok(file.inputs)
+}
+
+/// Loads optional shared definitions, returning an empty map when the file is absent.
+///
+/// # Errors
+/// Returns an error if the file exists but is unreadable, invalid, or not a regular file.
+pub fn load_optional(path: &Path) -> Result<BTreeMap<String, InputDefinition>, InputError> {
+    match fs::symlink_metadata(path) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(BTreeMap::new()),
+        Err(error) => Err(InputError(format!("{}: {error}", path.display()))),
+        Ok(_) => load(path),
+    }
+}
+
+pub(crate) fn validate_definitions(
+    definitions: &BTreeMap<String, InputDefinition>,
+    path: &Path,
+) -> Result<(), InputError> {
+    for (name, definition) in definitions {
+        if !valid_name(name) || definition.prompt.trim().is_empty() {
             return Err(InputError(format!(
                 "{}: invalid definition {name:?}",
                 path.display()
             )));
         }
     }
-    Ok(file.inputs)
+    Ok(())
+}
+
+pub(crate) fn valid_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_')
 }
 
 /// Resolves supplied values and defaults against the declared inputs.

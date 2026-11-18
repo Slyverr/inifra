@@ -1,4 +1,4 @@
-use inifra_core::{catalog, inputs, workflow};
+use inifra_core::{catalog::Catalog, workflow};
 use std::{collections::BTreeMap, fs};
 
 #[test]
@@ -18,25 +18,13 @@ fn prepares_a_selected_pack_without_writing_destination() {
         "schema_version = 1\n[inputs.name]\nprompt = 'Name'\nrequired = true\n",
     )
     .unwrap();
-    let catalog = catalog::discover(&root.join("catalog")).unwrap();
-    let definitions = inputs::load(&definitions_path).unwrap();
+    let catalog = Catalog::load(&root.join("catalog")).unwrap();
     let destination = root.join("target");
     let selected = vec!["readme".to_string()];
+    assert!(workflow::prepare(&catalog, &[], &BTreeMap::new(), &destination, false).is_err());
     assert!(
         workflow::prepare(
             &catalog,
-            &definitions,
-            &[],
-            &BTreeMap::new(),
-            &destination,
-            false
-        )
-        .is_err()
-    );
-    assert!(
-        workflow::prepare(
-            &catalog,
-            &definitions,
             &["unknown".into()],
             &BTreeMap::new(),
             &destination,
@@ -47,7 +35,6 @@ fn prepares_a_selected_pack_without_writing_destination() {
     assert!(
         workflow::prepare(
             &catalog,
-            &definitions,
             &["readme".into(), "readme".into()],
             &BTreeMap::new(),
             &destination,
@@ -55,20 +42,9 @@ fn prepares_a_selected_pack_without_writing_destination() {
         )
         .is_err()
     );
-    assert!(
-        workflow::prepare(
-            &catalog,
-            &definitions,
-            &selected,
-            &BTreeMap::new(),
-            &destination,
-            false
-        )
-        .is_err()
-    );
+    assert!(workflow::prepare(&catalog, &selected, &BTreeMap::new(), &destination, false).is_err());
     let result = workflow::prepare(
         &catalog,
-        &definitions,
         &selected,
         &BTreeMap::from([("name".into(), "Example".into())]),
         &destination,
@@ -94,11 +70,10 @@ fn conflicting_selected_packs_fail_without_creating_destination() {
         .unwrap();
         fs::write(dir.join("README.md"), id).unwrap();
     }
-    let catalog = catalog::discover(&root.join("catalog")).unwrap();
+    let catalog = Catalog::load(&root.join("catalog")).unwrap();
     let destination = root.join("target");
     let error = workflow::prepare(
         &catalog,
-        &BTreeMap::new(),
         &["first".into(), "second".into()],
         &BTreeMap::new(),
         &destination,
@@ -106,6 +81,84 @@ fn conflicting_selected_packs_fail_without_creating_destination() {
     )
     .unwrap_err();
     assert!(error.to_string().contains("duplicate output"));
+    assert!(!destination.exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn selected_packs_share_matching_effective_input_definitions() {
+    let root = std::env::temp_dir().join(format!("inifra-shared-input-{}", std::process::id()));
+    let catalog_root = root.join("catalog");
+    fs::create_dir_all(&catalog_root).unwrap();
+    fs::write(
+        catalog_root.join("inputs.toml"),
+        "schema_version = 1\n[inputs.name]\nprompt = 'Name'\ndefault = 'Example'\n",
+    )
+    .unwrap();
+    for (id, source) in [("first", "first.md.j2"), ("second", "second.md.j2")] {
+        let pack = catalog_root.join("project").join(id);
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(
+            pack.join("template.toml"),
+            "schema_version = 2\ndescription = 'Example'\ninputs = ['name']\n",
+        )
+        .unwrap();
+        fs::write(pack.join(source), "{{ name }}").unwrap();
+    }
+
+    let catalog = Catalog::load(&catalog_root).unwrap();
+    let plan = workflow::prepare(
+        &catalog,
+        &["first".into(), "second".into()],
+        &BTreeMap::new(),
+        &root.join("target"),
+        false,
+    )
+    .unwrap();
+    assert_eq!(plan.len(), 2);
+    assert!(plan.iter().all(|file| file.contents == b"Example"));
+    assert!(!root.join("target").exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn selected_packs_with_conflicting_effective_inputs_fail_before_planning() {
+    let root = std::env::temp_dir().join(format!("inifra-input-conflict-{}", std::process::id()));
+    let catalog_root = root.join("catalog");
+    for (category, prompt, id) in [
+        ("alpha", "Alpha name", "first"),
+        ("beta", "Beta name", "second"),
+    ] {
+        let pack = catalog_root.join(category).join(id);
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(
+            catalog_root.join(category).join("inputs.toml"),
+            format!("schema_version = 1\n[inputs.name]\nprompt = '{prompt}'\n"),
+        )
+        .unwrap();
+        fs::write(
+            pack.join("template.toml"),
+            "schema_version = 2\ndescription = 'Example'\ninputs = ['name']\n",
+        )
+        .unwrap();
+        fs::write(pack.join("README.md.j2"), "{{ name }}").unwrap();
+    }
+
+    let catalog = Catalog::load(&catalog_root).unwrap();
+    let destination = root.join("target");
+    let error = workflow::prepare(
+        &catalog,
+        &["first".into(), "second".into()],
+        &BTreeMap::new(),
+        &destination,
+        false,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        error.contains("conflicting definitions for input \"name\""),
+        "{error}"
+    );
     assert!(!destination.exists());
     fs::remove_dir_all(root).unwrap();
 }

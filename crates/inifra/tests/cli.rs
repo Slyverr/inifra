@@ -212,3 +212,120 @@ fn lists_catalog_and_dry_run_does_not_create_target() {
     );
     assert!(!target.exists());
 }
+
+fn write_catalog_file(root: &std::path::Path, relative: &str, contents: &str) {
+    let path = root.join(relative);
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    std::fs::write(path, contents).unwrap();
+}
+
+#[test]
+fn list_uses_category_display_name_override() {
+    let root = tempfile::tempdir().unwrap();
+    write_catalog_file(
+        root.path(),
+        "categories.toml",
+        "schema_version = 1\n[categories.project-docs]\nname = 'Project documentation'\n",
+    );
+    write_catalog_file(
+        root.path(),
+        "project-docs/guide/template.toml",
+        "schema_version = 2\ndescription = 'A guide'\n",
+    );
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args(["--catalog", root.path().to_str().unwrap(), "list"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("Project documentation\n"));
+}
+
+#[test]
+fn generate_uses_root_category_and_pack_local_inputs() {
+    let root = tempfile::tempdir().unwrap();
+    let catalog = root.path().join("catalog");
+    write_catalog_file(
+        &catalog,
+        "inputs.toml",
+        "schema_version = 1\n[inputs.name]\nprompt = 'Root name'\ndefault = 'root'\n[inputs.root_only]\nprompt = 'Root only'\ndefault = 'shared'\n",
+    );
+    write_catalog_file(
+        &catalog,
+        "project/inputs.toml",
+        "schema_version = 1\n[inputs.name]\nprompt = 'Category name'\ndefault = 'category'\n",
+    );
+    write_catalog_file(
+        &catalog,
+        "project/guide/template.toml",
+        "schema_version = 2\ndescription = 'A guide'\ninputs = ['name', 'root_only']\n[local_inputs.local_only]\nprompt = 'Local value'\ndefault = 'local'\n",
+    );
+    write_catalog_file(
+        &catalog,
+        "project/guide/guide.txt.j2",
+        "{{ name }} {{ root_only }} {{ local_only }}",
+    );
+    let target = root.path().join("target");
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "--catalog",
+            catalog.to_str().unwrap(),
+            "generate",
+            "guide",
+            "--target",
+            target.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(target.join("guide.txt")).unwrap(),
+        "category shared local"
+    );
+}
+
+#[test]
+fn generate_rejects_conflicting_scoped_inputs_without_writing() {
+    let root = tempfile::tempdir().unwrap();
+    let catalog = root.path().join("catalog");
+    for (category, pack, default) in [("one", "first", "one"), ("two", "second", "two")] {
+        write_catalog_file(
+            &catalog,
+            &format!("{category}/inputs.toml"),
+            &format!("schema_version = 1\n[inputs.name]\nprompt = 'Name'\ndefault = '{default}'\n"),
+        );
+        write_catalog_file(
+            &catalog,
+            &format!("{category}/{pack}/template.toml"),
+            "schema_version = 2\ndescription = 'Example'\ninputs = ['name']\n",
+        );
+        write_catalog_file(
+            &catalog,
+            &format!("{category}/{pack}/{pack}.txt.j2"),
+            "{{ name }}",
+        );
+    }
+    let target = root.path().join("target");
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "--catalog",
+            catalog.to_str().unwrap(),
+            "generate",
+            "first",
+            "second",
+            "--target",
+            target.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("conflicting definitions"));
+    assert!(!target.exists());
+}
