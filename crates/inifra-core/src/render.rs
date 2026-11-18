@@ -1,12 +1,18 @@
 //! Render template sources without changing the destination.
 
-use crate::sources::Source;
+use crate::sources::{Source, safe_component};
+use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
+use cap_std::{
+    ambient_authority,
+    fs::{Dir, OpenOptions},
+};
 use minijinja::{Environment, UndefinedBehavior};
 use std::{
     collections::BTreeMap,
     error::Error,
     fmt, fs,
-    path::{Path, PathBuf},
+    io::Read,
+    path::{Component, Path, PathBuf},
 };
 
 /// An output prepared in memory.
@@ -58,12 +64,20 @@ pub fn render(
         .build()
         .map_err(|error| RenderError(error.to_string()))?;
     environment.set_syntax(syntax);
+    let directory = Dir::open_ambient_dir(root, ambient_authority())
+        .map_err(|error| RenderError(format!("{}: {error}", root.display())))?;
     sources
         .iter()
         .map(|source| {
+            if source.source.as_os_str().is_empty() || !source.source.components().all(|component| matches!(component, Component::Normal(name) if name.to_str().is_some_and(safe_component))) {
+                return Err(RenderError(format!("unsafe source path {}", source.source.display())));
+            }
             let path = root.join(&source.source);
-            let data =
-                fs::read(&path).map_err(|e| RenderError(format!("{}: {e}", path.display())))?;
+            let mut options = OpenOptions::new();
+            options.read(true).follow(FollowSymlinks::No);
+            let mut file = directory.open_with(&source.source, &options).map_err(|e| RenderError(format!("{}: {e}", path.display())))?;
+            let mut data = Vec::new();
+            file.read_to_end(&mut data).map_err(|e| RenderError(format!("{}: {e}", path.display())))?;
             let contents = if source.render {
                 let text = std::str::from_utf8(&data)
                     .map_err(|e| RenderError(format!("{}: {e}", path.display())))?;
