@@ -4,6 +4,7 @@
 pub mod apply;
 pub mod catalog;
 pub mod inputs;
+pub mod output_rules;
 pub mod plan;
 pub mod render;
 mod safe_fs;
