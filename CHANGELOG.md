@@ -10,3 +10,8 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 - Discover and inspect bundled template packs, and validate catalog definitions.
 - Generate project files with explicit input values and a dry-run preview. Existing files are preserved unless replacement is requested.
+
+### Fixed
+
+- Replacing a file no longer changes other hard links to its original contents.
+- Reject symbolic links for shared input definitions.
