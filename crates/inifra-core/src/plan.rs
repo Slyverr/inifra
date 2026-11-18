@@ -32,6 +32,33 @@ pub struct PlannedFile {
     pub existing_contents: Option<Vec<u8>>,
 }
 
+/// Whether a declared directory needs to be created.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DirectoryAction {
+    /// Create the directory when applying the plan.
+    Create,
+    /// The directory already exists and needs no changes.
+    Existing,
+}
+
+/// A validated planned directory output.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlannedDirectory {
+    /// Destination relative to the target root.
+    pub path: PathBuf,
+    /// Action planned for this directory.
+    pub action: DirectoryAction,
+}
+
+/// A complete generation plan, including files and intentionally empty directories.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GenerationPlan {
+    /// Directories to create or retain.
+    pub directories: Vec<PlannedDirectory>,
+    /// Files to create, replace, or skip.
+    pub files: Vec<PlannedFile>,
+}
+
 /// Invalid output or destination state.
 #[derive(Debug)]
 pub struct PlanError(String);
@@ -52,8 +79,28 @@ pub fn build(
     outputs: Vec<RenderedOutput>,
     overwrite: bool,
 ) -> Result<Vec<PlannedFile>, PlanError> {
-    validate_paths(outputs.iter().map(|output| output.path.as_path()))?;
-    outputs
+    Ok(build_with_directories(root, outputs, Vec::new(), overwrite)?.files)
+}
+
+/// Plans file and directory outputs without modifying the destination.
+///
+/// # Errors
+/// Rejects unsafe, duplicate, or overlapping outputs, symlinks, and incompatible filesystem
+/// entries. Existing regular files are skipped unless `overwrite` is set.
+pub fn build_with_directories(
+    root: &Path,
+    outputs: Vec<RenderedOutput>,
+    directories: Vec<PathBuf>,
+    overwrite: bool,
+) -> Result<GenerationPlan, PlanError> {
+    validate_paths(
+        outputs
+            .iter()
+            .map(|output| output.path.as_path())
+            .chain(directories.iter().map(PathBuf::as_path)),
+    )?;
+
+    let files = outputs
         .into_iter()
         .map(|output| {
             let mut current = root.to_path_buf();
@@ -97,7 +144,15 @@ pub fn build(
                 existing_contents,
             })
         })
-        .collect()
+        .collect::<Result<_, _>>()?;
+    let directories = directories
+        .into_iter()
+        .map(|path| {
+            let action = inspect_directory_output(root, &path)?;
+            Ok(PlannedDirectory { path, action })
+        })
+        .collect::<Result<_, PlanError>>()?;
+    Ok(GenerationPlan { directories, files })
 }
 
 pub(crate) fn validate_paths<'a>(
@@ -153,4 +208,35 @@ fn inspect_directory(path: &Path) -> Result<(), PlanError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(PlanError(format!("{}: {error}", path.display()))),
     }
+}
+
+fn inspect_directory_output(root: &Path, path: &Path) -> Result<DirectoryAction, PlanError> {
+    inspect_directory(root)?;
+    let mut current = root.to_path_buf();
+    let mut components = path.components().peekable();
+    while let Some(component) = components.next() {
+        current.push(component.as_os_str());
+        let is_final = components.peek().is_none();
+        match fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_dir() => {
+                if is_final {
+                    return Ok(DirectoryAction::Existing);
+                }
+            }
+            Ok(_) => {
+                return Err(PlanError(format!(
+                    "{}: expected directory",
+                    current.display()
+                )));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(DirectoryAction::Create);
+            }
+            Err(error) => return Err(PlanError(format!("{}: {error}", current.display()))),
+        }
+    }
+    Err(PlanError(format!(
+        "unsafe directory path {}",
+        path.display()
+    )))
 }

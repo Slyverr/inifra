@@ -1,5 +1,17 @@
-use inifra_core::{apply::apply, plan::build, render::RenderedOutput};
-use std::{fs, path::PathBuf};
+use inifra_core::{
+    apply::{apply, apply_plan},
+    plan::{build, build_with_directories},
+    render::RenderedOutput,
+};
+use std::{fs, path::PathBuf, time::SystemTime};
+
+fn unique_root(name: &str) -> PathBuf {
+    let nonce = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!("inifra-{name}-{}-{nonce}", std::process::id()))
+}
 
 fn output(path: &str) -> RenderedOutput {
     RenderedOutput {
@@ -27,6 +39,40 @@ fn applies_into_existing_nested_directories() {
     let plan = build(&root, vec![output("one/two/file")], false).unwrap();
     apply(&root, &plan).unwrap();
     assert_eq!(fs::read(root.join("one/two/file")).unwrap(), b"new");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn applies_directory_outputs_even_when_all_files_are_skipped() {
+    let root = unique_root("apply-directories");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("README.md"), "keep").unwrap();
+    let plan = build_with_directories(
+        &root,
+        vec![output("README.md")],
+        vec!["code".into(), "drafts".into()],
+        false,
+    )
+    .unwrap();
+    assert_eq!(plan.files[0].action, inifra_core::plan::Action::Skip);
+
+    apply_plan(&root, &plan).unwrap();
+
+    assert!(root.join("code").is_dir());
+    assert!(root.join("drafts").is_dir());
+    assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "keep");
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn apply_rejects_a_directory_created_after_review() {
+    let root = unique_root("apply-directory-change");
+    fs::create_dir_all(&root).unwrap();
+    let plan = build_with_directories(&root, Vec::new(), vec!["code".into()], false).unwrap();
+    fs::create_dir(root.join("code")).unwrap();
+
+    let error = apply_plan(&root, &plan).unwrap_err().to_string();
+    assert!(error.contains("destination changed since review"));
     fs::remove_dir_all(root).unwrap();
 }
 

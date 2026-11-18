@@ -213,6 +213,69 @@ fn lists_catalog_and_dry_run_does_not_create_target() {
     assert!(!target.exists());
 }
 
+#[test]
+fn generates_a_directory_only_template_and_dry_run_is_read_only() {
+    let root = tempfile::tempdir().unwrap();
+    let catalog = root.path().join("catalog");
+    write_catalog_file(
+        &catalog,
+        "workspace/workspace/template.toml",
+        "schema_version = 2\ndescription = 'Workspace structure'\ndirectories = ['code', 'drafts', 'research', 'worktrees']\n",
+    );
+    let target = root.path().join("target");
+    let dry_run = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "--catalog",
+            catalog.to_str().unwrap(),
+            "generate",
+            "workspace",
+            "--target",
+            target.to_str().unwrap(),
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        dry_run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&dry_run.stderr)
+    );
+    assert!(String::from_utf8_lossy(&dry_run.stdout).contains("create: code/"));
+    assert!(!target.exists());
+
+    let inspect = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "--catalog",
+            catalog.to_str().unwrap(),
+            "inspect",
+            "workspace",
+        ])
+        .output()
+        .unwrap();
+    assert!(inspect.status.success());
+    assert!(String::from_utf8_lossy(&inspect.stdout).contains("Directories:\n  code/"));
+
+    let generate = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "--catalog",
+            catalog.to_str().unwrap(),
+            "generate",
+            "workspace",
+            "--target",
+            target.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        generate.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generate.stderr)
+    );
+    for directory in ["code", "drafts", "research", "worktrees"] {
+        assert!(target.join(directory).is_dir(), "{directory}");
+    }
+}
+
 fn write_catalog_file(root: &std::path::Path, relative: &str, contents: &str) {
     let path = root.join(relative);
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();

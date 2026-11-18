@@ -84,9 +84,18 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .find(|pack| pack.id == id)
                 .ok_or_else(|| format!("unknown template {id:?}"))?;
             println!("{}: {}", pack.id, pack.description);
-            println!("Files:");
-            for source in sources::discover(&pack.directory)? {
-                println!("  {}", source.output.display());
+            let files = sources::discover(&pack.directory)?;
+            if !files.is_empty() {
+                println!("Files:");
+                for source in files {
+                    println!("  {}", source.output.display());
+                }
+            }
+            if !pack.directories.is_empty() {
+                println!("Directories:");
+                for directory in &pack.directories {
+                    println!("  {}/", directory.display());
+                }
             }
             let definitions = catalog.input_definitions_for(pack)?;
             if !definitions.is_empty() {
@@ -125,7 +134,14 @@ fn run() -> Result<(), Box<dyn Error>> {
                 }
             }
             let plan = workflow::prepare(&catalog, &ids, &values, &target, overwrite)?;
-            for file in &plan {
+            for directory in &plan.directories {
+                let action = match directory.action {
+                    inifra_core::plan::DirectoryAction::Create => "create",
+                    inifra_core::plan::DirectoryAction::Existing => "skip (already exists)",
+                };
+                println!("{action}: {}/", directory.path.display());
+            }
+            for file in &plan.files {
                 let action = match file.action {
                     inifra_core::plan::Action::Create => "create",
                     inifra_core::plan::Action::Replace => "replace",
@@ -134,7 +150,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 println!("{action}: {}", file.path.display());
             }
             if !dry_run {
-                apply::apply(&target, &plan)?;
+                apply::apply_plan(&target, &plan)?;
             }
         }
     }

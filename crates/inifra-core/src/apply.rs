@@ -1,7 +1,7 @@
 //! Apply an approved generation plan.
 
 use crate::{
-    plan::{self, Action, PlannedFile},
+    plan::{self, Action, DirectoryAction, GenerationPlan, PlannedFile},
     render::RenderedOutput,
 };
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
@@ -35,15 +35,37 @@ impl Error for ApplyError {}
 /// Returns an error if the destination changed after planning, or a filesystem operation fails.
 /// Files written before an I/O error are not rolled back.
 pub fn apply(root: &Path, files: &[PlannedFile]) -> Result<(), ApplyError> {
-    let outputs = files
+    apply_plan(
+        root,
+        &GenerationPlan {
+            directories: Vec::new(),
+            files: files.to_vec(),
+        },
+    )
+}
+
+/// Revalidates and applies an approved generation plan.
+///
+/// # Errors
+/// Returns an error if the destination changed after planning, or a filesystem operation fails.
+/// Files and directories created before an I/O error are not rolled back.
+pub fn apply_plan(root: &Path, plan: &GenerationPlan) -> Result<(), ApplyError> {
+    let outputs = plan
+        .files
         .iter()
         .map(|f| RenderedOutput {
             path: f.path.clone(),
             contents: f.contents.clone(),
         })
         .collect();
-    let fresh = plan::build(root, outputs, true).map_err(|e| ApplyError(e.to_string()))?;
-    for (old, new) in files.iter().zip(&fresh) {
+    let directory_paths = plan
+        .directories
+        .iter()
+        .map(|directory| directory.path.clone())
+        .collect();
+    let fresh = plan::build_with_directories(root, outputs, directory_paths, true)
+        .map_err(|e| ApplyError(e.to_string()))?;
+    for (old, new) in plan.files.iter().zip(&fresh.files) {
         let valid = match old.action {
             Action::Create => new.action == Action::Create,
             Action::Replace => {
@@ -58,13 +80,31 @@ pub fn apply(root: &Path, files: &[PlannedFile]) -> Result<(), ApplyError> {
             )));
         }
     }
-    if files.iter().all(|file| file.action == Action::Skip) {
+    for (old, new) in plan.directories.iter().zip(&fresh.directories) {
+        if old.action != new.action {
+            return Err(ApplyError(format!(
+                "{}: destination changed since review",
+                old.path.display()
+            )));
+        }
+    }
+    if plan.files.iter().all(|file| file.action == Action::Skip)
+        && plan
+            .directories
+            .iter()
+            .all(|directory| directory.action == DirectoryAction::Existing)
+    {
         return Ok(());
     }
     fs::create_dir_all(root).map_err(|e| ApplyError(format!("{}: {e}", root.display())))?;
     let directory = Dir::open_ambient_dir(root, ambient_authority())
         .map_err(|e| ApplyError(format!("{}: {e}", root.display())))?;
-    for file in files {
+    for planned_directory in &plan.directories {
+        if planned_directory.action == DirectoryAction::Create {
+            open_or_create_directory(&directory, &planned_directory.path)?;
+        }
+    }
+    for file in &plan.files {
         if file.action == Action::Skip {
             continue;
         }
@@ -73,29 +113,7 @@ pub fn apply(root: &Path, files: &[PlannedFile]) -> Result<(), ApplyError> {
             .path
             .parent()
             .ok_or_else(|| ApplyError(format!("{}: no parent", target.display())))?;
-        let mut parent_dir = directory
-            .try_clone()
-            .map_err(|e| ApplyError(e.to_string()))?;
-        for component in parent.components() {
-            let name = component.as_os_str();
-            let next = match parent_dir.open_dir_nofollow(name) {
-                Ok(dir) => dir,
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                    match parent_dir.create_dir(name) {
-                        Ok(()) => {}
-                        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                        Err(error) => {
-                            return Err(ApplyError(format!("{}: {error}", parent.display())));
-                        }
-                    }
-                    parent_dir
-                        .open_dir_nofollow(name)
-                        .map_err(|error| ApplyError(format!("{}: {error}", parent.display())))?
-                }
-                Err(error) => return Err(ApplyError(format!("{}: {error}", parent.display()))),
-            };
-            parent_dir = next;
-        }
+        let parent_dir = open_or_create_directory(&directory, parent)?;
         let filename = file
             .path
             .file_name()
@@ -127,6 +145,31 @@ pub fn apply(root: &Path, files: &[PlannedFile]) -> Result<(), ApplyError> {
         }
     }
     Ok(())
+}
+
+fn open_or_create_directory(root: &Dir, path: &Path) -> Result<Dir, ApplyError> {
+    let mut current = root
+        .try_clone()
+        .map_err(|error| ApplyError(error.to_string()))?;
+    for component in path.components() {
+        let name = component.as_os_str();
+        let next = match current.open_dir_nofollow(name) {
+            Ok(directory) => directory,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                match current.create_dir(name) {
+                    Ok(()) => {}
+                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                    Err(error) => return Err(ApplyError(format!("{}: {error}", path.display()))),
+                }
+                current
+                    .open_dir_nofollow(name)
+                    .map_err(|error| ApplyError(format!("{}: {error}", path.display())))?
+            }
+            Err(error) => return Err(ApplyError(format!("{}: {error}", path.display()))),
+        };
+        current = next;
+    }
+    Ok(current)
 }
 
 fn replace_file(
