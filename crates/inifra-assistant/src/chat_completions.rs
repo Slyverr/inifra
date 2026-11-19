@@ -1,18 +1,14 @@
 use crate::{
     ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatStream, Provider, ProviderError,
     TokenUsage,
-    http::{
-        BodyStream, HttpRequest, HttpTransport, ReqwestTransport, TransportError, safe_excerpt,
-    },
+    http::{HttpRequest, HttpTransport, ReqwestTransport, safe_excerpt},
     sse::SseParser,
+    stream::{DecodedFrame, stream_with_transport as stream_frames},
 };
-use futures_util::StreamExt;
 use reqwest::{Url, header};
 use serde::Serialize;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
-
-const MAX_ERROR_BODY_BYTES: usize = 16 * 1024;
 
 /// HTTP client for streaming OpenAI Chat Completions-compatible responses.
 #[derive(Clone)]
@@ -57,213 +53,89 @@ fn stream_with_transport<T: HttpTransport + 'static>(
     messages: Vec<ChatMessage>,
     cancellation: CancellationToken,
 ) -> ChatStream {
-    Box::pin(async_stream::stream! {
-        let endpoint = match chat_completions_endpoint(&profile) {
-            Ok(endpoint) => endpoint,
-            Err(message) => {
-                yield Err(ProviderError::configuration(
+    let endpoint = match chat_completions_endpoint(&profile) {
+        Ok(endpoint) => endpoint,
+        Err(message) => {
+            return Box::pin(futures_util::stream::once(async move {
+                Err(ProviderError::configuration(
                     profile.provider,
                     profile.api,
                     &profile.model,
                     message,
-                ));
-                return;
-            }
-        };
-        if let Err(error) = profile.validate() {
-            yield Err(ProviderError::request(
-                profile.provider,
-                profile.api,
-                &profile.model,
-                &endpoint,
-                error.to_string(),
-                None,
-            ));
-            return;
+                ))
+            }));
         }
-        if messages.is_empty() {
-            yield Err(ProviderError::request(
+    };
+    if let Err(error) = profile.validate() {
+        return one_error(ProviderError::request(
+            profile.provider,
+            profile.api,
+            &profile.model,
+            &endpoint,
+            error.to_string(),
+            None,
+        ));
+    }
+    if messages.is_empty() {
+        return one_error(ProviderError::request(
+            profile.provider,
+            profile.api,
+            &profile.model,
+            &endpoint,
+            "chat request requires at least one message",
+            None,
+        ));
+    }
+    let Some(api_key) = api_key.filter(|key| !key.trim().is_empty()) else {
+        return one_error(ProviderError::request(
+            profile.provider,
+            profile.api,
+            &profile.model,
+            &endpoint,
+            "API key is missing; configure the profile credential",
+            None,
+        ));
+    };
+    let request = match build_request(&profile, &api_key, messages, endpoint.clone()) {
+        Ok(request) => request,
+        Err(message) => {
+            return one_error(ProviderError::request(
                 profile.provider,
                 profile.api,
                 &profile.model,
                 &endpoint,
-                "chat request requires at least one message",
-                None,
+                message,
+                Some(&api_key),
             ));
-            return;
         }
-        let Some(api_key) = api_key.filter(|key| !key.trim().is_empty()) else {
-            yield Err(ProviderError::request(
-                profile.provider,
-                profile.api,
-                &profile.model,
-                &endpoint,
-                "API key is missing; configure the profile credential",
-                None,
-            ));
-            return;
-        };
-        let request = match build_request(&profile, &api_key, messages, endpoint.clone()) {
-            Ok(request) => request,
-            Err(message) => {
-                yield Err(ProviderError::request(
-                    profile.provider,
-                    profile.api,
-                    &profile.model,
-                    &endpoint,
-                    message,
-                    Some(&api_key),
-                ));
-                return;
-            }
-        };
-        let response = match transport.execute(request, &cancellation).await {
-            Ok(response) => response,
-            Err(TransportError::Cancelled) => {
-                yield Ok(ChatEvent::Cancelled);
-                return;
-            }
-            Err(TransportError::Network(message)) => {
-                yield Err(ProviderError::request(
-                    profile.provider,
-                    profile.api,
-                    &profile.model,
-                    &endpoint,
-                    safe_excerpt(message.as_bytes(), Some(&api_key)),
-                    Some(&api_key),
-                ));
-                return;
-            }
-        };
-        if !(200..300).contains(&response.status) {
-            let (body, read_error) = match read_error_body(response.body, &cancellation).await {
-                Ok(body) => body,
-                Err(TransportError::Cancelled) => {
-                    yield Ok(ChatEvent::Cancelled);
-                    return;
-                }
-                Err(TransportError::Network(message)) => {
-                    (Vec::new(), Some(message))
-                }
-            };
-            let mut detail = error_message(&body, &api_key);
-            if let Some(read_error) = read_error {
-                if !detail.is_empty() {
-                    detail.push_str("; ");
-                }
-                detail.push_str("could not read the error response: ");
-                detail.push_str(&safe_excerpt(read_error.as_bytes(), Some(&api_key)));
-            }
-            yield Err(ProviderError::response(
-                profile.provider,
-                profile.api,
-                &profile.model,
-                &endpoint,
-                response.status,
-                response.request_id,
-                detail,
-                &api_key,
-            ));
-            return;
-        }
+    };
+    stream_frames(
+        transport,
+        profile,
+        Some(api_key),
+        request,
+        cancellation,
+        SseParser::new(),
+        decode_frame,
+    )
+}
 
-        let mut body = response.body;
-        let mut parser = SseParser::new();
-        loop {
-            let next = tokio::select! {
-                biased;
-                _ = cancellation.cancelled() => {
-                    yield Ok(ChatEvent::Cancelled);
-                    return;
-                }
-                next = body.next() => next,
-            };
-            let Some(chunk) = next else {
-                break;
-            };
-            let chunk = match chunk {
-                Ok(chunk) => chunk,
-                Err(TransportError::Cancelled) => {
-                    yield Ok(ChatEvent::Cancelled);
-                    return;
-                }
-                Err(TransportError::Network(message)) => {
-                    yield Err(ProviderError::stream(
-                        profile.provider,
-                        profile.api,
-                        &profile.model,
-                        &endpoint,
-                        response.request_id,
-                        safe_excerpt(message.as_bytes(), Some(&api_key)),
-                        &api_key,
-                    ));
-                    return;
-                }
-            };
-            let events = match parser.push(&chunk) {
-                Ok(events) => events,
-                Err(message) => {
-                    yield Err(ProviderError::stream(
-                        profile.provider,
-                        profile.api,
-                        &profile.model,
-                        &endpoint,
-                        response.request_id,
-                        message,
-                        &api_key,
-                    ));
-                    return;
-                }
-            };
-            for event in events {
-                if event == "[DONE]" {
-                    return;
-                }
-                match parse_event(&event, &profile, &endpoint, response.request_id.as_deref(), &api_key) {
-                    Ok(events) => {
-                        for event in events {
-                            yield Ok(event);
-                        }
-                    }
-                    Err(error) => {
-                        yield Err(error);
-                        return;
-                    }
-                }
-            }
-        }
-        let events = match parser.finish() {
-            Ok(events) => events,
-            Err(message) => {
-                yield Err(ProviderError::stream(
-                    profile.provider,
-                    profile.api,
-                    &profile.model,
-                    &endpoint,
-                    response.request_id,
-                    message,
-                    &api_key,
-                ));
-                return;
-            }
-        };
-        for event in events {
-            if event == "[DONE]" {
-                return;
-            }
-            match parse_event(&event, &profile, &endpoint, response.request_id.as_deref(), &api_key) {
-                Ok(events) => {
-                    for event in events {
-                        yield Ok(event);
-                    }
-                }
-                Err(error) => {
-                    yield Err(error);
-                    return;
-                }
-            }
-        }
-    })
+fn one_error(error: ProviderError) -> ChatStream {
+    Box::pin(futures_util::stream::once(async move { Err(error) }))
+}
+
+fn decode_frame(
+    event: &str,
+    profile: &AssistantProfile,
+    endpoint: &Url,
+    request_id: Option<&str>,
+    api_key: Option<&str>,
+) -> Result<DecodedFrame, ProviderError> {
+    if event == "[DONE]" {
+        return Ok(DecodedFrame::done(Vec::new()));
+    }
+    parse_event(event, profile, endpoint, request_id, api_key.unwrap_or(""))
+        .map(DecodedFrame::events)
 }
 
 #[derive(Serialize)]
@@ -373,7 +245,7 @@ fn parse_event(
                 "provider returned invalid streaming JSON: {}",
                 safe_excerpt(event.as_bytes(), Some(api_key))
             ),
-            api_key,
+            Some(api_key),
         )
     })?;
     if let Some(error) = value.get("error") {
@@ -390,7 +262,7 @@ fn parse_event(
             endpoint,
             request_id.map(str::to_owned),
             message,
-            api_key,
+            Some(api_key),
         ));
     }
 
@@ -418,44 +290,6 @@ fn parse_event(
         }
     }
     Ok(events)
-}
-
-async fn read_error_body(
-    mut body: BodyStream,
-    cancellation: &CancellationToken,
-) -> Result<(Vec<u8>, Option<String>), TransportError> {
-    let mut contents = Vec::new();
-    loop {
-        let next = tokio::select! {
-            biased;
-            _ = cancellation.cancelled() => return Err(TransportError::Cancelled),
-            next = body.next() => next,
-        };
-        let Some(chunk) = next else {
-            return Ok((contents, None));
-        };
-        let chunk = chunk?;
-        let remaining = MAX_ERROR_BODY_BYTES.saturating_sub(contents.len());
-        contents.extend(chunk.into_iter().take(remaining));
-        if contents.len() == MAX_ERROR_BODY_BYTES {
-            return Ok((contents, None));
-        }
-    }
-}
-
-fn error_message(bytes: &[u8], api_key: &str) -> String {
-    let message = serde_json::from_slice::<Value>(bytes)
-        .ok()
-        .and_then(|value| {
-            value
-                .pointer("/error/message")
-                .and_then(Value::as_str)
-                .map(str::to_owned)
-        });
-    message.map_or_else(
-        || safe_excerpt(bytes, Some(api_key)),
-        |message| safe_excerpt(message.as_bytes(), Some(api_key)),
-    )
 }
 
 #[cfg(test)]
