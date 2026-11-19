@@ -1,4 +1,5 @@
 use std::{
+    fs,
     path::Path,
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
@@ -18,7 +19,62 @@ fn inifra() -> Command {
 fn inifra_with_config(config_dir: &Path) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_inifra"));
     command.env("INIFRA_CONFIG_DIR", config_dir);
+    command.env("INIFRA_CACHE_DIR", config_dir.join("cache"));
     command
+}
+
+fn git(directory: &Path, args: &[&str]) -> String {
+    let output = Command::new("git")
+        .current_dir(directory)
+        .args(["-c", "commit.gpgsign=false"])
+        .args(args)
+        .env("GIT_AUTHOR_NAME", "Inifra test")
+        .env("GIT_AUTHOR_EMAIL", "inifra-test@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Inifra test")
+        .env("GIT_COMMITTER_EMAIL", "inifra-test@example.invalid")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {:?} failed: {}",
+        args,
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).unwrap().trim().to_owned()
+}
+
+fn git_catalog() -> tempfile::TempDir {
+    let repository = tempfile::tempdir().unwrap();
+    git(repository.path(), &["init", "--quiet"]);
+    let pack = repository.path().join("project-files/guide");
+    fs::create_dir_all(&pack).unwrap();
+    fs::write(
+        pack.join("template.toml"),
+        "schema_version = 2\ndescription = 'Team guide'\n",
+    )
+    .unwrap();
+    fs::write(pack.join("GUIDE.md.j2"), "Version one\n").unwrap();
+    git(repository.path(), &["add", "."]);
+    git(
+        repository.path(),
+        &["commit", "--quiet", "-m", "catalog v1"],
+    );
+    git(repository.path(), &["branch", "-M", "main"]);
+    repository
+}
+
+fn file_url(path: &Path) -> String {
+    let path = path.to_string_lossy().replace('\\', "/");
+    let path = path
+        .replace('%', "%25")
+        .replace(' ', "%20")
+        .replace('#', "%23")
+        .replace('?', "%3F");
+    if path.starts_with('/') {
+        format!("file://{path}")
+    } else {
+        format!("file:///{path}")
+    }
 }
 
 #[test]
@@ -26,7 +82,7 @@ fn help_lists_catalog_commands() {
     let output = inifra().arg("--help").output().unwrap();
     assert!(output.status.success());
     let help = String::from_utf8(output.stdout).unwrap();
-    for command in ["init", "list", "inspect", "validate", "generate"] {
+    for command in ["init", "list", "inspect", "validate", "generate", "source"] {
         assert!(help.contains(command));
     }
 }
@@ -118,6 +174,196 @@ fn project_local_pack_overlays_bundled_pack_for_inspection_and_generation() {
         std::fs::read_to_string(target.join("README.md")).unwrap(),
         "# Example\n\nTeam edition.\n"
     );
+}
+
+#[test]
+fn source_commands_pin_update_cache_and_use_snapshots_offline() {
+    let project = tempfile::tempdir().unwrap();
+    let repository = git_catalog();
+    let config = tempfile::tempdir().unwrap();
+    let url = file_url(repository.path());
+    let index = project.path().join(".inifra/templates/project-docs/index");
+    fs::create_dir_all(&index).unwrap();
+    fs::write(
+        index.join("template.toml"),
+        "schema_version = 2\ndescription = 'Project documentation index'\n\n[references.guide]\ntemplate = 'team/guide'\nsource = 'GUIDE.md.j2'\n",
+    )
+    .unwrap();
+    fs::write(
+        index.join("README.md.j2"),
+        "Read the [guide]({{ references.guide }}).\n",
+    )
+    .unwrap();
+
+    let added = inifra_with_config(config.path())
+        .current_dir(project.path())
+        .args(["source", "add", "team", &url, "--ref", "refs/heads/main"])
+        .env("GIT_DIR", config.path().join("not-a-repository"))
+        .output()
+        .unwrap();
+    assert!(
+        added.status.success(),
+        "{}",
+        String::from_utf8_lossy(&added.stderr)
+    );
+    let registry_path = project.path().join(".inifra/sources.toml");
+    let mut registry = inifra_core::source_registry::SourceRegistry::load(&registry_path).unwrap();
+    let first_revision = registry.sources["team"].revision.clone();
+    let first_snapshot = config
+        .path()
+        .join("cache/sources/team")
+        .join(&first_revision);
+    assert!(first_snapshot.is_dir());
+
+    fs::remove_dir_all(&first_snapshot).unwrap();
+    let synced = inifra_with_config(config.path())
+        .current_dir(project.path())
+        .args(["source", "sync", "team"])
+        .output()
+        .unwrap();
+    assert!(
+        synced.status.success(),
+        "{}",
+        String::from_utf8_lossy(&synced.stderr)
+    );
+    assert!(first_snapshot.is_dir());
+
+    fs::write(
+        repository.path().join("project-files/guide/GUIDE.md.j2"),
+        "Version two\n",
+    )
+    .unwrap();
+    git(repository.path(), &["add", "."]);
+    git(
+        repository.path(),
+        &["commit", "--quiet", "-m", "catalog v2"],
+    );
+    let updated = inifra_with_config(config.path())
+        .current_dir(project.path())
+        .args(["source", "update", "team"])
+        .output()
+        .unwrap();
+    assert!(
+        updated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&updated.stderr)
+    );
+    registry = inifra_core::source_registry::SourceRegistry::load(&registry_path).unwrap();
+    let second_revision = registry.sources["team"].revision.clone();
+    assert_ne!(first_revision, second_revision);
+
+    fs::rename(repository.path(), project.path().join("source-offline")).unwrap();
+    let completions = inifra_with_config(config.path())
+        .current_dir(project.path())
+        .args(["--", "inifra", "generate", "team/"])
+        .env("INIFRA_COMPLETE", "fish")
+        .output()
+        .unwrap();
+    assert!(
+        completions.status.success(),
+        "{}",
+        String::from_utf8_lossy(&completions.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&completions.stdout).contains("team/guide"),
+        "{}",
+        String::from_utf8_lossy(&completions.stdout)
+    );
+
+    let inspected = inifra_with_config(config.path())
+        .current_dir(project.path())
+        .args(["inspect", "team/guide"])
+        .output()
+        .unwrap();
+    assert!(
+        inspected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inspected.stderr)
+    );
+    let target = project.path().join("generated");
+    let generated = inifra_with_config(config.path())
+        .current_dir(project.path())
+        .args([
+            "generate",
+            "index",
+            "team/guide",
+            "--target",
+            target.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    assert_eq!(
+        fs::read_to_string(target.join("GUIDE.md")).unwrap(),
+        "Version two\n"
+    );
+    assert_eq!(
+        fs::read_to_string(target.join("README.md")).unwrap(),
+        "Read the [guide](GUIDE.md).\n"
+    );
+
+    let removed = inifra_with_config(config.path())
+        .current_dir(project.path())
+        .args(["source", "remove", "team"])
+        .output()
+        .unwrap();
+    assert!(
+        removed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&removed.stderr)
+    );
+    assert!(
+        config
+            .path()
+            .join("cache/sources/team")
+            .join(second_revision)
+            .is_dir()
+    );
+    assert!(
+        !inifra_with_config(config.path())
+            .current_dir(project.path())
+            .args(["inspect", "team/guide"])
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+}
+
+#[test]
+fn catalog_commands_explain_how_to_restore_a_missing_source_pin() {
+    let project = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    fs::create_dir_all(project.path().join(".inifra")).unwrap();
+    let mut registry = inifra_core::source_registry::SourceRegistry::default();
+    registry
+        .insert(
+            "team",
+            inifra_core::source_registry::GitSource {
+                url: "https://example.com/team.git".into(),
+                reference: "refs/heads/main".into(),
+                revision: "0123456789abcdef0123456789abcdef01234567".into(),
+            },
+        )
+        .unwrap();
+    registry
+        .save(&project.path().join(".inifra/sources.toml"))
+        .unwrap();
+
+    let output = inifra_with_config(config.path())
+        .current_dir(project.path())
+        .arg("list")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(error.contains("team"), "{error}");
+    assert!(error.contains("inifra source sync team"), "{error}");
 }
 
 #[test]
