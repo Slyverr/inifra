@@ -1,17 +1,8 @@
 use crate::{CatalogView, GenerationReview, InitBackend, InitOutcome, InputPrompt, view};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use ratatui::{TerminalOptions, Viewport};
 use std::{collections::BTreeMap, io};
 
 const VIEWPORT_HEIGHT: u16 = 24;
-
-struct RestoreTerminal;
-impl Drop for RestoreTerminal {
-    fn drop(&mut self) {
-        let _ = crossterm::terminal::disable_raw_mode();
-        let _ = crossterm::execute!(io::stdout(), crossterm::cursor::Show);
-    }
-}
 
 /// Run the inline initialization flow in the current terminal.
 ///
@@ -20,18 +11,40 @@ impl Drop for RestoreTerminal {
 ///
 /// # Errors
 /// Returns an error if the terminal cannot be initialized, drawn, or read.
-pub fn run_init<B: InitBackend>(catalog: CatalogView, mut backend: B) -> io::Result<InitOutcome> {
-    let _restore = RestoreTerminal;
-    let mut terminal = ratatui::try_init_with_options(TerminalOptions {
-        viewport: Viewport::Inline(VIEWPORT_HEIGHT),
-    })?;
+pub fn run_init<B: InitBackend>(catalog: CatalogView, backend: B) -> io::Result<InitOutcome> {
+    run_init_with_selection(catalog, backend, &[], BTreeMap::new())
+}
+
+/// Runs initialization with a preset selection and saved values preloaded.
+///
+/// The user enters the ordinary selection and review flow with the supplied templates selected.
+///
+/// # Errors
+/// Returns an error if a template is unknown, multiple templates map to the same exclusive
+/// choice, or the terminal cannot be initialized, drawn, or read.
+pub fn run_init_with_selection<B: InitBackend>(
+    catalog: CatalogView,
+    mut backend: B,
+    selected_ids: &[String],
+    values: BTreeMap<String, String>,
+) -> io::Result<InitOutcome> {
     let mut app = App::new(catalog);
+    app.select_initial(selected_ids)?;
+    app.values = values;
+    run_app(&mut app, &mut backend)
+}
+
+fn run_app<B, P>(app: &mut App<P>, backend: &mut B) -> io::Result<InitOutcome>
+where
+    B: InitBackend<Plan = P>,
+{
+    let (_restore, mut terminal) = super::terminal::inline(VIEWPORT_HEIGHT)?;
     loop {
-        terminal.draw(|frame| view::draw(frame, &app))?;
+        terminal.draw(|frame| view::draw(frame, app))?;
         match event::read()? {
             Event::Resize(_, _) => terminal.autoresize()?,
             Event::Key(key) if key.kind != KeyEventKind::Release => {
-                if let Some(outcome) = app.handle(key, &mut backend) {
+                if let Some(outcome) = app.handle(key, backend) {
                     if let Err(error) = terminal.clear() {
                         if outcome == InitOutcome::Applied {
                             eprintln!(
@@ -87,6 +100,41 @@ impl<P> App<P> {
             input: String::new(),
             error: None,
         }
+    }
+
+    fn select_initial(&mut self, selected_ids: &[String]) -> io::Result<()> {
+        for id in selected_ids {
+            let found = self
+                .catalog
+                .templates
+                .iter()
+                .enumerate()
+                .find_map(|(choice_index, choice)| {
+                    choice
+                        .variants
+                        .iter()
+                        .position(|template| template.id == *id)
+                        .map(|variant_index| (choice_index, variant_index))
+                })
+                .ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!("template {id:?} cannot be selected in the initialization picker"),
+                    )
+                })?;
+            let (choice_index, variant_index) = found;
+            if self.selected[choice_index] {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "the preset selects multiple alternatives in one shared-output group, including {id:?}"
+                    ),
+                ));
+            }
+            self.selected[choice_index] = true;
+            self.variants[choice_index] = variant_index;
+        }
+        Ok(())
     }
 
     fn selected_ids(&self) -> Vec<String> {
@@ -243,7 +291,6 @@ impl<P> App<P> {
                     } else {
                         match backend.input_prompts(&selected) {
                             Ok(prompts) if prompts.is_empty() => {
-                                self.values.clear();
                                 self.prepare(backend);
                             }
                             Ok(mut prompts) => {
@@ -442,6 +489,29 @@ mod tests {
         assert_eq!(app.cursor, 2);
         app.handle(key(KeyCode::BackTab), &mut backend);
         assert_eq!(app.cursor, 0);
+    }
+
+    #[test]
+    fn preset_selection_preselects_the_matching_shared_output_variant() {
+        let mut app = app();
+
+        app.select_initial(&["template-0-alt".into(), "template-2".into()])
+            .unwrap();
+
+        assert_eq!(app.selected, [true, false, true]);
+        assert_eq!(app.variants, [1, 0, 0]);
+        assert_eq!(app.selected_ids(), ["template-0-alt", "template-2"]);
+    }
+
+    #[test]
+    fn preset_selection_rejects_multiple_exclusive_variants() {
+        let mut app = app();
+
+        let error = app
+            .select_initial(&["template-0".into(), "template-0-alt".into()])
+            .unwrap_err();
+
+        assert!(error.to_string().contains("multiple alternatives"));
     }
 
     #[test]
