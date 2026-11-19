@@ -1,11 +1,20 @@
 //! Assistant profiles, provider adapters, and constrained assistant workflows.
 #![deny(missing_docs)]
 
+mod chat;
+mod chat_completions;
 mod config;
 mod credentials;
+mod http;
+mod sse;
 
+pub use chat::{ChatEvent, ChatMessage, ChatRole, ChatStream, TokenUsage};
+pub use chat_completions::ProviderClient;
 pub use config::{ApiProtocol, AssistantConfig, AssistantProfile, CredentialSource, Provider};
 pub use credentials::{read_credential, resolve_credential, write_credential};
+pub use http::ProviderError;
+/// Cancellation signal used to stop a provider request and response stream.
+pub use tokio_util::sync::CancellationToken;
 
 /// An invalid assistant configuration or unavailable credential.
 #[derive(Debug)]

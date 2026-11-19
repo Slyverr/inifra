@@ -4,6 +4,8 @@ Run `inifra assistant` to open the inline profile manager. It lets you create or
 
 The manager separates API selection from provider selection. For example, choose **Chat Completions API** and then **NVIDIA NIM** or **OpenRouter**. A profile stores the provider, API protocol, model ID, optional base URL, and the name of its API-key environment variable. It never stores a key in `assistant.toml`.
 
+For Chat Completions, enter the API base URL (for example, `https://integrate.api.nvidia.com/v1`). Inifra appends `/chat/completions` while preserving path prefixes; it does not append the route twice if the full endpoint URL is entered. Custom endpoints omit optional streaming usage settings because support varies between compatible servers.
+
 ## Commands
 
 ```sh
