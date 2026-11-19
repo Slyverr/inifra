@@ -50,8 +50,9 @@ impl ProviderError {
         status: u16,
         request_id: Option<String>,
         detail: impl Into<String>,
-        api_key: &str,
+        api_key: Option<&str>,
     ) -> Self {
+        let api_key = api_key.unwrap_or("");
         Self {
             provider,
             api,
@@ -70,8 +71,9 @@ impl ProviderError {
         endpoint: &Url,
         request_id: Option<String>,
         detail: impl Into<String>,
-        api_key: &str,
+        api_key: Option<&str>,
     ) -> Self {
+        let api_key = api_key.unwrap_or("");
         Self {
             provider,
             api,

@@ -7,6 +7,7 @@ mod config;
 mod credentials;
 mod http;
 mod sse;
+mod stream;
 
 pub use chat::{ChatEvent, ChatMessage, ChatRole, ChatStream, TokenUsage};
 pub use chat_completions::ProviderClient;

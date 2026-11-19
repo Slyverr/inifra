@@ -1,5 +1,7 @@
 const MAX_EVENT_BYTES: usize = 1024 * 1024;
 
+use crate::stream::FrameParser;
+
 /// Parses server-sent events while preserving state across arbitrary HTTP chunks.
 pub(crate) struct SseParser {
     line: Vec<u8>,
@@ -84,6 +86,16 @@ impl SseParser {
             self.has_data = false;
         }
         self.frame_bytes = 0;
+    }
+}
+
+impl FrameParser for SseParser {
+    fn push(&mut self, chunk: &[u8]) -> Result<Vec<String>, &'static str> {
+        SseParser::push(self, chunk)
+    }
+
+    fn finish(&mut self) -> Result<Vec<String>, &'static str> {
+        SseParser::finish(self)
     }
 }
 
