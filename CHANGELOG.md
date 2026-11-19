@@ -6,12 +6,15 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-19
+
 ### Added
 
 - Load personal template packs from the platform config directory, overlaying bundled packs by template ID.
 - Edit bundled templates through user-owned copies, and create, rename, or remove personal packs with reference checks.
 - Save, inspect, apply, rename, and remove reusable template-selection presets.
 - Create a valid starter source file when interactively scaffolding a new personal template.
+- Generate and install shell completions for Bash, Elvish, Fish, PowerShell, and Zsh, including dynamic template, preset, and input suggestions.
 
 ### Changed
 
