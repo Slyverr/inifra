@@ -2,8 +2,10 @@
 #![deny(missing_docs)]
 
 mod config;
+mod credentials;
 
 pub use config::{ApiProtocol, AssistantConfig, AssistantProfile, CredentialSource, Provider};
+pub use credentials::{read_credential, resolve_credential, write_credential};
 
 /// An invalid assistant configuration or unavailable credential.
 #[derive(Debug)]
