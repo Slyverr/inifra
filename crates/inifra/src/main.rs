@@ -15,7 +15,11 @@ struct Cli {
 #[derive(Subcommand)]
 enum Command {
     /// List available template packs.
-    List,
+    List {
+        /// Show every file and directory output for each pack.
+        #[arg(long)]
+        files: bool,
+    },
     /// Show details and outputs for a pack.
     Inspect { id: String },
     /// Validate catalog manifests and source paths.
@@ -58,7 +62,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         .ok_or("catalog unavailable")?;
     let catalog = catalog::Catalog::load(catalog_path)?;
     match cli.command {
-        Command::List => {
+        Command::List { files } => {
             let mut category = "";
             let width = catalog
                 .packs
@@ -74,7 +78,33 @@ fn run() -> Result<(), Box<dyn Error>> {
                     category = &pack.category;
                     println!("{}", catalog.categories[category].name);
                 }
-                println!("  {:width$}  {}", pack.id, pack.description);
+                let selected = std::slice::from_ref(&pack.id);
+                let outputs = catalog.resolve_outputs(selected)?;
+                let summary = compact_output_summary(&outputs, &pack.directories);
+                println!(
+                    "  {:width$}  {}{}",
+                    pack.id,
+                    pack.description,
+                    if summary.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  [{summary}]")
+                    }
+                );
+                if files {
+                    if !outputs.is_empty() {
+                        println!("    Files:");
+                        for output in outputs {
+                            println!("      {}", output.output.display());
+                        }
+                    }
+                    if !pack.directories.is_empty() {
+                        println!("    Directories:");
+                        for directory in &pack.directories {
+                            println!("      {}/", directory.display());
+                        }
+                    }
+                }
             }
         }
         Command::Inspect { id } => {
@@ -162,4 +192,29 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+fn compact_output_summary(
+    outputs: &[inifra_core::output_rules::ResolvedPackOutput],
+    directories: &[PathBuf],
+) -> String {
+    let mut summary = Vec::new();
+    if let Some(first) = outputs.first() {
+        summary.push(first.output.display().to_string());
+        let remaining = outputs.len() - 1;
+        if remaining == 1 {
+            summary.push("+1 other file".to_owned());
+        } else if remaining > 1 {
+            summary.push(format!("+{remaining} other files"));
+        }
+    }
+    if !directories.is_empty() {
+        let suffix = if directories.len() == 1 {
+            "directory"
+        } else {
+            "directories"
+        };
+        summary.push(format!("{} {suffix}", directories.len()));
+    }
+    summary.join(", ")
 }
