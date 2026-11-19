@@ -56,7 +56,7 @@ Ordinary outputs use their source paths with only the final `.j2` suffix removed
 
 ```toml
 [[output_rules]]
-source = "LICENSE"
+source = "LICENSE.j2"
 co_selected_output = { group = "licenses", path = "LICENSE-MIT" }
 ```
 
