@@ -1,0 +1,9 @@
+schema_version = 1
+description = "Core files for a small Rust command-line project"
+templates = ["agents", "changelog", "contributing", "editorconfig", "license-mit", "readme"]
+
+[values]
+project_name = "example-cli"
+project_description = "A small command-line application."
+copyright_year = "2026"
+copyright_holder = "Example Maintainer"

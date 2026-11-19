@@ -627,7 +627,7 @@ fn identifier(path: &Path) -> Result<String, CatalogError> {
     Ok(name.to_owned())
 }
 
-fn valid_identifier(name: &str) -> bool {
+pub(crate) fn valid_identifier(name: &str) -> bool {
     !name.is_empty()
         && name
             .bytes()
