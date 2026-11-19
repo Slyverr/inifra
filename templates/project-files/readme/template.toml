@@ -1,3 +1,46 @@
 schema_version = 2
 description = "Project overview and getting started"
-inputs = ["project_name", "project_description"]
+
+inputs = ["project_name"]
+
+[local_inputs.project_description]
+prompt = "Short project description"
+
+[local_inputs.project_status]
+prompt = "Project status, if useful"
+
+[local_inputs.core_capability_1]
+prompt = "First core capability, if useful"
+
+[local_inputs.core_capability_2]
+prompt = "Second core capability, if useful"
+
+[local_inputs.core_capability_3]
+prompt = "Third core capability, if useful"
+
+[local_inputs.supported_platforms]
+prompt = "Supported platforms, toolchain, or runtime"
+
+[local_inputs.install_command]
+prompt = "Installation command"
+
+[local_inputs.quick_start_intro]
+prompt = "Sentence introducing the quick-start example"
+
+[local_inputs.minimal_working_example]
+prompt = "Minimal working example command"
+
+[local_inputs.expected_result]
+prompt = "Expected result or link to advanced usage"
+
+[references.contributing]
+template = "contributing"
+source = "CONTRIBUTING.md.j2"
+
+[references.license_apache]
+template = "license-apache"
+source = "LICENSE.j2"
+
+[references.license_mit]
+template = "license-mit"
+source = "LICENSE.j2"

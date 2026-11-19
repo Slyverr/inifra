@@ -1,4 +1,51 @@
-# {{ project_name }}
+# {{ project_name }}{% if project_description %}
 
-{% if project_description %}{{ project_description }}
-{% endif %}
+{{ project_description }}{% endif %}{% if project_status %}
+
+> **Status:** {{ project_status }}{% endif %}{% if core_capability_1 or core_capability_2 or core_capability_3 %}
+
+## Features
+{% if core_capability_1 %}- {{ core_capability_1 }}
+{% endif %}{% if core_capability_2 %}- {{ core_capability_2 }}
+{% endif %}{% if core_capability_3 %}- {{ core_capability_3 }}
+{% endif %}{% endif %}{% if supported_platforms or install_command %}
+
+## Installation
+{% if supported_platforms and install_command %}
+
+Install on {{ supported_platforms }} using:
+
+{% elif supported_platforms %}
+
+Supported environments: {{ supported_platforms }}.
+{% elif install_command %}
+
+Install using:
+{% endif %}{% if install_command %}
+
+```sh
+{{ install_command }}
+```
+{% endif %}{% endif %}{% if quick_start_intro or minimal_working_example or expected_result %}
+
+## Quick Start{% if quick_start_intro %}
+
+{{ quick_start_intro }}{% endif %}{% if minimal_working_example %}
+
+```sh
+{{ minimal_working_example }}
+```
+{% endif %}{% if expected_result %}
+
+{{ expected_result }}{% endif %}{% endif %}{% if references.contributing %}
+
+## Contributing
+
+Contributions, bug reports, and feature suggestions are welcome. Read [CONTRIBUTING.md]({{ references.contributing }}) for development guidelines and how to submit changes.{% endif %}{% if references.license_mit or references.license_apache %}
+
+## License
+
+{% if references.license_mit and references.license_apache %}This project is licensed under either the [MIT License]({{ references.license_mit }}) or [Apache License 2.0]({{ references.license_apache }}), at your option.
+{% elif references.license_mit %}This project is licensed under the [MIT License]({{ references.license_mit }}).
+{% else %}This project is licensed under the [Apache License 2.0]({{ references.license_apache }}).
+{% endif %}{% endif %}
