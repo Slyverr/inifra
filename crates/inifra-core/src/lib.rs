@@ -10,4 +10,5 @@ pub mod presets;
 pub mod render;
 mod safe_fs;
 pub mod sources;
+pub mod user_templates;
 pub mod workflow;
