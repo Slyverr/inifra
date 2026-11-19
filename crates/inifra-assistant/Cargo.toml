@@ -11,3 +11,9 @@ description = "Assistant workflows and provider integrations for Inifra"
 [lints]
 workspace = true
 
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+tempfile = "3.27.0"
+toml = "1.2.1"
+url = "2.5.8"
+
