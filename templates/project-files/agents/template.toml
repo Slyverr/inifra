@@ -1,2 +1,10 @@
 schema_version = 2
 description = "Root instructions for coding agents"
+
+[references.contributing]
+template = "contributing"
+source = "CONTRIBUTING.md.j2"
+
+[references.readme]
+template = "readme"
+source = "README.md.j2"

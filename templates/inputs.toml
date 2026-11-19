@@ -3,6 +3,3 @@ schema_version = 1
 [inputs.project_name]
 prompt = "Project name"
 required = true
-
-[inputs.project_description]
-prompt = "Short project description"

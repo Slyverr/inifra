@@ -1,0 +1,4 @@
+schema_version = 2
+description = "Local development setup and verification outline"
+
+inputs = ["project_name"]

@@ -1,0 +1,50 @@
+schema_version = 2
+description = "Contributor setup and pull request guidance"
+
+[local_inputs.development_requirements]
+prompt = "Development language, toolchain, and other requirements"
+
+[local_inputs.setup_command]
+prompt = "Development environment setup command"
+
+[local_inputs.development_command]
+prompt = "Command to run the project locally"
+
+[local_inputs.source_path]
+prompt = "Source code directory"
+
+[local_inputs.test_path]
+prompt = "Test directory"
+
+[local_inputs.other_path]
+prompt = "Additional important directory"
+
+[local_inputs.other_responsibility]
+prompt = "Responsibility of the additional directory"
+
+[local_inputs.project_conventions]
+prompt = "Additional project-specific coding conventions"
+
+[local_inputs.format_check_command]
+prompt = "Formatting check command"
+
+[local_inputs.lint_command]
+prompt = "Lint command"
+
+[local_inputs.test_command]
+prompt = "Test command"
+
+[local_inputs.build_command]
+prompt = "Build command"
+
+[references.architecture]
+template = "architecture"
+source = "docs/architecture.md.j2"
+
+[references.development]
+template = "development"
+source = "docs/development.md.j2"
+
+[references.security]
+template = "security"
+source = "SECURITY.md.j2"

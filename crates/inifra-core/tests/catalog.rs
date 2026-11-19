@@ -86,14 +86,30 @@ fn rejects_duplicate_ids_and_invalid_manifests() {
 fn initial_catalog_packs_load_and_have_sources() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../templates");
     let catalog = Catalog::load(&root).unwrap();
+    let mut ids = catalog
+        .packs
+        .iter()
+        .map(|pack| pack.id.as_str())
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
     assert_eq!(
-        catalog
-            .packs
-            .iter()
-            .map(|pack| pack.id.as_str())
-            .collect::<Vec<_>>(),
-        ["agents", "changelog", "editorconfig", "readme"]
+        ids,
+        [
+            "agents",
+            "architecture",
+            "changelog",
+            "contributing",
+            "development",
+            "editorconfig",
+            "github-issues",
+            "github-pull-request",
+            "license-apache",
+            "license-mit",
+            "readme",
+            "security",
+        ]
     );
+    catalog.validate().unwrap();
     for pack in &catalog.packs {
         assert!(
             !inifra_core::sources::discover(&pack.directory)

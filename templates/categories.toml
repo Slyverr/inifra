@@ -1,0 +1,13 @@
+schema_version = 1
+
+[categories.project-files]
+name = "Project files"
+
+[categories.project-docs]
+name = "Project docs"
+
+[categories.github]
+name = "GitHub"
+
+[categories.project-policies]
+name = "Project policies"

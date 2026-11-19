@@ -1,0 +1,84 @@
+# Contributing
+
+Contributions are welcome. This guide explains how to get started and how to make changes that fit the project.
+
+## Getting started{% if development_requirements %}
+
+Development requires {{ development_requirements }}.{% endif %}{% if setup_command %}
+
+Prepare the development environment with:
+
+```sh
+{{ setup_command }}
+```
+{% endif %}{% if development_command %}
+
+Run the project locally with:
+
+```sh
+{{ development_command }}
+```
+{% endif %}
+
+Keep configuration and lockfiles consistent with the project's documented toolchain.
+
+## Project layout
+
+Follow the existing structure when adding source, tests, and resources.{% if source_path or test_path or (other_path and other_responsibility) or references.architecture or references.development %}
+
+| Path | Purpose |
+| --- | --- |{% if source_path %}
+| `{{ source_path }}` | Source code and modules |{% endif %}{% if test_path %}
+| `{{ test_path }}` | Tests and supporting fixtures |{% endif %}{% if other_path and other_responsibility %}
+| `{{ other_path }}` | {{ other_responsibility }} |{% endif %}{% if references.architecture or references.development %}
+| `docs/` | Project documentation |{% endif %}{% endif %}{% if references.architecture %}
+
+See [the architecture guide]({{ references.architecture }}) for component responsibilities and boundaries.{% endif %}{% if references.development %}
+
+See [the development guide]({{ references.development }}) for local tooling and verification commands.{% endif %}
+
+## Development guidelines
+
+- Follow established language idioms, naming conventions, and architecture.
+- Keep changes focused and handle errors explicitly.
+- Use the configured formatter, linter, and static-analysis tools.
+- Add dependencies only when their maintenance, security, licensing, and compatibility costs are justified.{% if project_conventions %}
+- {{ project_conventions }}{% endif %}
+
+## Tests and checks
+
+Test public behavior, relevant edge cases, and failure paths. Keep tests deterministic and isolated, and add regression coverage when practical.{% if format_check_command or lint_command or test_command or build_command %}
+
+Run the checks relevant to your change before requesting review:
+
+```sh
+{% if format_check_command %}{{ format_check_command }}
+{% endif %}{% if lint_command %}{{ lint_command }}
+{% endif %}{% if test_command %}{{ test_command }}
+{% endif %}{% if build_command %}{{ build_command }}
+{% endif %}```
+{% endif %}
+
+Report checks that could not be run and why.{% if references.development %} See [the development guide]({{ references.development }}) for additional verification guidance.{% endif %}
+
+## Commits
+
+Follow the commit-message convention used by the project. If none is established, [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) is a common option:
+
+```text
+type(scope): concise summary
+```
+
+Keep each commit focused. Explain motivation or consequences in the body when the subject is not enough.
+
+## Pull requests
+
+Follow the project's branch and review process. A useful pull request describes the problem, the change, and how it was verified. Update relevant documentation and call out compatibility changes or unresolved risks.
+
+## Releases
+
+Follow the project's versioning and release process. If the project maintains a changelog, record notable user-facing changes there.{% if references.security %}
+
+## Security issues
+
+Report vulnerabilities privately using [the security policy]({{ references.security }}). Do not post sensitive details in a public issue.{% endif %}

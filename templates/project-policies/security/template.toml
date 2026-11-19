@@ -1,0 +1,10 @@
+schema_version = 2
+description = "Security reporting policy starter"
+
+[local_inputs.security_contact]
+prompt = "Private security reporting channel"
+required = true
+
+[local_inputs.supported_versions]
+prompt = "Versions receiving security fixes"
+required = true

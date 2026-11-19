@@ -1,0 +1,27 @@
+name: Bug report
+description: Report a problem with the project
+title: ""
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: Check existing issues before submitting a report.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest set of steps that reproduces the problem.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Include the project version and relevant platform details.
