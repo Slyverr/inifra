@@ -929,11 +929,13 @@ dependencies = [
  "clap",
  "clap_complete",
  "directories",
+ "futures-util",
  "inifra-assistant",
  "inifra-core",
  "inifra-tui",
  "shlex",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

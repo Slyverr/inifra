@@ -26,7 +26,7 @@ inifra generate readme --set project_name=Example --dry-run
 See [the template catalog guide](docs/templates.md) for pack layout and input definitions.
 Personal template packs can extend bundled packs, and repositories can keep team packs in `.inifra/templates/` or pin shared Git catalogs with `inifra source`. Set `INIFRA_CONFIG_DIR` to choose a different personal config root; the [catalog guide](docs/templates.md) documents precedence, source pins, and cache behavior.
 Use `inifra edit`, `rename`, and `remove` to manage personal packs; `inifra preset` saves and reapplies selections. See [presets](docs/presets.md) for details.
-Use `inifra assistant` to configure assistant profiles and credentials; see [assistant setup](docs/assistant.md).
+Use `inifra assistant` to configure assistant profiles and credentials, then `inifra ask` to inspect templates and prepare reviewed generation plans in an inline assistant session. See [assistant setup and data handling](docs/assistant.md).
 
 ## Contributing
 

@@ -9,8 +9,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const CONFIG_FILE: &str = "assistant.toml";
-const CREDENTIALS_FILE: &str = "credentials.env";
+pub(crate) const CONFIG_FILE: &str = "assistant.toml";
+pub(crate) const CREDENTIALS_FILE: &str = "credentials.env";
 
 /// Non-interactive assistant profile actions and the interactive manager.
 #[derive(Subcommand)]
