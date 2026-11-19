@@ -5,22 +5,19 @@ use inifra_assistant::{
 use inifra_tui::{FormOutcome, TextField, presentation, run_form, run_secret_input, run_select};
 use std::{collections::BTreeMap, error::Error, fs, path::Path};
 
-const API_CHOICES: &[(&str, ApiProtocol)] = &[
-    ("Responses API", ApiProtocol::OpenAiResponses),
-    ("Chat Completions API", ApiProtocol::OpenAiChatCompletions),
-    ("Anthropic Messages API", ApiProtocol::AnthropicMessages),
-    (
-        "Google Generate Content API",
-        ApiProtocol::GeminiGenerateContent,
-    ),
-    ("Ollama Chat API", ApiProtocol::OllamaChat),
+const API_CHOICES: &[ApiProtocol] = &[
+    ApiProtocol::OpenAiResponses,
+    ApiProtocol::OpenAiChatCompletions,
+    ApiProtocol::AnthropicMessages,
+    ApiProtocol::GeminiGenerateContent,
+    ApiProtocol::OllamaChat,
 ];
 
-const CHAT_PROVIDERS: &[(&str, Provider)] = &[
-    ("OpenAI", Provider::OpenAi),
-    ("NVIDIA NIM", Provider::NvidiaNim),
-    ("OpenRouter", Provider::OpenRouter),
-    ("Custom endpoint", Provider::OpenAiCompatible),
+const CHAT_PROVIDERS: &[Provider] = &[
+    Provider::OpenAi,
+    Provider::NvidiaNim,
+    Provider::OpenRouter,
+    Provider::OpenAiCompatible,
 ];
 
 pub(super) fn configure_profile(
@@ -44,19 +41,19 @@ pub(super) fn configure_profile(
         .unwrap_or_default();
     let api_choices = API_CHOICES
         .iter()
-        .map(|(label, _)| (*label).to_owned())
+        .map(|api| api.display_name().to_owned())
         .collect::<Vec<_>>();
     let Some(api_index) = run_select("API", &api_choices, api_initial)? else {
         return Ok(());
     };
-    let api = API_CHOICES[api_index].1;
+    let api = API_CHOICES[api_index];
 
     let provider = if api == ApiProtocol::OpenAiResponses {
         Provider::OpenAi
     } else if api == ApiProtocol::OpenAiChatCompletions {
         let provider_choices = CHAT_PROVIDERS
             .iter()
-            .map(|(label, _)| (*label).to_owned())
+            .map(|provider| provider.display_name().to_owned())
             .collect::<Vec<_>>();
         let provider_initial = existing
             .as_ref()
@@ -66,7 +63,7 @@ pub(super) fn configure_profile(
         else {
             return Ok(());
         };
-        CHAT_PROVIDERS[provider_index].1
+        CHAT_PROVIDERS[provider_index]
     } else {
         provider_for_api(api)
     };
@@ -166,7 +163,7 @@ pub(super) fn configure_profile(
     println!(
         "Saved assistant profile {}  {}  {}",
         presentation::paint_emphasis(&id, presentation::Tone::Accent),
-        presentation::terminal_text(provider_name(saved_profile.provider)),
+        presentation::terminal_text(saved_profile.provider.display_name()),
         presentation::terminal_text(&saved_profile.model)
     );
     Ok(())
@@ -185,25 +182,6 @@ pub(super) fn profile_id_input() -> Result<Option<String>, Box<dyn Error>> {
         FormOutcome::Submitted(values) => Ok(Some(required_value(&values, "id")?)),
         FormOutcome::Cancelled => Ok(None),
     }
-}
-
-pub(super) fn provider_name(provider: Provider) -> &'static str {
-    match provider {
-        Provider::OpenAi => "OpenAI",
-        Provider::OpenAiCompatible => "Custom endpoint",
-        Provider::NvidiaNim => "NVIDIA NIM",
-        Provider::Anthropic => "Anthropic",
-        Provider::Gemini => "Google Gemini",
-        Provider::Ollama => "Ollama",
-        Provider::OpenRouter => "OpenRouter",
-    }
-}
-
-pub(super) fn api_name(api: ApiProtocol) -> &'static str {
-    API_CHOICES
-        .iter()
-        .find_map(|(label, choice)| (*choice == api).then_some(*label))
-        .unwrap_or("Unknown API")
 }
 
 fn restore_config(path: &Path, original: Option<AssistantConfig>) -> Result<(), Box<dyn Error>> {
@@ -257,13 +235,11 @@ fn default_key_name(provider: Provider) -> &'static str {
 }
 
 fn api_index(api: ApiProtocol) -> Option<usize> {
-    API_CHOICES.iter().position(|(_, choice)| *choice == api)
+    API_CHOICES.iter().position(|choice| *choice == api)
 }
 
 fn provider_index(provider: Provider) -> Option<usize> {
-    CHAT_PROVIDERS
-        .iter()
-        .position(|(_, choice)| *choice == provider)
+    CHAT_PROVIDERS.iter().position(|choice| *choice == provider)
 }
 
 fn provider_for_api(api: ApiProtocol) -> Provider {

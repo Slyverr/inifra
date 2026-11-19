@@ -22,6 +22,19 @@ pub enum ApiProtocol {
     OllamaChat,
 }
 
+impl ApiProtocol {
+    /// Human-readable API protocol name.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::OpenAiResponses => "Responses API",
+            Self::OpenAiChatCompletions => "Chat Completions API",
+            Self::AnthropicMessages => "Messages API",
+            Self::GeminiGenerateContent => "Generate Content API",
+            Self::OllamaChat => "Ollama Chat API",
+        }
+    }
+}
+
 /// Service that implements an assistant API protocol.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -40,6 +53,21 @@ pub enum Provider {
     Ollama,
     /// OpenRouter.
     OpenRouter,
+}
+
+impl Provider {
+    /// Human-readable provider name.
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::OpenAi => "OpenAI",
+            Self::OpenAiCompatible => "Custom endpoint",
+            Self::NvidiaNim => "NVIDIA NIM",
+            Self::Anthropic => "Anthropic",
+            Self::Gemini => "Google Gemini",
+            Self::Ollama => "Ollama",
+            Self::OpenRouter => "OpenRouter",
+        }
+    }
 }
 
 /// Where a profile resolves its API credential at runtime.

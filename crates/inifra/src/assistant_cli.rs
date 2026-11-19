@@ -1,4 +1,4 @@
-use crate::assistant_configure::{configure_profile, profile_id_input, provider_name};
+use crate::assistant_configure::{configure_profile, profile_id_input};
 use clap::Subcommand;
 use inifra_assistant::AssistantConfig;
 use inifra_tui::{presentation, run_confirmation, run_select};
@@ -123,8 +123,8 @@ fn list_profiles(config_path: &Path) -> Result<(), Box<dyn Error>> {
             "{}{}  {}  {}  {}",
             presentation::paint_emphasis(id, presentation::Tone::Accent),
             marker,
-            presentation::terminal_text(provider_name(profile.provider)),
-            presentation::terminal_text(crate::assistant_configure::api_name(profile.api)),
+            presentation::terminal_text(profile.provider.display_name()),
+            presentation::terminal_text(profile.api.display_name()),
             presentation::terminal_text(&profile.model)
         );
     }
@@ -151,13 +151,13 @@ fn choose_profile(config: &AssistantConfig, title: &str) -> Result<Option<String
             let label = if is_default {
                 format!(
                     "{id}  ·  {}  ·  {}  ·  default",
-                    provider_name(profile.provider),
+                    profile.provider.display_name(),
                     profile.model
                 )
             } else {
                 format!(
                     "{id}  ·  {}  ·  {}",
-                    provider_name(profile.provider),
+                    profile.provider.display_name(),
                     profile.model
                 )
             };
@@ -182,7 +182,7 @@ fn remove_profile(config_path: &Path, id: &str) -> Result<(), Box<dyn Error>> {
     };
     let description = format!(
         "Remove profile {id:?} ({}, {})?",
-        provider_name(profile.provider),
+        profile.provider.display_name(),
         profile.model
     );
     if run_confirmation("Assistant", &description, false)?.unwrap_or(false) {
