@@ -38,7 +38,7 @@ pub struct Catalog {
 /// A category and the metadata used to present and configure its packs.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Category {
-    /// Category directory ID.
+    /// Catalog category ID; remote catalog layers prefix it with their source namespace.
     pub id: String,
     /// Display name from `categories.toml`, or a readable form of the ID.
     pub name: String,
@@ -51,7 +51,7 @@ pub struct Category {
 /// A discovered template and its location in the catalog.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Pack {
-    /// Globally unique pack identifier.
+    /// Unique effective catalog ID; remote pack IDs use `<source>/<template>`.
     pub id: String,
     /// Category directory ID.
     pub category: String,
@@ -197,6 +197,53 @@ impl Catalog {
         Ok(self)
     }
 
+    /// Adds a stable namespace to every pack and category in this catalog layer.
+    ///
+    /// Shared catalog inputs are moved into each category before namespacing so two sources can
+    /// define their own inputs without overriding one another. References to packs in this layer
+    /// are qualified too; references to other layers keep their existing IDs.
+    ///
+    /// # Errors
+    /// Returns an error when `namespace` is not a valid catalog ID component.
+    pub fn with_namespace(mut self, namespace: &str) -> Result<Self, CatalogError> {
+        if !valid_identifier(namespace) {
+            return Err(CatalogError(format!(
+                "invalid catalog namespace {namespace:?}"
+            )));
+        }
+
+        let pack_ids: BTreeMap<_, _> = self
+            .packs
+            .iter()
+            .map(|pack| (pack.id.clone(), format!("{namespace}/{}", pack.id)))
+            .collect();
+        let global_inputs = std::mem::take(&mut self.inputs);
+        let mut categories = BTreeMap::new();
+        for (_, mut category) in std::mem::take(&mut self.categories) {
+            let original_id = category.id.clone();
+            category.id = format!("{namespace}/{original_id}");
+            category.name = format!("{namespace} / {}", category.name);
+            let mut inputs = global_inputs.clone();
+            inputs.append(&mut category.inputs);
+            category.inputs = inputs;
+            categories.insert(category.id.clone(), category);
+        }
+        self.categories = categories;
+
+        for pack in &mut self.packs {
+            pack.id = pack_ids[&pack.id].clone();
+            pack.category = format!("{namespace}/{}", pack.category);
+            for reference in pack.references.values_mut() {
+                if let Some(qualified) = pack_ids.get(&reference.template) {
+                    reference.template.clone_from(qualified);
+                }
+            }
+        }
+        self.packs
+            .sort_by(|left, right| (&left.category, &left.id).cmp(&(&right.category, &right.id)));
+        Ok(self)
+    }
+
     fn load_with_external_references(
         root: &Path,
         allow_external_references: bool,
@@ -306,7 +353,7 @@ impl Catalog {
                         plan::validate_paths(std::iter::once(source.as_path())).map_err(
                             |error| CatalogError(format!("{}: {error}", path.display())),
                         )?;
-                        if !valid_identifier(&definition.template) {
+                        if !valid_template_id(&definition.template) {
                             return Err(CatalogError(format!(
                                 "{}: invalid referenced template ID {:?}",
                                 path.display(),
@@ -632,6 +679,15 @@ pub(crate) fn valid_identifier(name: &str) -> bool {
         && name
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+pub(crate) fn valid_template_id(id: &str) -> bool {
+    match id.split_once('/') {
+        Some((namespace, local_id)) => {
+            valid_identifier(namespace) && valid_identifier(local_id) && !local_id.contains('/')
+        }
+        None => valid_identifier(id),
+    }
 }
 
 fn readable_category_name(id: &str) -> String {

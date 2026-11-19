@@ -180,6 +180,67 @@ fn user_catalog_overlay_preserves_default_category_name_and_rejects_missing_refe
 }
 
 #[test]
+fn namespaces_remote_pack_ids_categories_inputs_and_internal_references() {
+    let remote = Fixture::new();
+    remote.write(
+        "categories.toml",
+        "schema_version = 1\n[categories.project-files]\nname = 'Project files'\n",
+    );
+    remote.write(
+        "inputs.toml",
+        "schema_version = 1\n[inputs.project_name]\nprompt = 'Team project name'\nrequired = true\n",
+    );
+    remote.pack(
+        "project-files",
+        "agents",
+        "schema_version = 2\ndescription = 'Team agent instructions'\n",
+    );
+    remote.write("project-files/agents/AGENTS.md", "Team instructions\n");
+    remote.pack(
+        "project-files",
+        "readme",
+        "schema_version = 2\ndescription = 'Team README'\ninputs = ['project_name']\n\n[references.agents]\ntemplate = 'agents'\nsource = 'AGENTS.md'\n",
+    );
+    remote.write(
+        "project-files/readme/README.md.j2",
+        "# {{ project_name }}\nSee {{ references.agents }}\n",
+    );
+
+    let namespaced = Catalog::load_overlay(&remote.0)
+        .unwrap()
+        .with_namespace("team")
+        .unwrap();
+    let readme = namespaced
+        .packs
+        .iter()
+        .find(|pack| pack.id == "team/readme")
+        .unwrap();
+    assert_eq!(readme.category, "team/project-files");
+    assert_eq!(readme.references["agents"].template, "team/agents");
+    assert_eq!(
+        namespaced.categories["team/project-files"].name,
+        "team / Project files"
+    );
+    assert_eq!(
+        namespaced.input_definitions_for(readme).unwrap()["project_name"].prompt,
+        "Team project name"
+    );
+
+    let base = Fixture::new();
+    base.pack(
+        "project-policies",
+        "license-mit",
+        "schema_version = 2\ndescription = 'MIT license'\n",
+    );
+    base.write("project-policies/license-mit/LICENSE", "MIT\n");
+    let catalog = Catalog::load(&base.0)
+        .unwrap()
+        .with_overlay(namespaced)
+        .unwrap();
+    catalog.validate().unwrap();
+}
+
+#[test]
 fn rejects_duplicate_ids_and_invalid_manifests() {
     let root = Fixture::new();
     root.pack("one", "same", "schema_version = 2\ndescription = 'One'\n");
