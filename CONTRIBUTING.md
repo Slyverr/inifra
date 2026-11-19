@@ -82,10 +82,12 @@ type(scope[/area]): short imperative description
 
 The scope is optional and may contain **one or two segments**, never three or more (`core/parser/lexer` is invalid). This is a project rule, not a requirement of the specification. Omit scope for changes spanning unrelated components.
 
+For crate-owned work, use a scope that clearly names the crate: `inifra-cli` for `crates/inifra/`, or the crate name for `inifra-core`, `inifra-assistant`, and `inifra-tui`. Add one narrower area after `/` when it makes the change easier to locate.
+
 ```text
-feat(cli): add interactive initialization
-fix(cli/prompts): handle cancellation
-test(cli): cover malformed input
+feat(inifra-cli): add interactive initialization
+fix(inifra-core/inputs): reject conflicting values
+test(inifra-tui): cover cancellation
 docs: clarify installation
 chore(release): prepare v0.13.0
 ```
