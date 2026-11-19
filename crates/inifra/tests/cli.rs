@@ -317,7 +317,7 @@ fn list_summarizes_outputs_and_files_shows_every_path() {
         "{}",
         String::from_utf8_lossy(&full.stderr)
     );
-    let text = String::from_utf8(full.stdout).unwrap();
+    let text = String::from_utf8(full.stdout).unwrap().replace('\\', "/");
     for path in [
         ".github/ISSUE_TEMPLATE/bug-report.yml",
         ".github/ISSUE_TEMPLATE/feature-request.yml",
