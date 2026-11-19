@@ -1,0 +1,6 @@
+schema_version = 1
+description = "Architecture and development documentation for an existing project"
+templates = ["architecture", "development"]
+
+[values]
+project_name = "example-project"
