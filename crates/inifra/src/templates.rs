@@ -10,12 +10,17 @@ use std::{
 pub(crate) fn edit(
     catalog: &Catalog,
     config_dir: Option<&Path>,
+    project_dir: &Path,
     id: &str,
 ) -> Result<(), Box<dyn Error>> {
     user_templates::validate_id(id)?;
-    let config_dir = require_config(config_dir)?;
-    let templates_root = config_dir.join("templates");
     if let Some(pack) = catalog.packs.iter().find(|pack| pack.id == id) {
+        let project_templates = project_dir.join(".inifra/templates");
+        if pack.directory.starts_with(&project_templates) {
+            return open_pack(&pack.directory);
+        }
+
+        let templates_root = require_config(config_dir)?.join("templates");
         if pack.directory.starts_with(&templates_root) {
             return open_pack(&pack.directory);
         }
@@ -35,6 +40,8 @@ pub(crate) fn edit(
         );
         return open_pack(&destination);
     }
+
+    let templates_root = require_config(config_dir)?.join("templates");
 
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(io::Error::new(
@@ -101,6 +108,7 @@ pub(crate) fn edit(
 pub(crate) fn rename(
     catalog: &Catalog,
     config_dir: Option<&Path>,
+    project_dir: &Path,
     old_id: &str,
     new_id: &str,
 ) -> Result<(), Box<dyn Error>> {
@@ -147,7 +155,8 @@ pub(crate) fn rename(
     };
 
     let validation = (|| {
-        let (renamed_catalog, _bundled) = crate::user_config::load_catalog(None, Some(config_dir))?;
+        let (renamed_catalog, _bundled) =
+            crate::user_config::load_project_catalog(None, Some(config_dir), project_dir)?;
         renamed_catalog.validate()?;
         presets::load_all(&preset_root, &renamed_catalog)?;
         Ok::<_, Box<dyn Error>>(())
@@ -240,7 +249,7 @@ fn owned_pack<'a>(
         .ok_or_else(|| format!("unknown template {id:?}"))?;
     if !pack.directory.starts_with(templates_root) {
         return Err(format!(
-            "template {id:?} is bundled; use `inifra edit {id}` to make a user-owned copy first"
+            "template {id:?} is not stored in the personal template catalog; manage project templates in `.inifra/templates` and copy bundled templates with `inifra edit {id}` first"
         )
         .into());
     }
