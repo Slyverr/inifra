@@ -8,9 +8,28 @@ fn help_lists_catalog_commands() {
         .unwrap();
     assert!(output.status.success());
     let help = String::from_utf8(output.stdout).unwrap();
-    for command in ["list", "inspect", "validate", "generate"] {
+    for command in ["init", "list", "inspect", "validate", "generate"] {
         assert!(help.contains(command));
     }
+}
+
+#[test]
+fn init_requires_a_terminal_and_does_not_touch_the_target() {
+    let root = tempfile::tempdir().unwrap();
+    let target = root.path().join("new-project");
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args(["init", "--target", target.to_str().unwrap()])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        error.contains("requires an interactive terminal"),
+        "{error}"
+    );
+    assert!(error.contains("inifra generate"), "{error}");
+    assert!(!target.exists());
 }
 
 #[test]

@@ -1,3 +1,5 @@
+mod init;
+
 use clap::{Parser, Subcommand};
 use inifra_core::{apply, catalog, workflow};
 use std::{collections::BTreeMap, error::Error, path::PathBuf};
@@ -24,6 +26,15 @@ enum Command {
     Inspect { id: String },
     /// Validate catalog manifests and source paths.
     Validate,
+    /// Interactively choose and create project files.
+    Init {
+        /// Destination directory.
+        #[arg(long, default_value = ".")]
+        target: PathBuf,
+        /// Replace existing files after approval.
+        #[arg(long)]
+        overwrite: bool,
+    },
     /// Generate files from selected template packs.
     Generate {
         #[arg(required = true)]
@@ -154,6 +165,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             catalog.validate()?;
             println!("Validated {} templates", catalog.packs.len());
         }
+        Command::Init { target, overwrite } => init::run(&catalog, target, overwrite)?,
         Command::Generate {
             ids,
             target,
