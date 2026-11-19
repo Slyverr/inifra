@@ -9,6 +9,7 @@ pub mod plan;
 pub mod presets;
 pub mod render;
 mod safe_fs;
+pub mod source_registry;
 pub mod sources;
 pub mod user_templates;
 pub mod workflow;
