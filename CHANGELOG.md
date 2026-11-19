@@ -6,6 +6,10 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 ## [Unreleased]
 
+### Added
+
+- Load team template packs from `.inifra/templates/`, after bundled and personal catalog layers.
+
 ## [0.4.0] - 2026-11-19
 
 ### Added
