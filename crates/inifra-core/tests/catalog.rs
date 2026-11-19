@@ -388,6 +388,85 @@ fn rejects_unsafe_output_rule_paths_and_invalid_groups() {
     }
 }
 
+#[test]
+fn validates_reference_targets_and_sources() {
+    let root = Fixture::new();
+    root.pack(
+        "project",
+        "readme",
+        "schema_version = 2\ndescription = 'Readme'\n[references.contributing]\ntemplate = 'contributing'\nsource = 'CONTRIBUTING.md.j2'\n",
+    );
+    root.write(
+        "project/readme/README.md.j2",
+        "{{ references.contributing }}",
+    );
+    root.pack(
+        "project",
+        "contributing",
+        "schema_version = 2\ndescription = 'Contributing'\n",
+    );
+    root.write("project/contributing/CONTRIBUTING.md.j2", "Guide");
+
+    let catalog = Catalog::load(&root.0).unwrap();
+    catalog.validate().unwrap();
+
+    let missing_source = Fixture::new();
+    missing_source.pack(
+        "project",
+        "readme",
+        "schema_version = 2\ndescription = 'Readme'\n[references.contributing]\ntemplate = 'contributing'\nsource = 'MISSING.md'\n",
+    );
+    missing_source.write("project/readme/README.md.j2", "README");
+    missing_source.pack(
+        "project",
+        "contributing",
+        "schema_version = 2\ndescription = 'Contributing'\n",
+    );
+    missing_source.write("project/contributing/CONTRIBUTING.md", "Guide");
+    let catalog = Catalog::load(&missing_source.0).unwrap();
+    let error = catalog.validate().unwrap_err().to_string();
+    assert!(error.contains("points to missing source"), "{error}");
+}
+
+#[test]
+fn rejects_unknown_self_and_invalid_reference_declarations() {
+    for (id, declaration, expected) in [
+        (
+            "readme",
+            "[references.guide]\ntemplate = 'missing'\nsource = 'GUIDE.md'\n",
+            "unknown template",
+        ),
+        (
+            "readme",
+            "[references.guide]\ntemplate = 'readme'\nsource = 'README.md'\n",
+            "must target another template",
+        ),
+        (
+            "readme",
+            "[references.'bad name']\ntemplate = 'guide'\nsource = 'GUIDE.md'\n",
+            "invalid reference name",
+        ),
+    ] {
+        let root = Fixture::new();
+        root.pack(
+            "project",
+            id,
+            &format!("schema_version = 2\ndescription = 'Readme'\n{declaration}"),
+        );
+        root.write(&format!("project/{id}/README.md"), "README");
+        if expected == "must target another template" {
+            root.pack(
+                "project",
+                "guide",
+                "schema_version = 2\ndescription = 'Guide'\n",
+            );
+            root.write("project/guide/GUIDE.md", "Guide");
+        }
+        let error = Catalog::load(&root.0).unwrap_err().to_string();
+        assert!(error.contains(expected), "{error}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn rejects_symlinked_manifest() {

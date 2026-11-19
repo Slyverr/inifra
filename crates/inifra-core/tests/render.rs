@@ -1,4 +1,7 @@
-use inifra_core::{render::render, sources::discover};
+use inifra_core::{
+    render::{render, render_with_references},
+    sources::discover,
+};
 use std::{collections::BTreeMap, fs};
 
 #[test]
@@ -17,6 +20,37 @@ fn renders_templates_and_preserves_static_bytes() {
     .unwrap();
     assert_eq!(result[0].contents, b"# Inifra\n");
     assert_eq!(result[1].contents, [0, 255, 10]);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn renders_selected_and_unselected_reference_paths() {
+    let root = std::env::temp_dir().join(format!("inifra-render-reference-{}", std::process::id()));
+    fs::create_dir_all(&root).unwrap();
+    fs::write(
+        root.join("README.md.j2"),
+        "{% if references.contributing %}See {{ references.contributing }}{% else %}No guide{% endif %}\n",
+    )
+    .unwrap();
+    let sources = discover(&root).unwrap();
+
+    let selected = render_with_references(
+        &root,
+        &sources,
+        &BTreeMap::new(),
+        &BTreeMap::from([("contributing".into(), "docs/CONTRIBUTING.md".into())]),
+    )
+    .unwrap();
+    assert_eq!(selected[0].contents, b"See docs/CONTRIBUTING.md\n");
+
+    let unselected = render_with_references(
+        &root,
+        &sources,
+        &BTreeMap::new(),
+        &BTreeMap::from([("contributing".into(), String::new())]),
+    )
+    .unwrap();
+    assert_eq!(unselected[0].contents, b"No guide\n");
     fs::remove_dir_all(root).unwrap();
 }
 

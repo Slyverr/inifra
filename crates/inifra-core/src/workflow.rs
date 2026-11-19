@@ -70,6 +70,9 @@ pub fn prepare(
     let resolved_outputs = catalog
         .resolve_outputs_for_packs(&packs)
         .map_err(|error| WorkflowError(error.to_string()))?;
+    let references = catalog
+        .resolve_references_for_packs(&packs, &resolved_outputs)
+        .map_err(|error| WorkflowError(error.to_string()))?;
     let mut outputs = Vec::new();
     for pack in packs {
         directories.extend(pack.directories.iter().cloned());
@@ -82,9 +85,12 @@ pub fn prepare(
                 source
             })
             .collect::<Vec<_>>();
+        let pack_references = references.get(&pack.id).ok_or_else(|| {
+            WorkflowError(format!("missing resolved references for {:?}", pack.id))
+        })?;
         outputs.extend(
-            render::render(&pack.directory, &sources, &values)
-                .map_err(|e| WorkflowError(e.to_string()))?,
+            render::render_with_references(&pack.directory, &sources, &values, pack_references)
+                .map_err(|error| WorkflowError(error.to_string()))?,
         );
     }
     plan::build_with_directories(

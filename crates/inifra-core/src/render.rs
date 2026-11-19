@@ -57,6 +57,20 @@ pub fn render(
     sources: &[Source],
     values: &BTreeMap<String, String>,
 ) -> Result<Vec<RenderedOutput>, RenderError> {
+    render_with_references(root, sources, values, &BTreeMap::new())
+}
+
+/// Reads and renders all sources with paths to selected pack outputs.
+///
+/// # Errors
+/// Returns an error for unreadable files, invalid template data, undefined values, or unsafe
+/// source paths. No destination files are written.
+pub fn render_with_references(
+    root: &Path,
+    sources: &[Source],
+    values: &BTreeMap<String, String>,
+    references: &BTreeMap<String, String>,
+) -> Result<Vec<RenderedOutput>, RenderError> {
     let mut environment = Environment::new();
     environment.set_undefined_behavior(UndefinedBehavior::Strict);
     let syntax = minijinja::syntax::SyntaxConfig::builder()
@@ -66,6 +80,10 @@ pub fn render(
     environment.set_syntax(syntax);
     let directory = Dir::open_ambient_dir(root, ambient_authority())
         .map_err(|error| RenderError(format!("{}: {error}", root.display())))?;
+    let context = minijinja::context! {
+        ..values,
+        ..minijinja::context! { references => references }
+    };
     sources
         .iter()
         .map(|source| {
@@ -82,7 +100,7 @@ pub fn render(
                 let text = std::str::from_utf8(&data)
                     .map_err(|e| RenderError(format!("{}: {e}", path.display())))?;
                 environment
-                    .render_str(text, values)
+                    .render_str(text, &context)
                     .map_err(|e| RenderError(format!("{}: {e}", path.display())))?
                     .into_bytes()
             } else {

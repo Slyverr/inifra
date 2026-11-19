@@ -42,6 +42,22 @@ fn resolves_defaults_and_explicit_values() {
     );
 }
 
+#[test]
+fn reserves_references_as_a_template_context_namespace() {
+    let path = std::env::temp_dir().join(format!("inifra-reserved-input-{}", std::process::id()));
+    std::fs::write(
+        &path,
+        "schema_version = 1\n[inputs.references]\nprompt = 'Reference value'\n",
+    )
+    .unwrap();
+    let error = inifra_core::inputs::load(&path).unwrap_err().to_string();
+    assert!(
+        error.contains("invalid definition \"references\""),
+        "{error}"
+    );
+    std::fs::remove_file(path).unwrap();
+}
+
 #[cfg(unix)]
 #[test]
 fn rejects_symlinked_input_definitions() {

@@ -65,6 +65,17 @@ pub struct Pack {
     pub directories: Vec<PathBuf>,
     /// Optional output path overrides and co-selected alternatives.
     pub output_rules: Vec<OutputRule>,
+    /// Optional paths to outputs from other template packs.
+    pub references: BTreeMap<String, PackReference>,
+}
+
+/// A source output that a pack may refer to when its target is selected too.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct PackReference {
+    /// ID of the referenced template pack.
+    pub template: String,
+    /// Source path within the referenced pack.
+    pub source: PathBuf,
 }
 
 /// A catalog discovery or validation error.
@@ -105,6 +116,15 @@ struct Manifest {
     directories: Vec<String>,
     #[serde(default)]
     output_rules: Vec<output_rules::OutputRuleDefinition>,
+    #[serde(default)]
+    references: BTreeMap<String, ReferenceDefinition>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReferenceDefinition {
+    template: String,
+    source: String,
 }
 
 impl Catalog {
@@ -206,6 +226,36 @@ impl Catalog {
                     .map_err(|error| CatalogError(format!("{}: {error}", path.display())))?;
                 let output_rules =
                     output_rules::parse(manifest.output_rules, &path).map_err(CatalogError)?;
+                let references = manifest
+                    .references
+                    .into_iter()
+                    .map(|(name, definition)| {
+                        let source = PathBuf::from(definition.source);
+                        if !inputs::valid_name(&name) {
+                            return Err(CatalogError(format!(
+                                "{}: invalid reference name {name:?}",
+                                path.display()
+                            )));
+                        }
+                        plan::validate_paths(std::iter::once(source.as_path())).map_err(
+                            |error| CatalogError(format!("{}: {error}", path.display())),
+                        )?;
+                        if !valid_identifier(&definition.template) {
+                            return Err(CatalogError(format!(
+                                "{}: invalid referenced template ID {:?}",
+                                path.display(),
+                                definition.template
+                            )));
+                        }
+                        Ok((
+                            name,
+                            PackReference {
+                                template: definition.template,
+                                source,
+                            },
+                        ))
+                    })
+                    .collect::<Result<_, CatalogError>>()?;
                 packs.push(Pack {
                     id,
                     category: category_id.clone(),
@@ -215,7 +265,25 @@ impl Catalog {
                     local_inputs: manifest.local_inputs,
                     directories,
                     output_rules,
+                    references,
                 });
+            }
+        }
+
+        for pack in &packs {
+            for (name, reference) in &pack.references {
+                if reference.template == pack.id {
+                    return Err(CatalogError(format!(
+                        "template {:?} reference {name:?} must target another template",
+                        pack.id
+                    )));
+                }
+                if !ids.contains(&reference.template) {
+                    return Err(CatalogError(format!(
+                        "template {:?} reference {name:?} targets unknown template {:?}",
+                        pack.id, reference.template
+                    )));
+                }
             }
         }
 
@@ -305,7 +373,51 @@ impl Catalog {
                 }
             }
         }
+        self.validate_references_for_packs(&self.packs.iter().collect::<Vec<_>>())?;
         Ok(())
+    }
+
+    pub(crate) fn resolve_references_for_packs(
+        &self,
+        packs: &[&Pack],
+        outputs: &[ResolvedPackOutput],
+    ) -> Result<BTreeMap<String, BTreeMap<String, String>>, CatalogError> {
+        self.validate_references_for_packs(packs)?;
+        let selected: BTreeSet<_> = packs.iter().map(|pack| pack.id.as_str()).collect();
+        packs
+            .iter()
+            .map(|pack| {
+                let references = pack
+                    .references
+                    .iter()
+                    .map(|(name, reference)| {
+                        let output = if selected.contains(reference.template.as_str()) {
+                            outputs
+                                .iter()
+                                .find(|output| {
+                                    output.template_id == reference.template
+                                        && output.source.source == reference.source
+                                })
+                                .ok_or_else(|| {
+                                    CatalogError(format!(
+                                        "template {:?} reference {name:?} could not resolve output from {:?} source {}",
+                                        pack.id,
+                                        reference.template,
+                                        reference.source.display()
+                                    ))
+                                })?
+                                .output
+                                .to_string_lossy()
+                                .replace('\\', "/")
+                        } else {
+                            String::new()
+                        };
+                        Ok((name.clone(), output))
+                    })
+                    .collect::<Result<_, CatalogError>>()?;
+                Ok((pack.id.clone(), references))
+            })
+            .collect()
     }
 
     pub(crate) fn resolve_outputs_for_packs(
@@ -339,6 +451,37 @@ impl Catalog {
         )
         .map_err(|error| CatalogError(error.to_string()))?;
         Ok(outputs)
+    }
+
+    fn validate_references_for_packs(&self, packs: &[&Pack]) -> Result<(), CatalogError> {
+        for pack in packs {
+            for (name, reference) in &pack.references {
+                let target = self
+                    .packs
+                    .iter()
+                    .find(|target| target.id == reference.template)
+                    .ok_or_else(|| {
+                        CatalogError(format!(
+                            "template {:?} reference {name:?} targets unknown template {:?}",
+                            pack.id, reference.template
+                        ))
+                    })?;
+                let target_sources = sources::discover(&target.directory)
+                    .map_err(|error| CatalogError(error.to_string()))?;
+                if !target_sources
+                    .iter()
+                    .any(|source| source.source == reference.source)
+                {
+                    return Err(CatalogError(format!(
+                        "template {:?} reference {name:?} points to missing source {} in template {:?}",
+                        pack.id,
+                        reference.source.display(),
+                        target.id
+                    )));
+                }
+            }
+        }
+        Ok(())
     }
 }
 
