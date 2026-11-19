@@ -5,6 +5,7 @@ mod forms;
 mod init;
 mod model;
 pub mod presentation;
+mod select;
 mod terminal;
 mod view;
 
@@ -14,3 +15,4 @@ pub use model::{
     CatalogView, CategoryView, GenerationReview, InitBackend, InitOutcome, InputPrompt,
     ReviewAction, ReviewedDirectory, ReviewedFile, TemplateChoice, TemplateView,
 };
+pub use select::run_select;
