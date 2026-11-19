@@ -13,6 +13,27 @@ use tempfile::NamedTempFile;
 pub(crate) const COMPLETION_ENV: &str = "INIFRA_COMPLETE";
 const COMPLETION_MARKER: &str = "# Inifra generated completion file";
 
+pub(crate) fn source_name_completer() -> ArgValueCompleter {
+    ArgValueCompleter::new(|current: &OsStr| {
+        let Some(prefix) = current.to_str() else {
+            return Vec::new();
+        };
+        let Ok(project_dir) = std::env::current_dir() else {
+            return Vec::new();
+        };
+        let registry = inifra_core::source_registry::SourceRegistry::load(
+            &project_dir.join(".inifra/sources.toml"),
+        );
+        let Ok(registry) = registry else {
+            return Vec::new();
+        };
+        source_names(&registry, prefix)
+            .into_iter()
+            .map(CompletionCandidate::new)
+            .collect()
+    })
+}
+
 pub(crate) fn template_completer() -> ArgValueCompleter {
     ArgValueCompleter::new(|current: &OsStr| {
         let Some(prefix) = current.to_str() else {
@@ -396,6 +417,18 @@ fn template_ids(catalog: &Catalog, prefix: &str) -> Vec<String> {
         .collect()
 }
 
+fn source_names(
+    registry: &inifra_core::source_registry::SourceRegistry,
+    prefix: &str,
+) -> Vec<String> {
+    registry
+        .sources
+        .keys()
+        .filter(|name| name.starts_with(prefix))
+        .cloned()
+        .collect()
+}
+
 fn preset_ids(config_dir: &Path, catalog: &Catalog, prefix: &str) -> Vec<String> {
     presets::load_all(&presets::store_path(config_dir), catalog)
         .unwrap_or_default()
@@ -688,6 +721,21 @@ mod tests {
         .expect("save preset");
 
         assert_eq!(preset_ids(directory.path(), &catalog, "start"), ["starter"]);
+    }
+
+    #[test]
+    fn source_name_candidates_follow_the_project_registry() {
+        let mut registry = inifra_core::source_registry::SourceRegistry::default();
+        let source = inifra_core::source_registry::GitSource {
+            url: "https://example.com/team.git".into(),
+            reference: "refs/heads/main".into(),
+            revision: "0123456789abcdef0123456789abcdef01234567".into(),
+        };
+        registry.insert("team", source.clone()).unwrap();
+        registry.insert("team-tools", source).unwrap();
+
+        assert_eq!(source_names(&registry, "team-"), ["team-tools"]);
+        assert!(source_names(&registry, "other").is_empty());
     }
 
     #[cfg(unix)]
