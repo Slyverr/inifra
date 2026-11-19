@@ -79,6 +79,8 @@ An explicit default destination can be declared with `output = "docs/TERMS.md"`;
 
 The bundled MIT and Apache license packs use this rule: each creates `LICENSE` alone, and selecting both creates `LICENSE-MIT` and `LICENSE-APACHE`.
 
+In the inline `inifra init` picker, templates with the same default output and the same alternative group appear as one choice. Use left/right or `h`/`l` to switch variants; only the active variant is selected. The non-interactive `generate` command can still select both IDs explicitly, in which case the declared alternate paths are used.
+
 ## Optional pack references
 
 A pack may name a source from another pack as an optional reference:
