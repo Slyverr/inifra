@@ -3,6 +3,7 @@ mod user_config;
 
 use clap::{Parser, Subcommand};
 use inifra_core::{apply, workflow};
+use inifra_tui::presentation;
 use std::{collections::BTreeMap, error::Error, path::PathBuf};
 
 #[derive(Parser)]
@@ -53,7 +54,14 @@ enum Command {
 
 fn main() {
     if let Err(error) = run() {
-        eprintln!("error: {error}");
+        eprintln!(
+            "{}",
+            presentation::paint(
+                format!("error: {}", presentation::terminal_text(&error.to_string())),
+                presentation::Tone::Error,
+                true
+            )
+        );
         std::process::exit(1);
     }
 }
@@ -82,34 +90,72 @@ fn run() -> Result<(), Box<dyn Error>> {
                         println!();
                     }
                     category = &pack.category;
-                    println!("{}", catalog.categories[category].name);
+                    println!(
+                        "{}",
+                        presentation::paint_emphasis(
+                            presentation::terminal_text(&catalog.categories[category].name),
+                            presentation::Tone::Muted
+                        )
+                    );
                 }
                 let selected = std::slice::from_ref(&pack.id);
                 let outputs = catalog.resolve_outputs(selected)?;
-                let summary = compact_output_summary(&outputs, &pack.directories);
-                println!(
-                    "  {:width$}  {}{}",
-                    pack.id,
-                    pack.description,
-                    if summary.is_empty() {
-                        String::new()
-                    } else {
-                        format!("  [{summary}]")
-                    }
+                let id = presentation::paint_emphasis(
+                    format!("{:width$}", presentation::terminal_text(&pack.id)),
+                    presentation::Tone::Accent,
                 );
+                let description = presentation::terminal_text(&pack.description);
                 if files {
+                    println!("  {id}  {description}");
                     if !outputs.is_empty() {
-                        println!("    Files:");
+                        println!(
+                            "    {}",
+                            presentation::paint_emphasis("Files:", presentation::Tone::Muted)
+                        );
                         for output in outputs {
-                            println!("      {}", output.output.display());
+                            println!(
+                                "      {}",
+                                presentation::paint(
+                                    presentation::terminal_text(
+                                        &output.output.display().to_string()
+                                    ),
+                                    presentation::Tone::Muted,
+                                    false
+                                )
+                            );
                         }
                     }
                     if !pack.directories.is_empty() {
-                        println!("    Directories:");
+                        println!(
+                            "    {}",
+                            presentation::paint_emphasis("Directories:", presentation::Tone::Muted)
+                        );
                         for directory in &pack.directories {
-                            println!("      {}/", directory.display());
+                            println!(
+                                "      {}",
+                                presentation::paint(
+                                    format!(
+                                        "{}/",
+                                        presentation::terminal_text(
+                                            &directory.display().to_string()
+                                        )
+                                    ),
+                                    presentation::Tone::Muted,
+                                    false
+                                )
+                            );
                         }
                     }
+                } else {
+                    let summary = compact_output_summary(&outputs, &pack.directories);
+                    println!(
+                        "  {id}  {description}  {}",
+                        presentation::paint(
+                            presentation::terminal_text(&summary),
+                            presentation::Tone::Muted,
+                            false
+                        )
+                    );
                 }
             }
         }
@@ -119,46 +165,102 @@ fn run() -> Result<(), Box<dyn Error>> {
                 .iter()
                 .find(|pack| pack.id == id)
                 .ok_or_else(|| format!("unknown template {id:?}"))?;
-            println!("{}: {}", pack.id, pack.description);
+            println!(
+                "{}",
+                presentation::paint_emphasis(
+                    presentation::terminal_text(&pack.id),
+                    presentation::Tone::Accent
+                )
+            );
+            println!("{}", presentation::terminal_text(&pack.description));
             let output_paths = catalog.resolve_outputs(std::slice::from_ref(&id))?;
             if !output_paths.is_empty() {
-                println!("Files:");
+                println!();
+                println!(
+                    "{}",
+                    presentation::paint_emphasis("Files:", presentation::Tone::Muted)
+                );
                 for output in output_paths {
-                    println!("  {}", output.output.display());
+                    println!(
+                        "  {}",
+                        presentation::paint(
+                            presentation::terminal_text(&output.output.display().to_string()),
+                            presentation::Tone::Muted,
+                            false
+                        )
+                    );
                     if let Some(alternative) = output.co_selected_output {
                         println!(
-                            "    when paired ({})  {}",
-                            alternative.group,
-                            alternative.path.display()
+                            "    {}",
+                            presentation::paint(
+                                format!(
+                                    "when paired ({})  {}",
+                                    presentation::terminal_text(&alternative.group),
+                                    presentation::terminal_text(
+                                        &alternative.path.display().to_string()
+                                    )
+                                ),
+                                presentation::Tone::Muted,
+                                false
+                            )
                         );
                     }
                 }
             }
             if !pack.directories.is_empty() {
-                println!("Directories:");
+                println!();
+                println!(
+                    "{}",
+                    presentation::paint_emphasis("Directories:", presentation::Tone::Muted)
+                );
                 for directory in &pack.directories {
-                    println!("  {}/", directory.display());
+                    println!(
+                        "  {}",
+                        presentation::paint(
+                            format!(
+                                "{}/",
+                                presentation::terminal_text(&directory.display().to_string())
+                            ),
+                            presentation::Tone::Muted,
+                            false
+                        )
+                    );
                 }
             }
             let definitions = catalog.input_definitions_for(pack)?;
             if !definitions.is_empty() {
-                println!("Inputs:");
+                println!();
+                println!(
+                    "{}",
+                    presentation::paint_emphasis("Inputs:", presentation::Tone::Muted)
+                );
                 for (name, definition) in definitions {
                     let requirement = if definition.required {
                         "required"
                     } else {
                         "optional"
                     };
-                    println!("  {name} ({requirement})  {}", definition.prompt);
+                    println!(
+                        "  {} ({requirement})  {}",
+                        presentation::terminal_text(&name),
+                        presentation::terminal_text(&definition.prompt)
+                    );
                     if let Some(default) = &definition.default {
-                        println!("    Default: {default}");
+                        println!("    Default: {}", presentation::terminal_text(default));
                     }
                 }
             }
         }
         Command::Validate => {
             catalog.validate()?;
-            println!("Validated {} templates", catalog.packs.len());
+            for pack in &catalog.packs {
+                println!(
+                    "{}  {}",
+                    presentation::paint("valid", presentation::Tone::Success, false),
+                    presentation::paint_emphasis(&pack.id, presentation::Tone::Accent)
+                );
+            }
+            println!("Validated {} template(s).", catalog.packs.len());
         }
         Command::Init { target, overwrite } => init::run(&catalog, target, overwrite)?,
         Command::Generate {
@@ -178,50 +280,123 @@ fn run() -> Result<(), Box<dyn Error>> {
                 }
             }
             let plan = workflow::prepare(&catalog, &ids, &values, &target, overwrite)?;
-            for directory in &plan.directories {
-                let action = match directory.action {
-                    inifra_core::plan::DirectoryAction::Create => "create",
-                    inifra_core::plan::DirectoryAction::Existing => "skip (already exists)",
-                };
-                println!("{action}: {}/", directory.path.display());
-            }
-            for file in &plan.files {
-                let action = match file.action {
-                    inifra_core::plan::Action::Create => "create",
-                    inifra_core::plan::Action::Replace => "replace",
-                    inifra_core::plan::Action::Skip => "skip (already exists)",
-                };
-                println!("{action}: {}", file.path.display());
-            }
-            if !dry_run {
+            if dry_run {
+                print_plan(&plan, &target);
+                println!(
+                    "{}",
+                    presentation::paint(
+                        "Dry run; no files were changed.",
+                        presentation::Tone::Muted,
+                        false
+                    )
+                );
+            } else {
                 apply::apply_plan(&target, &plan)?;
+                println!(
+                    "Target: {}",
+                    presentation::terminal_text(&target.display().to_string())
+                );
+                for directory in &plan.directories {
+                    if directory.action == inifra_core::plan::DirectoryAction::Create {
+                        println!(
+                            "{}  {}/",
+                            presentation::paint(
+                                "created directory",
+                                presentation::Tone::Success,
+                                false
+                            ),
+                            presentation::terminal_text(&directory.path.display().to_string())
+                        );
+                    }
+                }
+                for file in &plan.files {
+                    let (action, tone) = match file.action {
+                        inifra_core::plan::Action::Create => {
+                            ("created", presentation::Tone::Success)
+                        }
+                        inifra_core::plan::Action::Replace => {
+                            ("replaced", presentation::Tone::Warning)
+                        }
+                        inifra_core::plan::Action::Skip => {
+                            ("already exists", presentation::Tone::Muted)
+                        }
+                    };
+                    println!(
+                        "{}  {}",
+                        presentation::paint(action, tone, false),
+                        presentation::terminal_text(&file.path.display().to_string())
+                    );
+                }
             }
         }
     }
     Ok(())
 }
 
+fn print_plan(plan: &inifra_core::plan::GenerationPlan, target: &std::path::Path) {
+    println!(
+        "{}: {}",
+        presentation::paint_emphasis("Plan for", presentation::Tone::Accent),
+        presentation::terminal_text(&target.display().to_string())
+    );
+    for directory in &plan.directories {
+        let (action, tone) = match directory.action {
+            inifra_core::plan::DirectoryAction::Create => {
+                ("create directory", presentation::Tone::Success)
+            }
+            inifra_core::plan::DirectoryAction::Existing => {
+                ("already exists", presentation::Tone::Muted)
+            }
+        };
+        println!(
+            "  {}  {}/",
+            presentation::paint(action, tone, false),
+            presentation::terminal_text(&directory.path.display().to_string())
+        );
+    }
+    for file in &plan.files {
+        let (action, tone) = match file.action {
+            inifra_core::plan::Action::Create => ("create", presentation::Tone::Success),
+            inifra_core::plan::Action::Replace => ("replace", presentation::Tone::Warning),
+            inifra_core::plan::Action::Skip => ("already exists", presentation::Tone::Muted),
+        };
+        println!(
+            "  {}  {}",
+            presentation::paint(action, tone, false),
+            presentation::terminal_text(&file.path.display().to_string())
+        );
+    }
+}
+
 fn compact_output_summary(
     outputs: &[inifra_core::output_rules::ResolvedPackOutput],
     directories: &[PathBuf],
 ) -> String {
-    let mut summary = Vec::new();
-    if let Some(first) = outputs.first() {
-        summary.push(first.output.display().to_string());
+    let files = outputs.first().map(|first| {
         let remaining = outputs.len() - 1;
-        if remaining == 1 {
-            summary.push("+1 other file".to_owned());
-        } else if remaining > 1 {
-            summary.push(format!("+{remaining} other files"));
-        }
-    }
-    if !directories.is_empty() {
-        let suffix = if directories.len() == 1 {
-            "directory"
+        if remaining == 0 {
+            first.output.display().to_string()
         } else {
-            "directories"
-        };
-        summary.push(format!("{} {suffix}", directories.len()));
+            format!("{} +{remaining} other files", first.output.display())
+        }
+    });
+    let directories = match directories {
+        [directory] if outputs.is_empty() => Some(format!("{}/", directory.display())),
+        [] => None,
+        directories => {
+            let suffix = if directories.len() == 1 {
+                "directory"
+            } else {
+                "directories"
+            };
+            Some(format!("{} {suffix}", directories.len()))
+        }
+    };
+
+    match (files, directories) {
+        (Some(files), Some(directories)) => format!("{files}, {directories}"),
+        (Some(files), None) => files,
+        (None, Some(directories)) => directories,
+        (None, None) => String::new(),
     }
-    summary.join(", ")
 }

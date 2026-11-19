@@ -159,11 +159,23 @@ fn generates_and_preserves_existing_files_without_overwrite() {
             .output()
             .unwrap()
     };
-    assert!(run().status.success());
+    let created = run();
+    assert!(
+        created.status.success(),
+        "{}",
+        String::from_utf8_lossy(&created.stderr)
+    );
+    assert!(String::from_utf8_lossy(&created.stdout).contains("created  .editorconfig"));
     let path = target.path().join(".editorconfig");
     assert!(path.is_file());
     std::fs::write(&path, "custom").unwrap();
-    assert!(run().status.success());
+    let skipped = run();
+    assert!(
+        skipped.status.success(),
+        "{}",
+        String::from_utf8_lossy(&skipped.stderr)
+    );
+    assert!(String::from_utf8_lossy(&skipped.stdout).contains("already exists  .editorconfig"));
     assert_eq!(std::fs::read_to_string(path).unwrap(), "custom");
 }
 
@@ -466,7 +478,11 @@ fn list_summarizes_outputs_and_files_shows_every_path() {
         .unwrap();
     assert!(compact.status.success());
     let text = String::from_utf8(compact.stdout).unwrap();
-    assert!(text.contains("bug-report.yml, +2 other files, 1 directory"));
+    assert!(
+        !text.contains("\u{1b}["),
+        "redirected output should stay plain"
+    );
+    assert!(text.contains("bug-report.yml +2 other files, 1 directory"));
     assert!(!text.contains("feature-request.yml"));
 
     let full = inifra()
@@ -516,7 +532,8 @@ fn generates_a_directory_only_template_and_dry_run_is_read_only() {
         "{}",
         String::from_utf8_lossy(&dry_run.stderr)
     );
-    assert!(String::from_utf8_lossy(&dry_run.stdout).contains("create: code/"));
+    assert!(String::from_utf8_lossy(&dry_run.stdout).contains("create directory  code/"));
+    assert!(String::from_utf8_lossy(&dry_run.stdout).contains("Dry run; no files were changed."));
     assert!(!target.exists());
 
     let inspect = inifra()
@@ -550,6 +567,28 @@ fn generates_a_directory_only_template_and_dry_run_is_read_only() {
     for directory in ["code", "drafts", "research", "worktrees"] {
         assert!(target.join(directory).is_dir(), "{directory}");
     }
+
+    let existing_directory_dry_run = inifra()
+        .args([
+            "--catalog",
+            catalog.to_str().unwrap(),
+            "generate",
+            "workspace",
+            "--target",
+            target.to_str().unwrap(),
+            "--dry-run",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        existing_directory_dry_run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&existing_directory_dry_run.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&existing_directory_dry_run.stdout)
+            .contains("already exists  code/")
+    );
 }
 
 fn write_catalog_file(root: &std::path::Path, relative: &str, contents: &str) {

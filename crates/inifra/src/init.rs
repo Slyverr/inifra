@@ -8,7 +8,7 @@ use inifra_core::{
 };
 use inifra_tui::{
     CatalogView, CategoryView, GenerationReview, InitBackend, InitOutcome, InputPrompt,
-    ReviewAction, ReviewedDirectory, ReviewedFile, TemplateChoice, TemplateView,
+    ReviewAction, ReviewedDirectory, ReviewedFile, TemplateChoice, TemplateView, presentation,
 };
 use std::{
     collections::BTreeMap,
@@ -39,7 +39,17 @@ pub fn run(catalog: &Catalog, target: PathBuf, overwrite: bool) -> Result<(), Bo
         overwrite,
     };
     match inifra_tui::run_init(view, backend)? {
-        InitOutcome::Applied => println!("Initialized project files in {}", target.display()),
+        InitOutcome::Applied => println!(
+            "{}",
+            presentation::paint(
+                format!(
+                    "Initialized project files in {}",
+                    presentation::terminal_text(&target.display().to_string())
+                ),
+                presentation::Tone::Success,
+                false
+            )
+        ),
         InitOutcome::Cancelled => {}
     }
     Ok(())
