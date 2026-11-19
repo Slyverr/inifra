@@ -4,11 +4,18 @@ All notable changes to this project are documented here.
 
 This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.5.0] - 2026-11-19
 
 ### Added
 
 - Load team template packs from `.inifra/templates/`, after bundled and personal catalog layers.
+- Pin shared Git template catalogs to project-specific revisions and manage them with `inifra source`.
+- Cache pinned catalogs for offline listing, inspection, validation, generation, and interactive initialization.
+- Namespace source catalogs and support references between bundled, personal, Git, and project-local packs.
+
+### Security
+
+- Reject option-like SSH hosts in configured Git source URLs.
 
 ## [0.4.0] - 2026-11-19
 
