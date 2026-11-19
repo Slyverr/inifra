@@ -924,7 +924,7 @@ dependencies = [
 
 [[package]]
 name = "inifra"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "clap",
  "clap_complete",
@@ -940,7 +940,7 @@ dependencies = [
 
 [[package]]
 name = "inifra-assistant"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "async-stream",
  "futures-util",
@@ -956,7 +956,7 @@ dependencies = [
 
 [[package]]
 name = "inifra-core"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cap-fs-ext",
  "cap-std",
@@ -969,7 +969,7 @@ dependencies = [
 
 [[package]]
 name = "inifra-tui"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "anstyle",
  "crossterm",

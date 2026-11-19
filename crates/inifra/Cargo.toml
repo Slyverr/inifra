@@ -16,9 +16,9 @@ clap = { version = "4.6.8", features = ["derive"] }
 clap_complete = { version = "4.6.12", features = ["unstable-dynamic"] }
 directories = "6.0.0"
 futures-util = "0.3.31"
-inifra-assistant = { version = "0.5.0", path = "../inifra-assistant" }
-inifra-core = { version = "0.5.0", path = "../inifra-core" }
-inifra-tui = { version = "0.5.0", path = "../inifra-tui" }
+inifra-assistant = { version = "0.6.0", path = "../inifra-assistant" }
+inifra-core = { version = "0.6.0", path = "../inifra-core" }
+inifra-tui = { version = "0.6.0", path = "../inifra-tui" }
 shlex = "2.0.1"
 tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["rt", "time"] }
