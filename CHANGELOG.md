@@ -6,6 +6,19 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-19
+
+### Added
+
+- Configure category labels and catalog/category shared inputs; define pack-local inputs in each pack manifest.
+- Declare empty output directories, coordinate shared output paths, and reference other selected packs' outputs.
+- List every template output with `inifra list --files`.
+- Bundle 12 starter packs for project files, project documentation, GitHub, and project policies.
+
+### Changed
+
+- MIT and Apache license packs use distinct filenames when selected together while retaining `LICENSE` when used alone.
+
 ## [0.1.0] - 2026-11-18
 
 ### Added

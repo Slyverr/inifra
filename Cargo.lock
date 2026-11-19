@@ -245,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "inifra"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "inifra-core",
@@ -254,11 +254,11 @@ dependencies = [
 
 [[package]]
 name = "inifra-assistant"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "inifra-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cap-fs-ext",
  "cap-std",
@@ -270,7 +270,7 @@ dependencies = [
 
 [[package]]
 name = "inifra-tui"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "io-extras"
