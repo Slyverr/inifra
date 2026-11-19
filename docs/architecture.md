@@ -22,6 +22,8 @@ inifra (binary)
 
 Core stays independent of terminal and network concerns. The CLI coordinates application flows and maps data into TUI view models; the TUI does not depend on the assistant crate or core. The assistant may prepare or inspect core operations, while core remains responsible for validating and applying file changes. The packages are scaffolded before feature code, so Cargo dependencies will be added as implementations first need them instead of creating unused dependency edges.
 
+For `init`, the CLI supplies catalog view data and a backend adapter to the TUI. The adapter resolves inputs and prepares a core `GenerationPlan`; the TUI retains that exact plan through review and requests its application only after explicit approval. The TUI owns the interaction and terminal lifecycle, while the adapter delegates validation and writes to `inifra-core`.
+
 ## Keeping the boundary useful
 
 - Keep template formats, sources, presets, and generation policy together in `inifra-core` until an independently useful package boundary or dependency need is demonstrated.

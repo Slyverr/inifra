@@ -12,15 +12,16 @@ cargo install --path crates/inifra --locked
 
 ## Quick Start
 
-List bundled templates, inspect one, and preview its output:
+Choose templates interactively, or list and inspect the bundled catalog:
 
 ```sh
+inifra init
 inifra list
 inifra inspect readme
 inifra generate readme --set project_name=Example --dry-run
 ```
 
-Use `inifra list --files` to expand every output path. Remove `--dry-run` to write files. Existing files are skipped by default; use `--overwrite` to replace them. Pass `--target PATH` to choose a destination, and use `inifra --help` for the available commands. An alternative on-disk catalog can be selected with `--catalog PATH`.
+`inifra init` keeps template selection, input collection, and file review in one inline terminal flow. Use `inifra generate` for scripted, non-interactive use. Existing files are skipped by default; use `--overwrite` to replace them after review. Pass `--target PATH` to choose a destination. Use `inifra list --files` to expand every output path, and `inifra --help` for the available commands. An alternative on-disk catalog can be selected with `--catalog PATH`.
 
 See [the template catalog guide](docs/templates.md) for pack layout and input definitions.
 
