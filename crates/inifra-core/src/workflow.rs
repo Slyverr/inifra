@@ -23,6 +23,23 @@ impl fmt::Display for WorkflowError {
 }
 impl Error for WorkflowError {}
 
+/// Returns the effective input definitions for a selected set of templates.
+///
+/// Shared definitions are resolved using the catalog's scope precedence. Definitions with the
+/// same name must be identical across every selected template so an interactive client can ask
+/// for each value once.
+///
+/// # Errors
+/// Returns an error for an empty or invalid selection, repeated IDs, unknown templates, or
+/// conflicting definitions for the same input.
+pub fn input_definitions_for_selection(
+    catalog: &Catalog,
+    selected: &[String],
+) -> Result<BTreeMap<String, crate::inputs::InputDefinition>, WorkflowError> {
+    let packs = selected_packs(catalog, selected)?;
+    input_definitions_for_packs(catalog, &packs)
+}
+
 /// Prepares a generation plan for the selected pack IDs without writing files.
 ///
 /// # Errors
@@ -35,37 +52,9 @@ pub fn prepare(
     destination: &Path,
     overwrite: bool,
 ) -> Result<GenerationPlan, WorkflowError> {
-    if selected.is_empty() {
-        return Err(WorkflowError("select at least one template".into()));
-    }
-    let mut seen = BTreeSet::new();
-    let mut packs = Vec::new();
-    let mut used = BTreeMap::new();
+    let packs = selected_packs(catalog, selected)?;
+    let used = input_definitions_for_packs(catalog, &packs)?;
     let mut directories = BTreeSet::new();
-    for id in selected {
-        if !seen.insert(id) {
-            return Err(WorkflowError(format!("duplicate template {id:?}")));
-        }
-        let pack = catalog
-            .packs
-            .iter()
-            .find(|pack| &pack.id == id)
-            .ok_or_else(|| WorkflowError(format!("unknown template {id:?}")))?;
-        for (name, definition) in catalog
-            .input_definitions_for(pack)
-            .map_err(|error| WorkflowError(error.to_string()))?
-        {
-            if let Some(existing) = used.get(&name)
-                && existing != &definition
-            {
-                return Err(WorkflowError(format!(
-                    "selected templates have conflicting definitions for input {name:?}"
-                )));
-            }
-            used.insert(name, definition);
-        }
-        packs.push(pack);
-    }
     let values = inputs::resolve(&used, supplied).map_err(|e| WorkflowError(e.to_string()))?;
     let resolved_outputs = catalog
         .resolve_outputs_for_packs(&packs)
@@ -100,4 +89,50 @@ pub fn prepare(
         overwrite,
     )
     .map_err(|e| WorkflowError(e.to_string()))
+}
+
+fn selected_packs<'a>(
+    catalog: &'a Catalog,
+    selected: &[String],
+) -> Result<Vec<&'a crate::catalog::Pack>, WorkflowError> {
+    if selected.is_empty() {
+        return Err(WorkflowError("select at least one template".into()));
+    }
+    let mut seen = BTreeSet::new();
+    selected
+        .iter()
+        .map(|id| {
+            if !seen.insert(id) {
+                return Err(WorkflowError(format!("duplicate template {id:?}")));
+            }
+            catalog
+                .packs
+                .iter()
+                .find(|pack| &pack.id == id)
+                .ok_or_else(|| WorkflowError(format!("unknown template {id:?}")))
+        })
+        .collect()
+}
+
+fn input_definitions_for_packs(
+    catalog: &Catalog,
+    packs: &[&crate::catalog::Pack],
+) -> Result<BTreeMap<String, crate::inputs::InputDefinition>, WorkflowError> {
+    let mut definitions = BTreeMap::new();
+    for pack in packs {
+        for (name, definition) in catalog
+            .input_definitions_for(pack)
+            .map_err(|error| WorkflowError(error.to_string()))?
+        {
+            if let Some(existing) = definitions.get(&name)
+                && existing != &definition
+            {
+                return Err(WorkflowError(format!(
+                    "selected templates have conflicting definitions for input {name:?}"
+                )));
+            }
+            definitions.insert(name, definition);
+        }
+    }
+    Ok(definitions)
 }

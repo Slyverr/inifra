@@ -57,6 +57,48 @@ fn prepares_a_selected_pack_without_writing_destination() {
 }
 
 #[test]
+fn input_definitions_for_selection_are_shared_and_conflicts_are_rejected() {
+    let root = std::env::temp_dir().join(format!(
+        "inifra-workflow-input-definitions-{}",
+        std::process::id()
+    ));
+    let catalog_root = root.join("catalog");
+    for (id, prompt) in [
+        ("first", "Project name"),
+        ("second", "Project name"),
+        ("conflicting", "Name of the project"),
+    ] {
+        let pack = catalog_root.join("project").join(id);
+        fs::create_dir_all(&pack).unwrap();
+        fs::write(
+            pack.join("template.toml"),
+            format!(
+                "schema_version = 2\ndescription = 'Example'\n[local_inputs.project_name]\nprompt = '{prompt}'\nrequired = true\n"
+            ),
+        )
+        .unwrap();
+        fs::write(pack.join("README.md.j2"), "{{ project_name }}\n").unwrap();
+    }
+
+    let catalog = Catalog::load(&catalog_root).unwrap();
+    let definitions =
+        workflow::input_definitions_for_selection(&catalog, &["first".into(), "second".into()])
+            .unwrap();
+    assert_eq!(definitions.len(), 1);
+    assert_eq!(definitions["project_name"].prompt, "Project name");
+    assert!(definitions["project_name"].required);
+
+    let error = workflow::input_definitions_for_selection(
+        &catalog,
+        &["first".into(), "conflicting".into()],
+    )
+    .unwrap_err();
+    assert!(error.to_string().contains("conflicting definitions"));
+    assert!(!root.join("target").exists());
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn conflicting_selected_packs_fail_without_creating_destination() {
     let root =
         std::env::temp_dir().join(format!("inifra-conflicting-packs-{}", std::process::id()));
