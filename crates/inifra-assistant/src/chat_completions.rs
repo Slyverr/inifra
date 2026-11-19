@@ -1,11 +1,12 @@
 use crate::{
     ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatStream, Provider, ProviderError,
     TokenUsage,
+    adapter::{AdapterSpec, bearer_headers, endpoint_url, start_stream},
     http::{HttpRequest, HttpTransport, ReqwestTransport, safe_excerpt},
     sse::SseParser,
-    stream::{DecodedFrame, stream_with_transport as stream_frames},
+    stream::DecodedFrame,
 };
-use reqwest::{Url, header};
+use reqwest::Url;
 use serde::Serialize;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
@@ -53,75 +54,20 @@ fn stream_with_transport<T: HttpTransport + 'static>(
     messages: Vec<ChatMessage>,
     cancellation: CancellationToken,
 ) -> ChatStream {
-    let endpoint = match chat_completions_endpoint(&profile) {
-        Ok(endpoint) => endpoint,
-        Err(message) => {
-            return Box::pin(futures_util::stream::once(async move {
-                Err(ProviderError::configuration(
-                    profile.provider,
-                    profile.api,
-                    &profile.model,
-                    message,
-                ))
-            }));
-        }
-    };
-    if let Err(error) = profile.validate() {
-        return one_error(ProviderError::request(
-            profile.provider,
-            profile.api,
-            &profile.model,
-            &endpoint,
-            error.to_string(),
-            None,
-        ));
-    }
-    if messages.is_empty() {
-        return one_error(ProviderError::request(
-            profile.provider,
-            profile.api,
-            &profile.model,
-            &endpoint,
-            "chat request requires at least one message",
-            None,
-        ));
-    }
-    let Some(api_key) = api_key.filter(|key| !key.trim().is_empty()) else {
-        return one_error(ProviderError::request(
-            profile.provider,
-            profile.api,
-            &profile.model,
-            &endpoint,
-            "API key is missing; configure the profile credential",
-            None,
-        ));
-    };
-    let request = match build_request(&profile, &api_key, messages, endpoint.clone()) {
-        Ok(request) => request,
-        Err(message) => {
-            return one_error(ProviderError::request(
-                profile.provider,
-                profile.api,
-                &profile.model,
-                &endpoint,
-                message,
-                Some(&api_key),
-            ));
-        }
-    };
-    stream_frames(
+    let endpoint = chat_completions_endpoint(&profile);
+    start_stream(
         transport,
         profile,
-        Some(api_key),
-        request,
+        api_key,
+        messages,
         cancellation,
-        SseParser::new(),
-        decode_frame,
+        AdapterSpec {
+            endpoint,
+            build_request,
+            parser: SseParser::new(),
+            decode: decode_frame,
+        },
     )
-}
-
-fn one_error(error: ProviderError) -> ChatStream {
-    Box::pin(futures_util::stream::once(async move { Err(error) }))
 }
 
 fn decode_frame(
@@ -154,22 +100,11 @@ struct StreamOptions {
 
 fn build_request(
     profile: &AssistantProfile,
-    api_key: &str,
     messages: Vec<ChatMessage>,
+    api_key: Option<&str>,
     endpoint: Url,
 ) -> Result<HttpRequest, String> {
-    let mut headers = header::HeaderMap::new();
-    let authorization = header::HeaderValue::from_str(&format!("Bearer {api_key}"))
-        .map_err(|_| "API key cannot be represented as an HTTP header".to_owned())?;
-    headers.insert(header::AUTHORIZATION, authorization);
-    headers.insert(
-        header::CONTENT_TYPE,
-        header::HeaderValue::from_static("application/json"),
-    );
-    headers.insert(
-        header::ACCEPT,
-        header::HeaderValue::from_static("text/event-stream"),
-    );
+    let headers = bearer_headers(api_key, "text/event-stream")?;
     let body = serde_json::to_vec(&ChatCompletionsBody {
         model: &profile.model,
         messages,
@@ -202,7 +137,7 @@ fn chat_completions_endpoint(profile: &AssistantProfile) -> Result<Url, String> 
                 .base_url
                 .as_deref()
                 .ok_or_else(|| "custom endpoint requires an API base URL".to_owned())
-                .and_then(append_chat_path);
+                .and_then(|base| endpoint_url(base, "/chat/completions"));
         }
         _ => {
             return Err(format!(
@@ -211,20 +146,10 @@ fn chat_completions_endpoint(profile: &AssistantProfile) -> Result<Url, String> 
             ));
         }
     };
-    append_chat_path(profile.base_url.as_deref().unwrap_or(default_base))
-}
-
-fn append_chat_path(base: &str) -> Result<Url, String> {
-    let mut url = Url::parse(base).map_err(|_| "API base URL is invalid".to_owned())?;
-    let path = url.path().trim_end_matches('/');
-    let path = path
-        .strip_suffix("/chat/completions")
-        .unwrap_or(path)
-        .trim_end_matches('/');
-    url.set_path(&format!("{path}/chat/completions"));
-    url.set_query(None);
-    url.set_fragment(None);
-    Ok(url)
+    endpoint_url(
+        profile.base_url.as_deref().unwrap_or(default_base),
+        "/chat/completions",
+    )
 }
 
 fn parse_event(
