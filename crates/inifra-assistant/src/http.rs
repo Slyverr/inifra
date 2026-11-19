@@ -290,14 +290,20 @@ fn safe_endpoint(endpoint: &Url, api_key: Option<&str>) -> String {
     let endpoint = if endpoint.path() == "/" {
         origin
     } else {
-        let route = [
-            "/chat/completions",
-            "/responses",
-            "/messages",
-            "/generateContent",
-        ]
-        .into_iter()
-        .find(|suffix| endpoint.path().ends_with(suffix));
+        let path = endpoint.path();
+        let route = if path.contains("/models/") && path.ends_with(":streamGenerateContent") {
+            Some("/models/[model]:streamGenerateContent")
+        } else {
+            [
+                "/chat/completions",
+                "/api/chat",
+                "/responses",
+                "/messages",
+                "/generateContent",
+            ]
+            .into_iter()
+            .find(|suffix| path.ends_with(suffix))
+        };
         match route {
             Some(route) => format!("{origin}/[path redacted]{route}"),
             None => format!("{origin}/[path redacted]"),
