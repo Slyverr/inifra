@@ -111,7 +111,7 @@ Omit unnecessary paragraphs and bullets. Use standard footers, including `BREAKI
 
 ## Pull Requests and Reviews
 
-Pull requests provide the review and integration path for contributors. Normal work targets `main`; fixes to supported release lines target the relevant `release/X.Y` branch (for example, `release/0.3`).
+Pull requests provide the review and integration path for contributors. Normal work targets `main`; fixes to a supported release line target its `release/vX.Y` branch (for example, `release/v0.6`).
 
 - Use draft PRs for work in progress.
 - Describe the purpose, important changes, linked issues, checks performed, and compatibility impact.
@@ -132,12 +132,12 @@ An approved roadmap guides scope, but a checked-off chapter does **not** automat
 
 ### Maintenance Branches
 
-Use a maintenance branch only when a supported release needs patches without including unfinished work from `main`.
+Use a maintenance branch only when a supported release needs patches without including unfinished work from `main`. The current maintenance branch is `release/v0.6`, which starts at `v0.6.0`.
 
 - Support only the latest published minor series by default; preserve tags for older versions. Maintain older series only when explicitly needed.
 - If `main` has no unrelated unreleased features, an ordinary patch can be made and tagged on `main` after verification.
-- If `main` contains work toward a newer release, create `release/X.Y` from the **latest published tag in that series**, or reuse the existing branch. Patch PRs target `release/X.Y`, not `main`, and exclude unfinished next-release features.
-- **Port fixes, not releases.** `git cherry-pick` applies the change from a selected fix commit to another branch as a new commit (usually with a new SHA). Port between `main` and `release/X.Y` in whichever direction is needed; prefer `git cherry-pick -x` for source traceability. Resolve conflicts and retest the destination branch.
+- If `main` contains work toward a newer release, create `release/vX.Y` from the **latest published tag in that series**, or reuse the existing branch. For example, create the current branch with `git switch -c release/v0.6 v0.6.0`. Patch PRs target `release/vX.Y`, not `main`, and exclude unfinished next-release features.
+- **Port fixes, not releases.** `git cherry-pick` applies the change from a selected fix commit to another branch as a new commit (usually with a new SHA). Port between `main` and `release/vX.Y` in whichever direction is needed; prefer `git cherry-pick -x` for source traceability. Resolve conflicts and retest the destination branch.
 - Keep release-specific version, lockfile, and changelog metadata out of ported fixes; do not merge the whole maintenance branch into `main`. A patch tag remains on its own release-line commit, even when absent from `git log main`. The maintenance branch may be deleted once support ends without losing its tags.
 
 ### Release Procedure
@@ -147,7 +147,7 @@ Release tags identify a verified revision on `main` or an active maintenance bra
 1. Verify the intended code and relevant roadmap acceptance criteria on `main` (major/minor) or the supported maintenance branch (patch). Ensure version metadata, `Cargo.lock` where applicable, documentation, and changelog match the intended release.
 2. **Major/minor:** Include a final, nonempty `chore(release): prepare vX.Y.Z` commit in the PR that completes the release scope whenever practical. Use a separate release-preparation PR only when the implementation has already merged or the metadata change must be reviewed independently. No commit body is needed by default.
 3. **Patch:** No required release-preparation commit. Include necessary version and changelog updates before tagging, keeping fix commits separate from release-only metadata when practical so the fix can be cleanly cherry-picked. If a separate metadata commit is necessary, use one without a ceremonial release-preparation step.
-4. CI must validate PRs targeting both `main` and supported `release/X.Y` branches. Confirm the **exact final commit** passes relevant checks before tagging. Only a maintainer or explicitly authorized automation creates the immutable `vX.Y.Z` tag on that commit.
+4. CI must validate PRs targeting both `main` and supported `release/vX.Y` branches. Confirm the **exact final commit** passes relevant checks before tagging. Only a maintainer or explicitly authorized automation creates the immutable `vX.Y.Z` tag on that commit.
 5. Verify the tag target and signature **if signing is configured**. Tag-triggered CI, where configured, must test the exact tagged revision; if artifacts are published in the future, publication must depend on passing those checks regardless of release branch. Confirm `.github/workflows/ci.yml` and any release workflows actually implement these triggers before relying on them.
 6. If a defect is found after tagging, publish a new patch rather than moving an existing tag.
 
