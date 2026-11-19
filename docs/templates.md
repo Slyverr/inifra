@@ -87,9 +87,38 @@ Repositories may keep team packs under `.inifra/templates/`, using the same cate
             └── README.md.j2
 ```
 
-When no `--catalog` is supplied, Inifra layers catalogs in this order: bundled, personal, then project-local. A project pack with an existing ID overrides the matching personal or bundled pack; otherwise it adds a new ID. Category and input overlays follow the same rules as personal catalogs. Project discovery checks `.inifra/` in the current working directory only and does not search parent directories. `--target` controls where generated files go; it does not change which project catalog is loaded. An explicit `--catalog PATH` remains exclusive and bypasses all automatic layers.
+When no `--catalog` is supplied, Inifra layers catalogs in this order: bundled, personal, pinned Git sources, then project-local. A project pack with an existing ID overrides the matching personal or bundled pack; otherwise it adds a new ID. Category and input overlays follow the same rules as personal catalogs. Project discovery checks `.inifra/` in the current working directory only and does not search parent directories. `--target` controls where generated files go; it does not change which project catalog is loaded. An explicit `--catalog PATH` remains exclusive and bypasses all automatic layers.
 
 Project packs are ordinary version-controlled files. `inifra edit <id>` opens a project-local pack in place. `inifra rename` and `inifra remove` manage the personal catalog; use normal file and Git operations to rename or remove a project pack so its changes are reviewable with the repository. Project-local packs are loaded without network access.
+
+### Pinned Git sources
+
+A project may register reusable catalogs from Git repositories. Give each source a stable lowercase name; its template IDs and category IDs are prefixed with that name, such as `team/agents` and `team/project-files`. This keeps source IDs and shared inputs isolated. A source may reference another pack in the same source by its local ID; references to another source or project pack use that pack's qualified ID.
+
+```sh
+inifra source add team https://github.com/example/team-templates.git --ref refs/heads/main
+inifra source list
+inifra source sync team
+inifra source update team
+inifra source remove team
+```
+
+`source add` fetches the selected ref and records its full commit ID in `.inifra/sources.toml`. The registry is project data and should be committed with the project. `source sync` restores or verifies the cached snapshot for the recorded pin without moving it; a missing pin must still be reachable from its configured ref. `source update` explicitly follows the configured ref and writes the new pin only after the selected update operations succeed. `source sync` and `source update` accept an optional source name; when omitted they operate on every registered source. `source remove` removes the registry entry but leaves the shared cache intact.
+
+The registry stores the transport URL, tracked ref, and immutable revision:
+
+```toml
+schema_version = 1
+
+[sources.team]
+url = "https://github.com/example/team-templates.git"
+reference = "refs/heads/main"
+revision = "0123456789abcdef0123456789abcdef01234567"
+```
+
+Snapshots are stored in the user's Inifra cache under `sources/<name>/<revision>`. Set `INIFRA_CACHE_DIR` to choose another cache root. `list`, `inspect`, `validate`, `init`, and `generate` read only these snapshots and never contact Git; if a committed pin is absent locally, Inifra asks you to run `inifra source sync <name>`. This makes ordinary use reproducible offline. `--catalog PATH` remains isolated and does not load project source pins.
+
+Use HTTPS or SSH repository URLs and your normal Git credential helper or SSH agent. Do not put tokens or passwords in source URLs. A fetched catalog is data, not executable code: Inifra extracts regular files without checking out the repository, rejects symlinks and submodules, and validates catalog paths before using it. Review external catalog contents and generated-file plans before writing project files.
 
 ### Moving personal packs from older versions
 
