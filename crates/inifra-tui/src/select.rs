@@ -155,8 +155,9 @@ fn draw_select(frame: &mut Frame<'_>, title: &str, choices: &[String], app: &mut
 
 #[cfg(test)]
 mod tests {
-    use super::{SelectApp, SelectOutcome};
+    use super::{SelectApp, SelectOutcome, draw_select};
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use ratatui::{Terminal, backend::TestBackend};
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
@@ -192,5 +193,35 @@ mod tests {
             app.handle(key(KeyCode::Esc), choices.len()),
             Some(SelectOutcome::Cancelled)
         );
+    }
+
+    #[test]
+    fn empty_choice_list_fails_before_terminal_initialization() {
+        let error = super::run_select("", &[], 0).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn selection_screen_draws_the_title_choice_and_footer() {
+        let choices = [
+            "Create profile".to_owned(),
+            "Reset assistant data".to_owned(),
+        ];
+        let mut app = SelectApp::new(&choices, 0);
+        let backend = TestBackend::new(50, 6);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|frame| draw_select(frame, "Assistant", &choices, &mut app))
+            .unwrap();
+        let displayed = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(displayed.contains("Assistant"));
+        assert!(displayed.contains("Create profile"));
+        assert!(displayed.contains("Enter"));
     }
 }
