@@ -85,6 +85,8 @@ fn validates_supported_git_urls_refs_and_full_revisions() {
         "https://user:token@example.com/repo.git",
         "https://bad host/repo.git",
         "-uhttps://example.com/repo.git",
+        "ssh://-oProxyCommand=echo/repo.git",
+        "git@-oProxyCommand=echo:repo.git",
         "git://example.com/repo.git",
         "git@github.com:team name/repo.git",
         "file://relative/repo.git",
