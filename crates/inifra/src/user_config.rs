@@ -16,6 +16,20 @@ pub(crate) fn config_dir() -> Result<Option<PathBuf>, io::Error> {
     Ok(directories::BaseDirs::new().map(|directories| directories.config_dir().join("inifra")))
 }
 
+/// Returns the cache directory used for immutable synchronized source snapshots.
+pub(crate) fn cache_dir() -> Result<Option<PathBuf>, io::Error> {
+    if let Some(path) = env::var_os("INIFRA_CACHE_DIR") {
+        if path.is_empty() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "INIFRA_CACHE_DIR cannot be empty",
+            ));
+        }
+        return Ok(Some(path.into()));
+    }
+    Ok(directories::BaseDirs::new().map(|directories| directories.cache_dir().join("inifra")))
+}
+
 /// Loads either an explicitly selected catalog or the bundled catalog with a user overlay.
 ///
 /// The temporary extraction must remain alive while the catalog is in use because bundled packs
@@ -69,37 +83,69 @@ pub(crate) fn load_project_catalog(
     }
 
     let inifra_dir = project_dir.join(".inifra");
+    let mut overlays = Vec::new();
     match fs::symlink_metadata(&inifra_dir) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok((catalog, bundled_dir)),
-        Err(error) => Err(format!("{}: {error}", inifra_dir.display()).into()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => return Err(format!("{}: {error}", inifra_dir.display()).into()),
         Ok(metadata) if metadata.file_type().is_dir() => {
+            load_project_sources(&inifra_dir, &mut overlays)?;
             let project_templates = inifra_dir.join("templates");
             match fs::symlink_metadata(&project_templates) {
-                Err(error) if error.kind() == io::ErrorKind::NotFound => Ok((catalog, bundled_dir)),
-                Err(error) => Err(format!("{}: {error}", project_templates.display()).into()),
-                Ok(metadata) if metadata.file_type().is_dir() => {
-                    let overlay = Catalog::load_overlay(&project_templates)?;
-                    Ok((catalog.with_overlay(overlay)?, bundled_dir))
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => {
+                    return Err(format!("{}: {error}", project_templates.display()).into());
                 }
-                Ok(_) => Err(io::Error::new(
-                    io::ErrorKind::InvalidInput,
-                    format!(
-                        "{}: project templates path must be a directory",
-                        project_templates.display()
-                    ),
-                )
-                .into()),
+                Ok(metadata) if metadata.file_type().is_dir() => {
+                    overlays.push(Catalog::load_overlay(&project_templates)?);
+                }
+                Ok(_) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        format!(
+                            "{}: project templates path must be a directory",
+                            project_templates.display()
+                        ),
+                    )
+                    .into());
+                }
             }
         }
-        Ok(_) => Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!(
-                "{}: project configuration path must be a directory",
-                inifra_dir.display()
-            ),
-        )
-        .into()),
+        Ok(_) => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "{}: project configuration path must be a directory",
+                    inifra_dir.display()
+                ),
+            )
+            .into());
+        }
     }
+    Ok((catalog.with_overlays(overlays)?, bundled_dir))
+}
+
+fn load_project_sources(
+    inifra_dir: &Path,
+    overlays: &mut Vec<Catalog>,
+) -> Result<(), Box<dyn Error>> {
+    let registry =
+        inifra_core::source_registry::SourceRegistry::load(&inifra_dir.join("sources.toml"))?;
+    if registry.sources.is_empty() {
+        return Ok(());
+    }
+    let cache_dir = cache_dir()?.ok_or("could not determine the user cache directory")?;
+    for (name, source) in registry.sources {
+        let source_cache = cache_dir.join("sources").join(&name);
+        let snapshot = crate::source_cache::cached_revision(&source_cache, &source.revision)?
+            .ok_or_else(|| {
+                format!(
+                    "source {name:?} revision {} is not cached; run `inifra source sync {name}`",
+                    source.revision
+                )
+            })?;
+        overlays.push(Catalog::load_overlay(&snapshot)?.with_namespace(&name)?);
+    }
+    Ok(())
 }
 
 #[cfg(test)]

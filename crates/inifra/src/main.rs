@@ -1,6 +1,8 @@
 mod completions;
 mod init;
 mod preset_cli;
+mod source_cache;
+mod source_cli;
 mod templates;
 mod user_config;
 
@@ -65,6 +67,11 @@ enum Command {
         #[command(subcommand)]
         command: preset_cli::PresetCommand,
     },
+    /// Manage project-pinned Git template sources.
+    Source {
+        #[command(subcommand)]
+        command: source_cli::SourceCommand,
+    },
     /// Generate or install shell completions.
     Completions {
         /// Shell that should receive completions.
@@ -126,10 +133,19 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
         return completions::run(*shell, *install, *uninstall);
     }
-    if cli.catalog.is_some() && cli.command.requires_user_config() {
+    let command = match cli.command {
+        Command::Source { command } => {
+            if cli.catalog.is_some() {
+                return Err("--catalog cannot be used with source management".into());
+            }
+            return source_cli::run(command, &std::env::current_dir()?);
+        }
+        command => command,
+    };
+    if cli.catalog.is_some() && command.requires_user_config() {
         return Err("user template and preset commands cannot be used with --catalog".into());
     }
-    let config_dir = if cli.catalog.is_none() || cli.command.requires_user_config() {
+    let config_dir = if cli.catalog.is_none() || command.requires_user_config() {
         user_config::config_dir()?
     } else {
         None
@@ -140,7 +156,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         config_dir.as_deref(),
         &project_dir,
     )?;
-    match cli.command {
+    match command {
         Command::List { files } => {
             let mut category = "";
             let width = catalog
@@ -342,6 +358,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         Command::Preset { command } => {
             preset_cli::run(&catalog, config_dir.as_deref(), command)?;
         }
+        Command::Source { .. } => unreachable!("handled before catalog loading"),
         Command::Completions { .. } => unreachable!("handled before catalog loading"),
         Command::Generate {
             ids,
