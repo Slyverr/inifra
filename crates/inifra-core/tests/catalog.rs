@@ -241,6 +241,62 @@ fn namespaces_remote_pack_ids_categories_inputs_and_internal_references() {
 }
 
 #[test]
+fn validates_references_between_layers_after_all_overlays_are_merged() {
+    let base = Fixture::new();
+    base.pack(
+        "project-guidance",
+        "agents",
+        "schema_version = 2\ndescription = 'Agent instructions'\n",
+    );
+    base.write("project-guidance/agents/AGENTS.md", "Instructions\n");
+
+    let remote = Fixture::new();
+    remote.pack(
+        "project-docs",
+        "architecture",
+        "schema_version = 2\ndescription = 'Architecture guide'\n[references.agents]\ntemplate = 'agents'\nsource = 'AGENTS.md'\n",
+    );
+    remote.write(
+        "project-docs/architecture/architecture.md.j2",
+        "See {{ references.agents }}\n",
+    );
+
+    let project = Fixture::new();
+    project.pack(
+        "project-docs",
+        "index",
+        "schema_version = 2\ndescription = 'Documentation index'\n[references.architecture]\ntemplate = 'team/architecture'\nsource = 'architecture.md.j2'\n",
+    );
+    project.write(
+        "project-docs/index/README.md.j2",
+        "See {{ references.architecture }}\n",
+    );
+
+    let catalog = Catalog::load(&base.0)
+        .unwrap()
+        .with_overlays([
+            Catalog::load_overlay(&remote.0)
+                .unwrap()
+                .with_namespace("team")
+                .unwrap(),
+            Catalog::load_overlay(&project.0).unwrap(),
+        ])
+        .unwrap();
+
+    catalog.validate().unwrap();
+    assert_eq!(
+        catalog
+            .packs
+            .iter()
+            .find(|pack| pack.id == "index")
+            .unwrap()
+            .references["architecture"]
+            .template,
+        "team/architecture"
+    );
+}
+
+#[test]
 fn rejects_duplicate_ids_and_invalid_manifests() {
     let root = Fixture::new();
     root.pack("one", "same", "schema_version = 2\ndescription = 'One'\n");

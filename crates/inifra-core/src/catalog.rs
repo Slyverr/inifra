@@ -154,7 +154,7 @@ impl Catalog {
         Self::load_with_external_references(root, true)
     }
 
-    /// Combines a user catalog layer with this base catalog.
+    /// Combines one user catalog layer with this base catalog.
     ///
     /// User definitions replace matching root or category input definitions. An explicitly named
     /// user category replaces the base display name, while an omitted name preserves it. A user
@@ -164,30 +164,47 @@ impl Catalog {
     /// # Errors
     /// Returns an error when the merged catalog contains invalid inputs, references, sources,
     /// template syntax, or outputs.
-    pub fn with_overlay(mut self, overlay: Self) -> Result<Self, CatalogError> {
-        self.inputs.extend(overlay.inputs);
+    pub fn with_overlay(self, overlay: Self) -> Result<Self, CatalogError> {
+        self.with_overlays([overlay])
+    }
 
-        for (id, mut overlay_category) in overlay.categories {
-            if let Some(category) = self.categories.get_mut(&id) {
-                if overlay_category.has_display_name_override {
-                    category.name = overlay_category.name;
-                    category.has_display_name_override = true;
+    /// Combines catalog layers in precedence order and validates the complete result once.
+    ///
+    /// This permits references between overlays that appear later in the sequence, while keeping
+    /// later packs and input definitions authoritative when IDs overlap.
+    ///
+    /// # Errors
+    /// Returns an error when the merged catalog contains invalid inputs, references, sources,
+    /// template syntax, or outputs.
+    pub fn with_overlays(
+        mut self,
+        overlays: impl IntoIterator<Item = Self>,
+    ) -> Result<Self, CatalogError> {
+        for overlay in overlays {
+            self.inputs.extend(overlay.inputs);
+
+            for (id, mut overlay_category) in overlay.categories {
+                if let Some(category) = self.categories.get_mut(&id) {
+                    if overlay_category.has_display_name_override {
+                        category.name = overlay_category.name;
+                        category.has_display_name_override = true;
+                    }
+                    category.inputs.append(&mut overlay_category.inputs);
+                } else {
+                    self.categories.insert(id, overlay_category);
                 }
-                category.inputs.append(&mut overlay_category.inputs);
-            } else {
-                self.categories.insert(id, overlay_category);
             }
-        }
 
-        for overlay_pack in overlay.packs {
-            if let Some(pack) = self
-                .packs
-                .iter_mut()
-                .find(|pack| pack.id == overlay_pack.id)
-            {
-                *pack = overlay_pack;
-            } else {
-                self.packs.push(overlay_pack);
+            for overlay_pack in overlay.packs {
+                if let Some(pack) = self
+                    .packs
+                    .iter_mut()
+                    .find(|pack| pack.id == overlay_pack.id)
+                {
+                    *pack = overlay_pack;
+                } else {
+                    self.packs.push(overlay_pack);
+                }
             }
         }
         self.packs
