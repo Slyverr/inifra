@@ -48,6 +48,8 @@ Shared input definitions may also have a string `default`. Define them globally 
 
 For a shared input name, the nearest definition wins: pack-local, then category, then catalog root. Definitions replace as a whole; their fields are not merged. Pass values with `--set project_name=Example`; omitted optional inputs render as empty strings. Unknown values and missing required values are errors. When selected packs use the same input with equal effective definitions, Inifra resolves it once; conflicting definitions fail before planning or writing.
 
+The top-level input name `references` is reserved for optional paths to other packs' outputs.
+
 Every regular file in a pack is an output source except its root `template.toml`. Files ending in `.j2` are rendered with MiniJinja and lose that suffix; other files are copied as bytes. Nested directories and dotfiles are preserved. Symbolic links and unsupported file types are rejected. Output paths must be portable, and conflicting outputs are rejected before writing.
 
 ## Output paths and coordinated alternatives
@@ -63,6 +65,30 @@ co_selected_output = { group = "licenses", path = "LICENSE-MIT" }
 The rule above leaves the pack's output as `LICENSE` when used alone. If another selected pack also resolves to `LICENSE` and declares the same `licenses` group, both packs use their declared alternative paths. Every pack in that collision must declare the same group; otherwise generation reports the collision before writing. Alternative destinations are validated together too, so alternatives that still conflict are rejected.
 
 An explicit default destination can be declared with `output = "docs/TERMS.md"`; it can be combined with `co_selected_output` when that default may collide. `inspect` shows the output used alone and any declared paired destination.
+
+## Optional pack references
+
+A pack may name a source from another pack as an optional reference:
+
+```toml
+[references.contributing]
+template = "contributing"
+source = "CONTRIBUTING.md.j2"
+```
+
+The reference name is available as `references.contributing`. Gate its use in the source template so it is omitted when the target pack is not selected:
+
+```jinja
+{% if references.contributing %}
+See [CONTRIBUTING.md]({{ references.contributing }}) for contribution guidance.
+{% endif %}
+```
+
+References never prompt for or auto-select another pack. The target pack and source must exist, and self-references are rejected. When the target is selected, the value is its resolved output path, including `.j2` suffix removal and any output rule. Otherwise, the value is an empty string. Reference paths use `/` separators on every platform.
+
+## Listing outputs
+
+`inifra list` shows each pack's first file output followed by `+N other files` when there are more, plus a directory count when applicable. Use `inifra list --files` to expand every resolved file and declared directory path. `inspect` shows the complete outputs for one pack, including any co-selected destination.
 
 Version control does not preserve intentionally empty directories, so declare those output paths in `directories`:
 
