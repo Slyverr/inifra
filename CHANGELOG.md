@@ -6,6 +6,14 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 ## [Unreleased]
 
+### Added
+
+- Load personal template packs from the platform config directory, overlaying bundled packs by template ID.
+
+### Changed
+
+- Apply the established terminal palette and compact status formatting to CLI output.
+
 ## [0.3.0] - 2026-11-19
 
 ### Added
