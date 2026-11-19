@@ -23,10 +23,20 @@ type SharedOutputKey = (String, Vec<(String, String)>);
 
 /// Runs the inline picker, collects inputs, and applies only the reviewed plan.
 pub fn run(catalog: &Catalog, target: PathBuf, overwrite: bool) -> Result<(), Box<dyn Error>> {
+    run_with_selection(catalog, target, overwrite, &[], BTreeMap::new())
+}
+
+pub fn run_with_selection(
+    catalog: &Catalog,
+    target: PathBuf,
+    overwrite: bool,
+    selected: &[String],
+    values: BTreeMap<String, String>,
+) -> Result<(), Box<dyn Error>> {
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "`inifra init` requires an interactive terminal; use `inifra generate <template-id>` for non-interactive use",
+            "requires an interactive terminal; use `inifra generate <template-id>` for non-interactive use",
         )
         .into());
     }
@@ -38,7 +48,7 @@ pub fn run(catalog: &Catalog, target: PathBuf, overwrite: bool) -> Result<(), Bo
         target: target.clone(),
         overwrite,
     };
-    match inifra_tui::run_init(view, backend)? {
+    match inifra_tui::run_init_with_selection(view, backend, selected, values)? {
         InitOutcome::Applied => println!(
             "{}",
             presentation::paint(
@@ -51,6 +61,30 @@ pub fn run(catalog: &Catalog, target: PathBuf, overwrite: bool) -> Result<(), Bo
             )
         ),
         InitOutcome::Cancelled => {}
+    }
+    Ok(())
+}
+
+pub(crate) fn validate_picker_selection(
+    catalog: &Catalog,
+    selected_ids: &[String],
+) -> Result<(), Box<dyn Error>> {
+    let view = catalog_view(catalog)?;
+    let mut used_choices = vec![false; view.templates.len()];
+    for id in selected_ids {
+        let choice_index = view
+            .templates
+            .iter()
+            .position(|choice| choice.variants.iter().any(|template| template.id == *id))
+            .ok_or_else(|| {
+                format!("template {id:?} cannot be selected in the initialization picker")
+            })?;
+        if std::mem::replace(&mut used_choices[choice_index], true) {
+            return Err(format!(
+                "preset selects multiple alternatives in one shared-output group, including {id:?}"
+            )
+            .into());
+        }
     }
     Ok(())
 }

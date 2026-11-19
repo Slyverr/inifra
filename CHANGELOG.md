@@ -9,10 +9,14 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 ### Added
 
 - Load personal template packs from the platform config directory, overlaying bundled packs by template ID.
+- Edit bundled templates through user-owned copies, and create, rename, or remove personal packs with reference checks.
+- Save, inspect, apply, rename, and remove reusable template-selection presets.
+- Create a valid starter source file when interactively scaffolding a new personal template.
 
 ### Changed
 
 - Apply the established terminal palette and compact status formatting to CLI output.
+- Keep preset recovery available when a saved manifest is malformed, while preserving unexpected files.
 
 ## [0.3.0] - 2026-11-19
 

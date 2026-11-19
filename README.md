@@ -25,6 +25,7 @@ inifra generate readme --set project_name=Example --dry-run
 
 See [the template catalog guide](docs/templates.md) for pack layout and input definitions.
 Personal template packs can extend or replace bundled packs in the platform's Inifra config directory. Set `INIFRA_CONFIG_DIR` to choose a different config root; the catalog guide documents the overlay rules.
+Use `inifra edit`, `rename`, and `remove` to manage personal packs; `inifra preset` saves and reapplies selections. See [presets](docs/presets.md) for details.
 
 ## Contributing
 

@@ -49,4 +49,10 @@ Presets do not store a destination directory, overwrite approval, provider crede
 
 Preset IDs, template references, and saved input names are validated when a preset is loaded for use. Renaming a user-owned template must keep affected preset references valid; preset updates must not be left partially written if a rename fails.
 
+## Managing presets
+
+Use `inifra preset save <id> --description "..." --template <template-id>` to save a selection. Repeat `--template` for additional packs and `--set name=value` for values to reuse. `inifra preset list` and `inifra preset inspect <id>` show saved data. Apply a preset with `inifra preset apply <id>`; it opens the same selection and review flow as `inifra init`, and `--set` values on the command override saved values.
+
+Rename and remove presets with `inifra preset rename <old-id> <new-id>` and `inifra preset remove <id>`. If a manifest is malformed, `preset save --overwrite` can replace it and `preset remove` can remove it, provided that the preset directory contains only `preset.toml`. Unexpected files are preserved and block both operations.
+
 The examples define the user-owned format, not shipped defaults. A later project-local preset format, if needed for team sharing, belongs in the separate project-configuration design rather than being inferred from this user-owned format.

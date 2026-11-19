@@ -73,6 +73,12 @@ User packs with new IDs extend the bundled catalog. A user pack with an existing
 
 Passing `--catalog PATH` selects only that catalog and bypasses the bundled and user catalogs. This keeps explicit catalogs deterministic for scripts and tests.
 
+## Managing personal packs
+
+Use `inifra edit <id>` to open a personal pack in `VISUAL` or `EDITOR`. A bundled pack is copied into the matching user category before editing, so the embedded copy stays unchanged. For a new ID, Inifra asks before creating it, then collects a category, description, and first source-file path; the default is `<id>.md.j2`. Editor arguments are parsed without invoking a shell.
+
+Use `inifra rename <old-id> <new-id>` to rename a personal pack and update references from other personal packs and saved presets. `inifra remove <id>` refuses removal while a preset or another pack refers to it. Bundled packs must be copied through `edit` before they can be renamed or removed.
+
 The top-level input name `references` is reserved for optional paths to other packs' outputs.
 
 Every regular file in a pack is an output source except its root `template.toml`. Files ending in `.j2` are rendered with MiniJinja and lose that suffix; other files are copied as bytes. Nested directories and dotfiles are preserved. Symbolic links and unsupported file types are rejected. Output paths must be portable, and conflicting outputs are rejected before writing.

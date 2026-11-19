@@ -1,4 +1,6 @@
 mod init;
+mod preset_cli;
+mod templates;
 mod user_config;
 
 use clap::{Parser, Subcommand};
@@ -37,6 +39,17 @@ enum Command {
         #[arg(long)]
         overwrite: bool,
     },
+    /// Copy a bundled template to user config and open it in the configured editor.
+    Edit { id: String },
+    /// Rename a user-owned template and update its references.
+    Rename { old_id: String, new_id: String },
+    /// Remove a user-owned template that no saved data references.
+    Remove { id: String },
+    /// Manage saved template selections.
+    Preset {
+        #[command(subcommand)]
+        command: preset_cli::PresetCommand,
+    },
     /// Generate files from selected template packs.
     Generate {
         #[arg(required = true)]
@@ -68,7 +81,10 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
-    let config_dir = if cli.catalog.is_none() {
+    if cli.catalog.is_some() && cli.command.requires_user_config() {
+        return Err("user template and preset commands cannot be used with --catalog".into());
+    }
+    let config_dir = if cli.catalog.is_none() || cli.command.requires_user_config() {
         user_config::config_dir()?
     } else {
         None
@@ -263,6 +279,14 @@ fn run() -> Result<(), Box<dyn Error>> {
             println!("Validated {} template(s).", catalog.packs.len());
         }
         Command::Init { target, overwrite } => init::run(&catalog, target, overwrite)?,
+        Command::Edit { id } => templates::edit(&catalog, config_dir.as_deref(), &id)?,
+        Command::Rename { old_id, new_id } => {
+            templates::rename(&catalog, config_dir.as_deref(), &old_id, &new_id)?
+        }
+        Command::Remove { id } => templates::remove(&catalog, config_dir.as_deref(), &id)?,
+        Command::Preset { command } => {
+            preset_cli::run(&catalog, config_dir.as_deref(), command)?;
+        }
         Command::Generate {
             ids,
             target,
@@ -270,15 +294,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             overwrite,
             dry_run,
         } => {
-            let mut values = BTreeMap::new();
-            for assignment in set {
-                let (key, value) = assignment
-                    .split_once('=')
-                    .ok_or("--set expects NAME=VALUE")?;
-                if values.insert(key.to_owned(), value.to_owned()).is_some() {
-                    return Err(format!("duplicate input {key:?}").into());
-                }
-            }
+            let values = parse_assignments(&set)?;
             let plan = workflow::prepare(&catalog, &ids, &values, &target, overwrite)?;
             if dry_run {
                 print_plan(&plan, &target);
@@ -331,6 +347,30 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }
     Ok(())
+}
+
+pub(crate) fn parse_assignments(
+    assignments: &[String],
+) -> Result<BTreeMap<String, String>, Box<dyn Error>> {
+    let mut values = BTreeMap::new();
+    for assignment in assignments {
+        let (key, value) = assignment
+            .split_once('=')
+            .ok_or("--set expects NAME=VALUE")?;
+        if values.insert(key.to_owned(), value.to_owned()).is_some() {
+            return Err(format!("duplicate input {key:?}").into());
+        }
+    }
+    Ok(values)
+}
+
+impl Command {
+    fn requires_user_config(&self) -> bool {
+        matches!(
+            self,
+            Self::Edit { .. } | Self::Rename { .. } | Self::Remove { .. } | Self::Preset { .. }
+        )
+    }
 }
 
 fn print_plan(plan: &inifra_core::plan::GenerationPlan, target: &std::path::Path) {
