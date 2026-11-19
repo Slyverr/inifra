@@ -1,3 +1,5 @@
+mod assistant_cli;
+mod assistant_configure;
 mod completions;
 mod init;
 mod preset_cli;
@@ -67,6 +69,11 @@ enum Command {
         #[command(subcommand)]
         command: preset_cli::PresetCommand,
     },
+    /// Configure assistant profiles and credentials.
+    Assistant {
+        #[command(subcommand)]
+        command: Option<assistant_cli::AssistantCommand>,
+    },
     /// Manage project-pinned Git template sources.
     Source {
         #[command(subcommand)]
@@ -134,6 +141,12 @@ fn run() -> Result<(), Box<dyn Error>> {
         return completions::run(*shell, *install, *uninstall);
     }
     let command = match cli.command {
+        Command::Assistant { command } => {
+            if cli.catalog.is_some() {
+                return Err("--catalog cannot be used with assistant configuration".into());
+            }
+            return assistant_cli::run(command, user_config::config_dir()?);
+        }
         Command::Source { command } => {
             if cli.catalog.is_some() {
                 return Err("--catalog cannot be used with source management".into());
@@ -358,6 +371,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         Command::Preset { command } => {
             preset_cli::run(&catalog, config_dir.as_deref(), command)?;
         }
+        Command::Assistant { .. } => unreachable!("handled before catalog loading"),
         Command::Source { .. } => unreachable!("handled before catalog loading"),
         Command::Completions { .. } => unreachable!("handled before catalog loading"),
         Command::Generate {
