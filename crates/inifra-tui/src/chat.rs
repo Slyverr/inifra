@@ -691,6 +691,9 @@ fn wrapped_input_lines(input: &[char], width: usize) -> Vec<Vec<char>> {
 
 fn ghost_completion(app: &ChatApp) -> Option<String> {
     let input = app.input_text();
+    if input.trim().is_empty() {
+        return None;
+    }
     app.completions
         .iter()
         .find(|candidate| candidate.starts_with(&input) && candidate.len() > input.len())
@@ -935,5 +938,25 @@ mod tests {
         let rendered = super::super::markdown::render("## Heading\n- one");
         assert_eq!(rendered[0].spans[0].content, "Heading");
         assert_eq!(rendered[1].spans[0].content, "• ");
+    }
+
+    #[test]
+    fn empty_input_keeps_the_message_placeholder_without_a_command_suggestion() {
+        let mut app = ChatApp::new(ChatConfig::default());
+        app.completions = vec!["/help".to_owned()];
+        let backend = TestBackend::new(80, VIEWPORT_HEIGHT);
+        let mut terminal = Terminal::new(backend).unwrap();
+
+        terminal.draw(|frame| draw(frame, &app)).unwrap();
+
+        let rendered = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(rendered.contains("Type a message…"));
+        assert!(!rendered.contains("/help"));
     }
 }
