@@ -71,7 +71,25 @@ The default catalog combines the read-only bundled packs with packs under the us
 
 User packs with new IDs extend the bundled catalog. A user pack with an existing ID replaces that bundled pack. User root inputs and category inputs replace matching bundled definitions; new definitions extend them. A category display name replaces the bundled label only when explicitly set in the user's `categories.toml`. The combined catalog is validated before commands use it, so malformed user data produces an error instead of being silently ignored.
 
-Passing `--catalog PATH` selects only that catalog and bypasses the bundled and user catalogs. This keeps explicit catalogs deterministic for scripts and tests.
+Passing `--catalog PATH` selects only that catalog and bypasses all automatic catalog layers. This keeps explicit catalogs deterministic for scripts and tests.
+
+## Project catalogs
+
+Repositories may keep team packs under `.inifra/templates/`, using the same category, input, and pack layout:
+
+```text
+.inifra/
+└── templates/
+    ├── inputs.toml
+    └── project-files/
+        └── readme/
+            ├── template.toml
+            └── README.md.j2
+```
+
+When no `--catalog` is supplied, Inifra layers catalogs in this order: bundled, personal, then project-local. A project pack with an existing ID overrides the matching personal or bundled pack; otherwise it adds a new ID. Category and input overlays follow the same rules as personal catalogs. Project discovery checks `.inifra/` in the current working directory only and does not search parent directories. `--target` controls where generated files go; it does not change which project catalog is loaded. An explicit `--catalog PATH` remains exclusive and bypasses all automatic layers.
+
+Project packs are ordinary version-controlled files. `inifra edit <id>` opens a project-local pack in place. `inifra rename` and `inifra remove` manage the personal catalog; use normal file and Git operations to rename or remove a project pack so its changes are reviewable with the repository. Project-local packs are loaded without network access.
 
 ### Moving personal packs from older versions
 
