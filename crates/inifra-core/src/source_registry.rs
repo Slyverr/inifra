@@ -196,6 +196,7 @@ pub fn validate_git_url(url: &str) -> Result<(), SourceRegistryError> {
             .rsplit_once('@')
             .map_or(authority, |(_, host)| host);
         if host.is_empty()
+            || host.starts_with('-')
             || host.contains(['@', '?', '#'])
             || url.contains(['?', '#'])
             || authority
@@ -218,9 +219,9 @@ pub fn validate_git_url(url: &str) -> Result<(), SourceRegistryError> {
     }
 
     if let Some((user_host, path)) = url.split_once(':') {
-        let valid_scp_user_host = user_host
-            .split_once('@')
-            .is_some_and(|(user, host)| !user.is_empty() && !host.is_empty());
+        let valid_scp_user_host = user_host.split_once('@').is_some_and(|(user, host)| {
+            !user.is_empty() && !host.is_empty() && !host.starts_with('-')
+        });
         if valid_scp_user_host && !path.is_empty() && !url.contains(['?', '#']) {
             return Ok(());
         }
