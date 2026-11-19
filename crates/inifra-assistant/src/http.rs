@@ -1,6 +1,6 @@
 use crate::{ApiProtocol, Provider};
 use futures_util::{StreamExt, stream::BoxStream};
-use reqwest::{Client, Url, header::HeaderMap};
+use reqwest::{Client, Method, Url, header::HeaderMap};
 use std::{error::Error, fmt, future::Future, time::Duration};
 use tokio_util::sync::CancellationToken;
 
@@ -134,7 +134,7 @@ impl Error for ProviderError {}
 #[cfg(test)]
 mod tests {
     use super::{HttpRequest, HttpTransport, ReqwestTransport, TransportError};
-    use reqwest::{Url, header::HeaderMap};
+    use reqwest::{Method, Url, header::HeaderMap};
     use std::{io::Read, net::TcpListener, sync::mpsc, time::Duration};
     use tokio_util::sync::CancellationToken;
 
@@ -154,9 +154,10 @@ mod tests {
         let cancellation = CancellationToken::new();
         let request_cancellation = cancellation.clone();
         let request = HttpRequest {
+            method: Method::GET,
             endpoint: Url::parse(&format!("http://{address}/pending")).unwrap(),
             headers: HeaderMap::new(),
-            body: Vec::new(),
+            body: None,
         };
         let send =
             tokio::spawn(async move { transport.execute(request, &request_cancellation).await });
@@ -177,9 +178,10 @@ mod tests {
 pub(crate) type BodyStream = BoxStream<'static, Result<Vec<u8>, TransportError>>;
 
 pub(crate) struct HttpRequest {
+    pub(crate) method: Method,
     pub(crate) endpoint: Url,
     pub(crate) headers: HeaderMap,
-    pub(crate) body: Vec<u8>,
+    pub(crate) body: Option<Vec<u8>>,
 }
 
 pub(crate) struct HttpResponse {
@@ -225,10 +227,20 @@ impl HttpTransport for ReqwestTransport {
         cancellation: &'a CancellationToken,
     ) -> impl Future<Output = Result<HttpResponse, TransportError>> + Send + 'a {
         async move {
+            let HttpRequest {
+                method,
+                endpoint,
+                headers,
+                body,
+            } = request;
+            let mut builder = self.client.request(method, endpoint).headers(headers);
+            if let Some(body) = body {
+                builder = builder.body(body);
+            }
             let response = tokio::select! {
                 biased;
                 _ = cancellation.cancelled() => return Err(TransportError::Cancelled),
-                result = self.client.post(request.endpoint).headers(request.headers).body(request.body).send() => {
+                result = builder.send() => {
                 result.map_err(|error| TransportError::Network(error.without_url().to_string()))?
                 }
             };

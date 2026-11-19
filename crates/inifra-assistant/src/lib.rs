@@ -11,6 +11,7 @@ mod credentials;
 mod gemini;
 mod http;
 mod jsonl;
+mod models;
 mod ollama;
 mod responses;
 mod sse;
@@ -23,6 +24,7 @@ pub use client::ProviderClient;
 pub use config::{ApiProtocol, AssistantConfig, AssistantProfile, CredentialSource, Provider};
 pub use credentials::{read_credential, resolve_credential, write_credential};
 pub use http::ProviderError;
+pub use models::list_models;
 /// Cancellation signal used to stop a provider request and response stream.
 pub use tokio_util::sync::CancellationToken;
 

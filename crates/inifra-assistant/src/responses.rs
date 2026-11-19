@@ -68,9 +68,10 @@ fn build_request(
     })
     .map_err(|_| "could not encode the Responses API request".to_owned())?;
     Ok(HttpRequest {
+        method: reqwest::Method::POST,
         endpoint,
         headers,
-        body,
+        body: Some(body),
     })
 }
 

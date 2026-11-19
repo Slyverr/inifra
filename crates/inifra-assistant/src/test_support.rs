@@ -1,6 +1,6 @@
 use crate::http::{BodyStream, HttpRequest, HttpResponse, HttpTransport, TransportError};
 use futures_util::stream;
-use reqwest::header::HeaderMap;
+use reqwest::{Method, header::HeaderMap};
 use std::{
     collections::BTreeMap,
     future::Future,
@@ -9,6 +9,7 @@ use std::{
 use tokio_util::sync::CancellationToken;
 
 pub(crate) struct CapturedRequest {
+    pub(crate) method: Method,
     pub(crate) endpoint: String,
     headers: BTreeMap<String, String>,
     pub(crate) body: Vec<u8>,
@@ -62,9 +63,10 @@ impl HttpTransport for FakeTransport {
         let chunks = self.chunks.clone();
         async move {
             *request_store.lock().unwrap() = Some(CapturedRequest {
+                method: request.method,
                 endpoint: request.endpoint.to_string(),
                 headers: capture_headers(&request.headers),
-                body: request.body,
+                body: request.body.unwrap_or_default(),
             });
             let body: BodyStream = if pending_body {
                 Box::pin(stream::pending::<Result<Vec<u8>, TransportError>>())
