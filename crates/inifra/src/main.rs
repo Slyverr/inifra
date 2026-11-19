@@ -1,9 +1,11 @@
+mod completions;
 mod init;
 mod preset_cli;
 mod templates;
 mod user_config;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::Shell;
 use inifra_core::{apply, workflow};
 use inifra_tui::presentation;
 use std::{collections::BTreeMap, error::Error, path::PathBuf};
@@ -50,6 +52,18 @@ enum Command {
         #[command(subcommand)]
         command: preset_cli::PresetCommand,
     },
+    /// Generate or install shell completions.
+    Completions {
+        /// Shell that should receive completions.
+        #[arg(value_enum)]
+        shell: Shell,
+        /// Install completions in the shell's user completion directory.
+        #[arg(long, conflicts_with = "uninstall")]
+        install: bool,
+        /// Remove Inifra's generated completion file.
+        #[arg(long)]
+        uninstall: bool,
+    },
     /// Generate files from selected template packs.
     Generate {
         #[arg(required = true)]
@@ -80,7 +94,21 @@ fn main() {
 }
 
 fn run() -> Result<(), Box<dyn Error>> {
+    clap_complete::env::CompleteEnv::with_factory(Cli::command)
+        .var(completions::COMPLETION_ENV)
+        .complete();
     let cli = Cli::parse();
+    if let Command::Completions {
+        shell,
+        install,
+        uninstall,
+    } = &cli.command
+    {
+        if cli.catalog.is_some() {
+            return Err("--catalog cannot be used with completions".into());
+        }
+        return completions::run(*shell, *install, *uninstall);
+    }
     if cli.catalog.is_some() && cli.command.requires_user_config() {
         return Err("user template and preset commands cannot be used with --catalog".into());
     }
@@ -287,6 +315,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         Command::Preset { command } => {
             preset_cli::run(&catalog, config_dir.as_deref(), command)?;
         }
+        Command::Completions { .. } => unreachable!("handled before catalog loading"),
         Command::Generate {
             ids,
             target,
