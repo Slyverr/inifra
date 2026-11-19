@@ -434,7 +434,7 @@ fn validate_preset(preset: &Preset, catalog: &catalog::Catalog) -> Result<(), Pr
     }
     let mut seen = BTreeSet::new();
     for template in &preset.templates {
-        if !catalog::valid_identifier(template) || !seen.insert(template) {
+        if !catalog::valid_template_id(template) || !seen.insert(template) {
             return Err(PresetError(format!(
                 "invalid or repeated template ID {template:?}"
             )));
