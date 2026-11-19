@@ -73,6 +73,14 @@ User packs with new IDs extend the bundled catalog. A user pack with an existing
 
 Passing `--catalog PATH` selects only that catalog and bypasses the bundled and user catalogs. This keeps explicit catalogs deterministic for scripts and tests.
 
+### Moving personal packs from older versions
+
+The current user catalog discovers packs at `<config-dir>/inifra/templates/<category-id>/<template-id>/`. Earlier versions placed packs directly under `templates/<template-id>/`; the current catalog does not discover or convert that layout. Back up the Inifra config directory before upgrading, then move each pack under a category directory.
+
+For each moved pack, use `schema_version = 2`, remove the old `category` field from `template.toml`, and put any category label in `categories.toml`. Move shared inputs from the old config-root `inputs.toml` to `templates/inputs.toml`; category-specific inputs belong in `<category-id>/inputs.toml`. If a manifest uses legacy `[[files]]` source/output mappings, put each output source at its destination-relative path inside the pack. Files ending in `.j2` are rendered with that suffix removed; other regular files are copied.
+
+Run `inifra validate` after moving the packs, then use `inifra inspect <id>` to check their outputs. Migration is manual; Inifra leaves existing user files untouched.
+
 ## Managing personal packs
 
 Use `inifra edit <id>` to open a personal pack in `VISUAL` or `EDITOR`. A bundled pack is copied into the matching user category before editing, so the embedded copy stays unchanged. For a new ID, Inifra asks before creating it, then collects a category, description, and first source-file path; the default is `<id>.md.j2`. Editor arguments are parsed without invoking a shell.
