@@ -62,6 +62,124 @@ fn discovers_packs_in_deterministic_order() {
 }
 
 #[test]
+fn user_catalog_overlay_replaces_packs_and_merges_metadata_and_inputs() {
+    let bundled = Fixture::new();
+    bundled.write(
+        "categories.toml",
+        "schema_version = 1\n[categories.project-files]\nname = 'Project guidance'\n",
+    );
+    bundled.write(
+        "inputs.toml",
+        "schema_version = 1\n[inputs.project_name]\nprompt = 'Bundled project name'\nrequired = true\n",
+    );
+    bundled.pack(
+        "project-files",
+        "readme",
+        "schema_version = 2\ndescription = 'Bundled README'\ninputs = ['project_name']\n",
+    );
+    bundled.write(
+        "project-files/readme/README.md.j2",
+        "# {{ project_name }}\n",
+    );
+    bundled.pack(
+        "project-files",
+        "agents",
+        "schema_version = 2\ndescription = 'Agent instructions'\n",
+    );
+    bundled.write("project-files/agents/AGENTS.md", "Instructions\n");
+
+    let user = Fixture::new();
+    user.write(
+        "categories.toml",
+        "schema_version = 1\n[categories.project-files]\nname = 'My project files'\n",
+    );
+    user.write(
+        "inputs.toml",
+        "schema_version = 1\n[inputs.project_name]\nprompt = 'Your project name'\nrequired = true\ndefault = 'example'\n",
+    );
+    user.pack(
+        "project-files",
+        "readme",
+        "schema_version = 2\ndescription = 'Personal README'\ninputs = ['project_name']\n",
+    );
+    user.write(
+        "project-files/readme/README.md.j2",
+        "# Personal {{ project_name }}\n",
+    );
+    user.pack(
+        "project-docs",
+        "guide",
+        "schema_version = 2\ndescription = 'Project guide'\n[references.agents]\ntemplate = 'agents'\nsource = 'AGENTS.md'\n",
+    );
+    user.write(
+        "project-docs/guide/guide.md.j2",
+        "{% if references.agents %}See {{ references.agents }}{% endif %}\n",
+    );
+
+    let bundled_catalog = Catalog::load(&bundled.0).unwrap();
+    let user_catalog = Catalog::load_overlay(&user.0).unwrap();
+    let catalog = bundled_catalog.with_overlay(user_catalog).unwrap();
+
+    assert_eq!(catalog.packs.len(), 3);
+    let readme = catalog
+        .packs
+        .iter()
+        .find(|pack| pack.id == "readme")
+        .unwrap();
+    assert_eq!(readme.description, "Personal README");
+    assert_eq!(catalog.categories["project-files"].name, "My project files");
+    let definitions = catalog.input_definitions_for(readme).unwrap();
+    assert_eq!(definitions["project_name"].prompt, "Your project name");
+    assert_eq!(
+        definitions["project_name"].default.as_deref(),
+        Some("example")
+    );
+    catalog.validate().unwrap();
+}
+
+#[test]
+fn user_catalog_overlay_preserves_default_category_name_and_rejects_missing_references() {
+    let bundled = Fixture::new();
+    bundled.write(
+        "categories.toml",
+        "schema_version = 1\n[categories.project-files]\nname = 'Project guidance'\n",
+    );
+    bundled.pack(
+        "project-files",
+        "agents",
+        "schema_version = 2\ndescription = 'Agent instructions'\n",
+    );
+    bundled.write("project-files/agents/AGENTS.md", "Instructions\n");
+
+    let user = Fixture::new();
+    user.pack(
+        "project-files",
+        "guide",
+        "schema_version = 2\ndescription = 'Project guide'\n",
+    );
+    user.write("project-files/guide/GUIDE.md", "Guide\n");
+    let catalog = Catalog::load(&bundled.0)
+        .unwrap()
+        .with_overlay(Catalog::load_overlay(&user.0).unwrap())
+        .unwrap();
+    assert_eq!(catalog.categories["project-files"].name, "Project guidance");
+
+    let invalid_user = Fixture::new();
+    invalid_user.pack(
+        "project-files",
+        "guide",
+        "schema_version = 2\ndescription = 'Project guide'\n[references.readme]\ntemplate = 'missing'\nsource = 'README.md'\n",
+    );
+    invalid_user.write("project-files/guide/GUIDE.md", "Guide\n");
+    let error = Catalog::load(&bundled.0)
+        .unwrap()
+        .with_overlay(Catalog::load_overlay(&invalid_user.0).unwrap())
+        .unwrap_err()
+        .to_string();
+    assert!(error.contains("unknown template"), "{error}");
+}
+
+#[test]
 fn rejects_duplicate_ids_and_invalid_manifests() {
     let root = Fixture::new();
     root.pack("one", "same", "schema_version = 2\ndescription = 'One'\n");

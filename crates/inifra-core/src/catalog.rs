@@ -42,6 +42,8 @@ pub struct Category {
     pub id: String,
     /// Display name from `categories.toml`, or a readable form of the ID.
     pub name: String,
+    /// Whether `name` was explicitly set in `categories.toml`.
+    pub has_display_name_override: bool,
     /// Definitions shared by packs in this category.
     pub inputs: BTreeMap<String, InputDefinition>,
 }
@@ -137,6 +139,68 @@ impl Catalog {
     /// Returns an error for invalid IDs, duplicate IDs or input declarations, unreadable files,
     /// malformed metadata, or unsupported schemas.
     pub fn load(root: &Path) -> Result<Self, CatalogError> {
+        Self::load_with_external_references(root, false)
+    }
+
+    /// Loads a catalog layer whose references may target another catalog layer.
+    ///
+    /// Use [`Catalog::with_overlay`] to combine this layer with its base catalog; the combined
+    /// catalog validates every reference against the final set of packs.
+    ///
+    /// # Errors
+    /// Returns an error for invalid IDs, duplicate IDs or input declarations, unreadable files,
+    /// malformed metadata, or unsupported schemas.
+    pub fn load_overlay(root: &Path) -> Result<Self, CatalogError> {
+        Self::load_with_external_references(root, true)
+    }
+
+    /// Combines a user catalog layer with this base catalog.
+    ///
+    /// User definitions replace matching root or category input definitions. An explicitly named
+    /// user category replaces the base display name, while an omitted name preserves it. A user
+    /// pack replaces a base pack with the same ID; other user packs are added. The returned
+    /// catalog validates references and outputs against the merged catalog.
+    ///
+    /// # Errors
+    /// Returns an error when the merged catalog contains invalid inputs, references, sources,
+    /// template syntax, or outputs.
+    pub fn with_overlay(mut self, overlay: Self) -> Result<Self, CatalogError> {
+        self.inputs.extend(overlay.inputs);
+
+        for (id, mut overlay_category) in overlay.categories {
+            if let Some(category) = self.categories.get_mut(&id) {
+                if overlay_category.has_display_name_override {
+                    category.name = overlay_category.name;
+                    category.has_display_name_override = true;
+                }
+                category.inputs.append(&mut overlay_category.inputs);
+            } else {
+                self.categories.insert(id, overlay_category);
+            }
+        }
+
+        for overlay_pack in overlay.packs {
+            if let Some(pack) = self
+                .packs
+                .iter_mut()
+                .find(|pack| pack.id == overlay_pack.id)
+            {
+                *pack = overlay_pack;
+            } else {
+                self.packs.push(overlay_pack);
+            }
+        }
+        self.packs
+            .sort_by(|left, right| (&left.category, &left.id).cmp(&(&right.category, &right.id)));
+
+        self.validate()?;
+        Ok(self)
+    }
+
+    fn load_with_external_references(
+        root: &Path,
+        allow_external_references: bool,
+    ) -> Result<Self, CatalogError> {
         let inputs = inputs::load_optional(&root.join("inputs.toml"))
             .map_err(|error| CatalogError(error.to_string()))?;
         let category_names = load_category_names(root)?;
@@ -160,6 +224,7 @@ impl Catalog {
             let category_id = identifier(&category_path)?;
             let category_inputs = inputs::load_optional(&category_path.join("inputs.toml"))
                 .map_err(|error| CatalogError(error.to_string()))?;
+            let has_display_name_override = category_names.contains_key(&category_id);
             let name = category_names
                 .get(&category_id)
                 .cloned()
@@ -169,6 +234,7 @@ impl Catalog {
                 Category {
                     id: category_id.clone(),
                     name,
+                    has_display_name_override,
                     inputs: category_inputs,
                 },
             );
@@ -278,7 +344,7 @@ impl Catalog {
                         pack.id
                     )));
                 }
-                if !ids.contains(&reference.template) {
+                if !allow_external_references && !ids.contains(&reference.template) {
                     return Err(CatalogError(format!(
                         "template {:?} reference {name:?} targets unknown template {:?}",
                         pack.id, reference.template
