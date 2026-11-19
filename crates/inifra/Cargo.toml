@@ -13,6 +13,6 @@ workspace = true
 
 [dependencies]
 clap = { version = "4.6.8", features = ["derive"] }
-inifra-core = { version = "0.2.0", path = "../inifra-core" }
-inifra-tui = { version = "0.2.0", path = "../inifra-tui" }
+inifra-core = { version = "0.3.0", path = "../inifra-core" }
+inifra-tui = { version = "0.3.0", path = "../inifra-tui" }
 tempfile = "3.27.0"
