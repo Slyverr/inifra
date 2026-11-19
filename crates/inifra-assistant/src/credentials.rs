@@ -74,13 +74,15 @@ pub fn write_credential(path: &Path, name: &str, value: &str) -> Result<()> {
         contents.push_str(&value);
         contents.push('\n');
     }
-    let mut builder = Builder::new();
     #[cfg(unix)]
-    {
+    let mut temporary = {
+        let mut builder = Builder::new();
         use std::os::unix::fs::PermissionsExt;
         builder.permissions(fs::Permissions::from_mode(0o600));
-    }
-    let mut temporary = builder.tempfile_in(parent)?;
+        builder.tempfile_in(parent)?
+    };
+    #[cfg(not(unix))]
+    let mut temporary = Builder::new().tempfile_in(parent)?;
     std::io::Write::write_all(&mut temporary, contents.as_bytes())?;
     temporary
         .persist(path)
