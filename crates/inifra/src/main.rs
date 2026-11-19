@@ -1,7 +1,8 @@
 mod init;
+mod user_config;
 
 use clap::{Parser, Subcommand};
-use inifra_core::{apply, catalog, workflow};
+use inifra_core::{apply, workflow};
 use std::{collections::BTreeMap, error::Error, path::PathBuf};
 
 #[derive(Parser)]
@@ -59,19 +60,13 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let cli = Cli::parse();
-    let temporary_catalog = if cli.catalog.is_none() {
-        let dir = tempfile::tempdir()?;
-        catalog::extract_bundled(dir.path())?;
-        Some(dir)
+    let config_dir = if cli.catalog.is_none() {
+        user_config::config_dir()?
     } else {
         None
     };
-    let catalog_path = cli
-        .catalog
-        .as_deref()
-        .or_else(|| temporary_catalog.as_ref().map(|dir| dir.path()))
-        .ok_or("catalog unavailable")?;
-    let catalog = catalog::Catalog::load(catalog_path)?;
+    let (catalog, _bundled_catalog_dir) =
+        user_config::load_catalog(cli.catalog.as_deref(), config_dir.as_deref())?;
     match cli.command {
         Command::List { files } => {
             let mut category = "";

@@ -1,11 +1,29 @@
-use std::process::Command;
+use std::{
+    path::Path,
+    process::Command,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+static NEXT_CONFIG: AtomicUsize = AtomicUsize::new(0);
+
+fn inifra() -> Command {
+    let config_dir = std::env::temp_dir().join(format!(
+        "inifra-cli-test-{}-{}",
+        std::process::id(),
+        NEXT_CONFIG.fetch_add(1, Ordering::Relaxed)
+    ));
+    inifra_with_config(&config_dir)
+}
+
+fn inifra_with_config(config_dir: &Path) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_inifra"));
+    command.env("INIFRA_CONFIG_DIR", config_dir);
+    command
+}
 
 #[test]
 fn help_lists_catalog_commands() {
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
-        .arg("--help")
-        .output()
-        .unwrap();
+    let output = inifra().arg("--help").output().unwrap();
     assert!(output.status.success());
     let help = String::from_utf8(output.stdout).unwrap();
     for command in ["init", "list", "inspect", "validate", "generate"] {
@@ -17,7 +35,7 @@ fn help_lists_catalog_commands() {
 fn init_requires_a_terminal_and_does_not_touch_the_target() {
     let root = tempfile::tempdir().unwrap();
     let target = root.path().join("new-project");
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args(["init", "--target", target.to_str().unwrap()])
         .output()
         .unwrap();
@@ -35,7 +53,7 @@ fn init_requires_a_terminal_and_does_not_touch_the_target() {
 #[test]
 fn bundled_catalog_is_available_outside_checkout() {
     let dir = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .current_dir(dir.path())
         .arg("list")
         .output()
@@ -50,10 +68,7 @@ fn bundled_catalog_is_available_outside_checkout() {
 
 #[test]
 fn inspect_shows_template_inputs_and_outputs() {
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
-        .args(["inspect", "readme"])
-        .output()
-        .unwrap();
+    let output = inifra().args(["inspect", "readme"]).output().unwrap();
     assert!(output.status.success());
     let text = String::from_utf8(output.stdout).unwrap();
     assert!(text.contains("README.md"));
@@ -71,7 +86,7 @@ fn inspect_describes_an_output_alternative() {
         "schema_version = 2\ndescription = 'Terms'\n[[output_rules]]\nsource = 'TERMS.md'\nco_selected_output = { group = 'terms', path = 'TERMS-WEB.md' }\n",
     );
     write_catalog_file(&catalog, "project/terms/TERMS.md", "Terms\n");
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args(["--catalog", catalog.to_str().unwrap(), "inspect", "terms"])
         .output()
         .unwrap();
@@ -103,7 +118,7 @@ fn generate_uses_co_selected_output_alternatives() {
         write_catalog_file(&catalog, &format!("project-policies/{id}/LICENSE.txt"), id);
     }
     let target = root.path().join("target");
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args([
             "--catalog",
             catalog.to_str().unwrap(),
@@ -134,7 +149,7 @@ fn generate_uses_co_selected_output_alternatives() {
 fn generates_and_preserves_existing_files_without_overwrite() {
     let target = tempfile::tempdir().unwrap();
     let run = || {
-        Command::new(env!("CARGO_BIN_EXE_inifra"))
+        inifra()
             .args([
                 "generate",
                 "editorconfig",
@@ -155,7 +170,7 @@ fn generates_and_preserves_existing_files_without_overwrite() {
 #[test]
 fn generates_readme_with_required_input_and_no_optional_description() {
     let target = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args([
             "generate",
             "readme",
@@ -180,7 +195,7 @@ fn generates_readme_with_required_input_and_no_optional_description() {
 #[test]
 fn contributing_describes_only_the_selected_project_documentation() {
     let target = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args([
             "generate",
             "contributing",
@@ -208,7 +223,7 @@ fn contributing_describes_only_the_selected_project_documentation() {
 #[test]
 fn bundled_references_and_license_alternatives_follow_selected_packs() {
     let target = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args([
             "generate",
             "readme",
@@ -276,7 +291,7 @@ fn bundled_references_and_license_alternatives_follow_selected_packs() {
 #[test]
 fn bundled_license_keeps_its_default_path_when_selected_alone() {
     let target = tempfile::tempdir().unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args([
             "generate",
             "readme",
@@ -309,7 +324,7 @@ fn bundled_license_keeps_its_default_path_when_selected_alone() {
 fn missing_required_input_does_not_create_target() {
     let parent = tempfile::tempdir().unwrap();
     let target = parent.path().join("project");
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args(["generate", "readme", "--target", target.to_str().unwrap()])
         .output()
         .unwrap();
@@ -323,7 +338,7 @@ fn overwrite_must_be_explicit() {
     let target = tempfile::tempdir().unwrap();
     let path = target.path().join(".editorconfig");
     std::fs::write(&path, "custom").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args([
             "generate",
             "editorconfig",
@@ -353,7 +368,7 @@ fn validate_rejects_invalid_template_syntax() {
     )
     .unwrap();
     std::fs::write(pack.join("README.md.j2"), "{% if %}").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args(["--catalog", root.path().to_str().unwrap(), "validate"])
         .output()
         .unwrap();
@@ -380,7 +395,7 @@ fn generation_failure_does_not_write_other_selected_outputs() {
     }
     std::fs::write(catalog.join("inputs.toml"), "schema_version = 1\n").unwrap();
     let target = root.path().join("target");
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args([
             "--catalog",
             catalog.to_str().unwrap(),
@@ -401,14 +416,14 @@ fn generation_failure_does_not_write_other_selected_outputs() {
 fn lists_catalog_and_dry_run_does_not_create_target() {
     let catalog = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../templates");
     let target = std::env::temp_dir().join(format!("inifra-cli-dry-run-{}", std::process::id()));
-    let list = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let list = inifra()
         .args(["--catalog", catalog.to_str().unwrap(), "list"])
         .output()
         .unwrap();
     assert!(list.status.success());
     assert!(String::from_utf8_lossy(&list.stdout).contains("editorconfig"));
     assert!(String::from_utf8_lossy(&list.stdout).contains("Project files\n"));
-    let dry_run = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let dry_run = inifra()
         .args([
             "--catalog",
             catalog.to_str().unwrap(),
@@ -445,7 +460,7 @@ fn list_summarizes_outputs_and_files_shows_every_path() {
         );
     }
 
-    let compact = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let compact = inifra()
         .args(["--catalog", catalog.to_str().unwrap(), "list"])
         .output()
         .unwrap();
@@ -454,7 +469,7 @@ fn list_summarizes_outputs_and_files_shows_every_path() {
     assert!(text.contains("bug-report.yml, +2 other files, 1 directory"));
     assert!(!text.contains("feature-request.yml"));
 
-    let full = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let full = inifra()
         .args(["--catalog", catalog.to_str().unwrap(), "list", "--files"])
         .output()
         .unwrap();
@@ -484,7 +499,7 @@ fn generates_a_directory_only_template_and_dry_run_is_read_only() {
         "schema_version = 2\ndescription = 'Workspace structure'\ndirectories = ['code', 'drafts', 'research', 'worktrees']\n",
     );
     let target = root.path().join("target");
-    let dry_run = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let dry_run = inifra()
         .args([
             "--catalog",
             catalog.to_str().unwrap(),
@@ -504,7 +519,7 @@ fn generates_a_directory_only_template_and_dry_run_is_read_only() {
     assert!(String::from_utf8_lossy(&dry_run.stdout).contains("create: code/"));
     assert!(!target.exists());
 
-    let inspect = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let inspect = inifra()
         .args([
             "--catalog",
             catalog.to_str().unwrap(),
@@ -516,7 +531,7 @@ fn generates_a_directory_only_template_and_dry_run_is_read_only() {
     assert!(inspect.status.success());
     assert!(String::from_utf8_lossy(&inspect.stdout).contains("Directories:\n  code/"));
 
-    let generate = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let generate = inifra()
         .args([
             "--catalog",
             catalog.to_str().unwrap(),
@@ -544,6 +559,97 @@ fn write_catalog_file(root: &std::path::Path, relative: &str, contents: &str) {
 }
 
 #[test]
+fn default_catalog_adds_user_packs_and_replaces_matching_ids() {
+    let config = tempfile::tempdir().unwrap();
+    let templates = config.path().join("templates");
+    write_catalog_file(
+        &templates,
+        "custom/notes/template.toml",
+        "schema_version = 2\ndescription = 'Personal notes'\n",
+    );
+    write_catalog_file(&templates, "custom/notes/NOTES.md", "Notes\n");
+    write_catalog_file(
+        &templates,
+        "custom/editorconfig/template.toml",
+        "schema_version = 2\ndescription = 'My editor defaults'\n",
+    );
+    write_catalog_file(
+        &templates,
+        "custom/editorconfig/.editorconfig",
+        "root = true\n",
+    );
+
+    let output = inifra_with_config(config.path())
+        .args(["list"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let listing = String::from_utf8(output.stdout).unwrap();
+    assert!(listing.contains("Personal notes"), "{listing}");
+    assert!(listing.contains("My editor defaults"), "{listing}");
+    assert!(!listing.contains("Portable text encoding and newline defaults"));
+
+    let target = tempfile::tempdir().unwrap();
+    let output = inifra_with_config(config.path())
+        .args([
+            "generate",
+            "editorconfig",
+            "--target",
+            target.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(target.path().join(".editorconfig")).unwrap(),
+        "root = true\n"
+    );
+}
+
+#[test]
+fn explicit_catalog_remains_exclusive_of_user_packs() {
+    let config = tempfile::tempdir().unwrap();
+    write_catalog_file(
+        &config.path().join("templates"),
+        "custom/notes/template.toml",
+        "schema_version = 2\ndescription = 'Personal notes'\n",
+    );
+    write_catalog_file(
+        &config.path().join("templates"),
+        "custom/notes/NOTES.md",
+        "Notes\n",
+    );
+    let explicit = tempfile::tempdir().unwrap();
+    write_catalog_file(
+        explicit.path(),
+        "custom/only/template.toml",
+        "schema_version = 2\ndescription = 'Explicit catalog only'\n",
+    );
+    write_catalog_file(explicit.path(), "custom/only/ONLY.md", "Only\n");
+
+    let output = inifra_with_config(config.path())
+        .args(["--catalog", explicit.path().to_str().unwrap(), "list"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let listing = String::from_utf8(output.stdout).unwrap();
+    assert!(listing.contains("Explicit catalog only"), "{listing}");
+    assert!(!listing.contains("Personal notes"), "{listing}");
+}
+
+#[test]
 fn list_uses_category_display_name_override() {
     let root = tempfile::tempdir().unwrap();
     write_catalog_file(
@@ -557,7 +663,7 @@ fn list_uses_category_display_name_override() {
         "schema_version = 2\ndescription = 'A guide'\n",
     );
     write_catalog_file(root.path(), "project-docs/guide/guide.md", "Guide\n");
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args(["--catalog", root.path().to_str().unwrap(), "list"])
         .output()
         .unwrap();
@@ -594,7 +700,7 @@ fn generate_uses_root_category_and_pack_local_inputs() {
         "{{ name }} {{ root_only }} {{ local_only }}",
     );
     let target = root.path().join("target");
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args([
             "--catalog",
             catalog.to_str().unwrap(),
@@ -638,7 +744,7 @@ fn generate_rejects_conflicting_scoped_inputs_without_writing() {
         );
     }
     let target = root.path().join("target");
-    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+    let output = inifra()
         .args([
             "--catalog",
             catalog.to_str().unwrap(),
