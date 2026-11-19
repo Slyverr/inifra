@@ -82,7 +82,15 @@ fn help_lists_catalog_commands() {
     let output = inifra().arg("--help").output().unwrap();
     assert!(output.status.success());
     let help = String::from_utf8(output.stdout).unwrap();
-    for command in ["init", "list", "inspect", "validate", "generate", "source"] {
+    for command in [
+        "init",
+        "list",
+        "inspect",
+        "validate",
+        "generate",
+        "source",
+        "assistant",
+    ] {
         assert!(help.contains(command));
     }
 }

@@ -596,6 +596,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "directories",
+ "inifra-assistant",
  "inifra-core",
  "inifra-tui",
  "shlex",
