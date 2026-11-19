@@ -34,6 +34,17 @@ name = "Project files"
 
 Without an entry, Inifra derives a readable label from the category ID. Names must be non-empty and contain no control characters.
 
+## Bundled packs
+
+The bundled catalog groups its packs into four categories:
+
+| Category | Packs |
+| --- | --- |
+| GitHub | `github-issues`, `github-pull-request` |
+| Project docs | `architecture`, `development` |
+| Project files | `agents`, `changelog`, `contributing`, `editorconfig`, `readme` |
+| Project policies | `license-apache`, `license-mit`, `security` |
+
 The catalog root defines those inputs in `inputs.toml`:
 
 ```toml
@@ -65,6 +76,8 @@ co_selected_output = { group = "licenses", path = "LICENSE-MIT" }
 The rule above leaves the pack's output as `LICENSE` when used alone. If another selected pack also resolves to `LICENSE` and declares the same `licenses` group, both packs use their declared alternative paths. Every pack in that collision must declare the same group; otherwise generation reports the collision before writing. Alternative destinations are validated together too, so alternatives that still conflict are rejected.
 
 An explicit default destination can be declared with `output = "docs/TERMS.md"`; it can be combined with `co_selected_output` when that default may collide. `inspect` shows the output used alone and any declared paired destination.
+
+The bundled MIT and Apache license packs use this rule: each creates `LICENSE` alone, and selecting both creates `LICENSE-MIT` and `LICENSE-APACHE`.
 
 ## Optional pack references
 
