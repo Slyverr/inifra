@@ -59,6 +59,20 @@ Shared input definitions may also have a string `default`. Define them globally 
 
 For a shared input name, the nearest definition wins: pack-local, then category, then catalog root. Definitions replace as a whole; their fields are not merged. Pass values with `--set project_name=Example`; omitted optional inputs render as empty strings. Unknown values and missing required values are errors. When selected packs use the same input with equal effective definitions, Inifra resolves it once; conflicting definitions fail before planning or writing.
 
+## Personal catalogs
+
+The default catalog combines the read-only bundled packs with packs under the user's Inifra config directory:
+
+```text
+<config-dir>/inifra/templates/<category-id>/<template-id>/
+```
+
+`<config-dir>` is the platform's standard configuration directory. Set `INIFRA_CONFIG_DIR` to choose a different Inifra config root; its `templates/` and `presets/` directories are read directly.
+
+User packs with new IDs extend the bundled catalog. A user pack with an existing ID replaces that bundled pack. User root inputs and category inputs replace matching bundled definitions; new definitions extend them. A category display name replaces the bundled label only when explicitly set in the user's `categories.toml`. The combined catalog is validated before commands use it, so malformed user data produces an error instead of being silently ignored.
+
+Passing `--catalog PATH` selects only that catalog and bypasses the bundled and user catalogs. This keeps explicit catalogs deterministic for scripts and tests.
+
 The top-level input name `references` is reserved for optional paths to other packs' outputs.
 
 Every regular file in a pack is an output source except its root `template.toml`. Files ending in `.j2` are rendered with MiniJinja and lose that suffix; other files are copied as bytes. Nested directories and dotfiles are preserved. Symbolic links and unsupported file types are rejected. Output paths must be portable, and conflicting outputs are rejected before writing.

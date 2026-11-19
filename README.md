@@ -24,6 +24,7 @@ inifra generate readme --set project_name=Example --dry-run
 `inifra init` keeps template selection, input collection, and file review in one inline terminal flow. Use `inifra generate` for scripted, non-interactive use. Existing files are skipped by default; use `--overwrite` to replace them after review. Pass `--target PATH` to choose a destination. Use `inifra list --files` to expand every output path, and `inifra --help` for the available commands. An alternative on-disk catalog can be selected with `--catalog PATH`.
 
 See [the template catalog guide](docs/templates.md) for pack layout and input definitions.
+Personal template packs can extend or replace bundled packs in the platform's Inifra config directory. Set `INIFRA_CONFIG_DIR` to choose a different config root; the catalog guide documents the overlay rules.
 
 ## Contributing
 
