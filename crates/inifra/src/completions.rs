@@ -1,6 +1,9 @@
-use clap_complete::{Shell, env::Shells};
+use clap_complete::{ArgValueCompleter, CompletionCandidate, Shell, env::Shells};
+use inifra_core::{catalog::Catalog, presets};
 use std::{
+    collections::BTreeSet,
     error::Error,
+    ffi::OsStr,
     fs,
     io::{self, Write},
     path::{Path, PathBuf},
@@ -9,6 +12,66 @@ use tempfile::NamedTempFile;
 
 pub(crate) const COMPLETION_ENV: &str = "INIFRA_COMPLETE";
 const COMPLETION_MARKER: &str = "# Inifra generated completion file";
+
+pub(crate) fn template_completer() -> ArgValueCompleter {
+    ArgValueCompleter::new(|current: &OsStr| {
+        let Some(prefix) = current.to_str() else {
+            return Vec::new();
+        };
+        let Ok(config_dir) = crate::user_config::config_dir() else {
+            return Vec::new();
+        };
+        let Ok((catalog, _bundled)) = crate::user_config::load_catalog(None, config_dir.as_deref())
+        else {
+            return Vec::new();
+        };
+        template_ids(&catalog, prefix)
+            .into_iter()
+            .map(CompletionCandidate::new)
+            .collect()
+    })
+}
+
+pub(crate) fn preset_completer() -> ArgValueCompleter {
+    ArgValueCompleter::new(|current: &OsStr| {
+        let Some(prefix) = current.to_str() else {
+            return Vec::new();
+        };
+        let Ok(config_dir) = crate::user_config::config_dir() else {
+            return Vec::new();
+        };
+        let Some(config_dir) = config_dir else {
+            return Vec::new();
+        };
+        let Ok((catalog, _bundled)) = crate::user_config::load_catalog(None, Some(&config_dir))
+        else {
+            return Vec::new();
+        };
+        preset_ids(&config_dir, &catalog, prefix)
+            .into_iter()
+            .map(CompletionCandidate::new)
+            .collect()
+    })
+}
+
+pub(crate) fn input_completer() -> ArgValueCompleter {
+    ArgValueCompleter::new(|current: &OsStr| {
+        let Some(prefix) = current.to_str() else {
+            return Vec::new();
+        };
+        let Ok(config_dir) = crate::user_config::config_dir() else {
+            return Vec::new();
+        };
+        let Ok((catalog, _bundled)) = crate::user_config::load_catalog(None, config_dir.as_deref())
+        else {
+            return Vec::new();
+        };
+        input_assignments(&catalog, prefix)
+            .into_iter()
+            .map(CompletionCandidate::new)
+            .collect()
+    })
+}
 
 pub(crate) fn run(shell: Shell, install: bool, uninstall: bool) -> Result<(), Box<dyn Error>> {
     validate_shell(shell)?;
@@ -312,10 +375,41 @@ fn is_generated_script(contents: &[u8]) -> bool {
         || first_line.strip_suffix(b"\r") == Some(COMPLETION_MARKER.as_bytes())
 }
 
+fn template_ids(catalog: &Catalog, prefix: &str) -> Vec<String> {
+    catalog
+        .packs
+        .iter()
+        .filter(|pack| pack.id.starts_with(prefix))
+        .map(|pack| pack.id.clone())
+        .collect()
+}
+
+fn preset_ids(config_dir: &Path, catalog: &Catalog, prefix: &str) -> Vec<String> {
+    presets::load_all(&presets::store_path(config_dir), catalog)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|preset| preset.id)
+        .filter(|id| id.starts_with(prefix))
+        .collect()
+}
+
+fn input_assignments(catalog: &Catalog, prefix: &str) -> Vec<String> {
+    catalog
+        .packs
+        .iter()
+        .filter_map(|pack| catalog.input_definitions_for(pack).ok())
+        .flat_map(|definitions| definitions.into_keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .map(|name| format!("{name}="))
+        .filter(|name| name.starts_with(prefix))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
+    use std::{collections::BTreeMap, fs};
     use tempfile::TempDir;
 
     #[test]
@@ -553,6 +647,35 @@ mod tests {
         let uninstall_error = uninstall_script(&target).unwrap_err();
         assert_eq!(uninstall_error.kind(), io::ErrorKind::InvalidData);
         assert_eq!(fs::read_to_string(target).unwrap(), original);
+    }
+
+    #[test]
+    fn dynamic_candidates_follow_catalog_inputs_and_saved_presets() {
+        let directory = TempDir::new().unwrap();
+        let (catalog, _bundled) = crate::user_config::load_catalog(None, Some(directory.path()))
+            .expect("load bundled catalog");
+
+        assert_eq!(template_ids(&catalog, "read"), ["readme"]);
+        assert_eq!(
+            input_assignments(&catalog, "project_name"),
+            ["project_name="]
+        );
+
+        let preset = presets::Preset {
+            id: "starter".into(),
+            description: "Starter selection".into(),
+            templates: vec!["agents".into()],
+            values: BTreeMap::new(),
+        };
+        presets::save(
+            &presets::store_path(directory.path()),
+            &preset,
+            &catalog,
+            false,
+        )
+        .expect("save preset");
+
+        assert_eq!(preset_ids(directory.path(), &catalog, "start"), ["starter"]);
     }
 
     #[cfg(unix)]

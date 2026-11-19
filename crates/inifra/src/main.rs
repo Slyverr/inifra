@@ -29,7 +29,10 @@ enum Command {
         files: bool,
     },
     /// Show details and outputs for a pack.
-    Inspect { id: String },
+    Inspect {
+        #[arg(add = completions::template_completer())]
+        id: String,
+    },
     /// Validate catalog manifests and source paths.
     Validate,
     /// Interactively choose and create project files.
@@ -42,11 +45,21 @@ enum Command {
         overwrite: bool,
     },
     /// Copy a bundled template to user config and open it in the configured editor.
-    Edit { id: String },
+    Edit {
+        #[arg(add = completions::template_completer())]
+        id: String,
+    },
     /// Rename a user-owned template and update its references.
-    Rename { old_id: String, new_id: String },
+    Rename {
+        #[arg(add = completions::template_completer())]
+        old_id: String,
+        new_id: String,
+    },
     /// Remove a user-owned template that no saved data references.
-    Remove { id: String },
+    Remove {
+        #[arg(add = completions::template_completer())]
+        id: String,
+    },
     /// Manage saved template selections.
     Preset {
         #[command(subcommand)]
@@ -66,11 +79,15 @@ enum Command {
     },
     /// Generate files from selected template packs.
     Generate {
-        #[arg(required = true)]
+        #[arg(required = true, value_name = "ID", add = completions::template_completer())]
         ids: Vec<String>,
         #[arg(long, default_value = ".")]
         target: PathBuf,
-        #[arg(long, value_name = "NAME=VALUE")]
+        #[arg(
+            long,
+            value_name = "NAME=VALUE",
+            add = completions::input_completer()
+        )]
         set: Vec<String>,
         #[arg(long)]
         overwrite: bool,

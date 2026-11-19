@@ -15,10 +15,19 @@ pub(crate) enum PresetCommand {
         #[arg(long, required = true)]
         description: String,
         /// Template ID to include (repeatable).
-        #[arg(long = "template", value_name = "ID", required = true)]
+        #[arg(
+            long = "template",
+            value_name = "ID",
+            required = true,
+            add = crate::completions::template_completer()
+        )]
         templates: Vec<String>,
         /// Set an input value as NAME=VALUE (repeatable).
-        #[arg(long = "set", value_name = "NAME=VALUE")]
+        #[arg(
+            long = "set",
+            value_name = "NAME=VALUE",
+            add = crate::completions::input_completer()
+        )]
         values: Vec<String>,
         /// Replace an existing preset with this ID.
         #[arg(long)]
@@ -27,17 +36,23 @@ pub(crate) enum PresetCommand {
     /// Show the templates and saved inputs in a preset.
     Inspect {
         /// Preset ID.
+        #[arg(add = crate::completions::preset_completer())]
         id: String,
     },
     /// Apply a preset through the interactive selection and review flow.
     Apply {
         /// Preset ID.
+        #[arg(add = crate::completions::preset_completer())]
         id: String,
         /// Destination directory.
         #[arg(long, default_value = ".")]
         target: std::path::PathBuf,
         /// Override a saved input as NAME=VALUE (repeatable).
-        #[arg(long = "set", value_name = "NAME=VALUE")]
+        #[arg(
+            long = "set",
+            value_name = "NAME=VALUE",
+            add = crate::completions::input_completer()
+        )]
         values: Vec<String>,
         /// Replace existing files after review.
         #[arg(long)]
@@ -46,6 +61,7 @@ pub(crate) enum PresetCommand {
     /// Rename a saved preset.
     Rename {
         /// Current preset ID.
+        #[arg(add = crate::completions::preset_completer())]
         old_id: String,
         /// New preset ID.
         new_id: String,
@@ -53,6 +69,7 @@ pub(crate) enum PresetCommand {
     /// Remove a saved preset.
     Remove {
         /// Preset ID.
+        #[arg(add = crate::completions::preset_completer())]
         id: String,
     },
 }
