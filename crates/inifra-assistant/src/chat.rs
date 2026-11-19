@@ -38,7 +38,7 @@ impl ChatMessage {
 pub enum ChatEvent {
     /// A newly received piece of assistant text.
     TextDelta(String),
-    /// Token counts reported by the provider.
+    /// Token counts reported by the provider; fields may arrive in separate events.
     Usage(TokenUsage),
     /// The request was cancelled by the caller.
     Cancelled,

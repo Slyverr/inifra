@@ -2,16 +2,24 @@
 #![deny(missing_docs)]
 
 mod adapter;
+mod anthropic;
 mod chat;
 mod chat_completions;
+mod client;
 mod config;
 mod credentials;
+mod gemini;
 mod http;
+mod jsonl;
+mod ollama;
+mod responses;
 mod sse;
 mod stream;
+#[cfg(test)]
+mod test_support;
 
 pub use chat::{ChatEvent, ChatMessage, ChatRole, ChatStream, TokenUsage};
-pub use chat_completions::ProviderClient;
+pub use client::ProviderClient;
 pub use config::{ApiProtocol, AssistantConfig, AssistantProfile, CredentialSource, Provider};
 pub use credentials::{read_credential, resolve_credential, write_credential};
 pub use http::ProviderError;

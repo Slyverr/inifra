@@ -2,7 +2,7 @@ use crate::{
     ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatStream, Provider, ProviderError,
     TokenUsage,
     adapter::{AdapterSpec, bearer_headers, endpoint_url, start_stream},
-    http::{HttpRequest, HttpTransport, ReqwestTransport, safe_excerpt},
+    http::{HttpRequest, HttpTransport, safe_excerpt},
     sse::SseParser,
     stream::DecodedFrame,
 };
@@ -11,43 +11,7 @@ use serde::Serialize;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
-/// HTTP client for streaming OpenAI Chat Completions-compatible responses.
-#[derive(Clone)]
-pub struct ProviderClient {
-    transport: ReqwestTransport,
-}
-
-impl ProviderClient {
-    /// Creates a provider client using the system's HTTPS trust roots.
-    pub fn new() -> Result<Self, crate::AssistantError> {
-        let transport = ReqwestTransport::new()
-            .map_err(|error| crate::error(format!("could not initialize HTTPS client: {error}")))?;
-        Ok(Self { transport })
-    }
-
-    /// Streams text and usage events from OpenAI, NVIDIA NIM, OpenRouter, or a compatible endpoint.
-    ///
-    /// The profile and conversation are owned by the returned stream. Cancelling the token stops
-    /// both an in-progress request and response-body reads. The API key is held only for the
-    /// request and is never included in diagnostics.
-    pub fn stream_chat_completions(
-        &self,
-        profile: AssistantProfile,
-        api_key: Option<String>,
-        messages: Vec<ChatMessage>,
-        cancellation: CancellationToken,
-    ) -> ChatStream {
-        stream_with_transport(
-            self.transport.clone(),
-            profile,
-            api_key,
-            messages,
-            cancellation,
-        )
-    }
-}
-
-fn stream_with_transport<T: HttpTransport + 'static>(
+pub(crate) fn stream_with_transport<T: HttpTransport + 'static>(
     transport: T,
     profile: AssistantProfile,
     api_key: Option<String>,
@@ -222,85 +186,10 @@ mod tests {
     use super::{ChatEvent, ChatMessage, Provider, stream_with_transport};
     use crate::{
         ApiProtocol, AssistantProfile, ChatRole, CredentialSource, TokenUsage,
-        http::{BodyStream, HttpRequest, HttpResponse, HttpTransport, TransportError},
+        test_support::FakeTransport,
     };
-    use futures_util::{StreamExt, stream};
-    use reqwest::header::AUTHORIZATION;
-    use std::{
-        future::Future,
-        sync::{Arc, Mutex},
-    };
+    use futures_util::StreamExt;
     use tokio_util::sync::CancellationToken;
-
-    struct FakeTransport {
-        status: u16,
-        request_id: Option<String>,
-        chunks: Vec<Vec<u8>>,
-        pending_body: bool,
-        request: Arc<Mutex<Option<CapturedRequest>>>,
-    }
-
-    struct CapturedRequest {
-        endpoint: String,
-        authorization: Option<String>,
-        body: Vec<u8>,
-    }
-
-    impl FakeTransport {
-        fn new(status: u16, chunks: &[&str]) -> (Self, Arc<Mutex<Option<CapturedRequest>>>) {
-            let request = Arc::new(Mutex::new(None));
-            (
-                Self {
-                    status,
-                    request_id: Some("req-example-1".to_owned()),
-                    chunks: chunks
-                        .iter()
-                        .map(|chunk| chunk.as_bytes().to_vec())
-                        .collect(),
-                    pending_body: false,
-                    request: Arc::clone(&request),
-                },
-                request,
-            )
-        }
-    }
-
-    impl HttpTransport for FakeTransport {
-        fn execute<'a>(
-            &'a self,
-            request: HttpRequest,
-            _cancellation: &'a CancellationToken,
-        ) -> impl Future<Output = Result<HttpResponse, TransportError>> + Send + 'a {
-            let request_store = Arc::clone(&self.request);
-            let pending_body = self.pending_body;
-            let status = self.status;
-            let request_id = self.request_id.clone();
-            let chunks = self.chunks.clone();
-            async move {
-                *request_store.lock().unwrap() = Some(CapturedRequest {
-                    endpoint: request.endpoint.to_string(),
-                    authorization: request
-                        .headers
-                        .get(AUTHORIZATION)
-                        .and_then(|value| value.to_str().ok())
-                        .map(str::to_owned),
-                    body: request.body,
-                });
-                let body: BodyStream = if pending_body {
-                    Box::pin(stream::pending::<Result<Vec<u8>, TransportError>>())
-                } else {
-                    Box::pin(stream::iter(
-                        chunks.into_iter().map(Ok::<_, TransportError>),
-                    ))
-                };
-                Ok(HttpResponse {
-                    status,
-                    request_id,
-                    body,
-                })
-            }
-        }
-    }
 
     fn profile(provider: Provider, base_url: Option<&str>) -> AssistantProfile {
         AssistantProfile {
@@ -349,7 +238,7 @@ mod tests {
             request.endpoint,
             "https://integrate.api.nvidia.com/v1/chat/completions"
         );
-        assert_eq!(request.authorization.as_deref(), Some("Bearer test-secret"));
+        assert_eq!(request.header("authorization"), Some("Bearer test-secret"));
         let body: serde_json::Value = serde_json::from_slice(&request.body).unwrap();
         assert_eq!(body["model"], "example/model");
         assert_eq!(body["stream"], true);
