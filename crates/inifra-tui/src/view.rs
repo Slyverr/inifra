@@ -1,18 +1,12 @@
 use crate::ReviewAction;
 use crate::init::{App, Screen};
+use crate::presentation::{Tone, terminal_text, tui_style};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, List, ListItem, ListState, Paragraph, Wrap},
 };
-
-const EMPHASIS: Color = Color::Cyan;
-const MUTED: Color = Color::Gray;
-const SELECTED: Color = Color::Green;
-const ERROR: Color = Color::Red;
-const WARNING: Color = Color::Yellow;
 
 pub(crate) fn draw<P>(frame: &mut Frame<'_>, app: &App<P>) {
     let area = frame.area();
@@ -31,7 +25,7 @@ pub(crate) fn draw<P>(frame: &mut Frame<'_>, app: &App<P>) {
         Screen::Review { .. } => "Inifra · review changes".to_owned(),
     };
     frame.render_widget(
-        Paragraph::new(title).style(Style::default().fg(EMPHASIS).add_modifier(Modifier::BOLD)),
+        Paragraph::new(title).style(tui_style(Tone::Accent, true)),
         chunks[0],
     );
     match &app.screen {
@@ -46,19 +40,23 @@ pub(crate) fn draw<P>(frame: &mut Frame<'_>, app: &App<P>) {
                 let default = prompt
                     .default
                     .as_ref()
-                    .map(|value| format!(" · default: {value}"))
+                    .map(|value| format!(" · default: {}", terminal_text(value)))
                     .unwrap_or_default();
+                let input = terminal_text(&app.input);
                 let lines = vec![
-                    Line::from(format!("{} ({requirement}{default})", prompt.prompt)),
+                    Line::from(format!(
+                        "{} ({requirement}{default})",
+                        terminal_text(&prompt.prompt)
+                    )),
                     Line::from(""),
                     Line::from(vec![
-                        Span::styled("› ", Style::default().fg(EMPHASIS)),
-                        Span::raw(&app.input),
+                        Span::styled("› ", tui_style(Tone::Accent, false)),
+                        Span::raw(input.clone()),
                     ]),
                 ];
                 frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), chunks[1]);
                 let x = chunks[1].x.saturating_add(2).saturating_add(
-                    u16::try_from(Line::from(app.input.as_str()).width()).unwrap_or(u16::MAX),
+                    u16::try_from(Line::from(input.as_str()).width()).unwrap_or(u16::MAX),
                 );
                 if x < chunks[1].right() && chunks[1].height > 2 {
                     frame.set_cursor_position((x, chunks[1].y + 2));
@@ -75,7 +73,7 @@ pub(crate) fn draw<P>(frame: &mut Frame<'_>, app: &App<P>) {
             ])
             .split(chunks[1]);
             frame.render_widget(
-                Paragraph::new(format!("Target: {}", review.target)),
+                Paragraph::new(format!("Target: {}", terminal_text(&review.target))),
                 areas[0],
             );
             let mut lines = Vec::new();
@@ -114,7 +112,7 @@ pub(crate) fn draw<P>(frame: &mut Frame<'_>, app: &App<P>) {
     };
     let footer = if let Some(error) = &app.error {
         vec![
-            Line::styled(error, Style::default().fg(ERROR)),
+            Line::styled(terminal_text(error), tui_style(Tone::Error, false)),
             Line::from(help),
         ]
     } else {
@@ -125,27 +123,21 @@ pub(crate) fn draw<P>(frame: &mut Frame<'_>, app: &App<P>) {
 
 fn choice(value: &str, active: bool) -> Span<'_> {
     if active {
-        Span::styled(
-            format!("[ {value} ]"),
-            Style::default().fg(EMPHASIS).add_modifier(Modifier::BOLD),
-        )
+        Span::styled(format!("[ {value} ]"), tui_style(Tone::Accent, true))
     } else {
-        Span::styled(format!("  {value}  "), Style::default().fg(MUTED))
+        Span::styled(format!("  {value}  "), tui_style(Tone::Muted, false))
     }
 }
 
 fn review_line(action: ReviewAction, path: String) -> Line<'static> {
-    let color = match action {
-        ReviewAction::Create => SELECTED,
-        ReviewAction::Replace => WARNING,
-        ReviewAction::Skip => MUTED,
+    let tone = match action {
+        ReviewAction::Create => Tone::Success,
+        ReviewAction::Replace => Tone::Warning,
+        ReviewAction::Skip => Tone::Muted,
     };
     Line::from(vec![
-        Span::styled(
-            format!("  {:22}", action.label()),
-            Style::default().fg(color),
-        ),
-        Span::raw(path),
+        Span::styled(format!("  {:22}", action.label()), tui_style(tone, false)),
+        Span::raw(terminal_text(&path)),
     ])
 }
 
@@ -178,8 +170,8 @@ fn draw_picker<P>(frame: &mut Frame<'_>, app: &App<P>, area: Rect) {
                     category.name.as_str()
                 });
             rows.push(ListItem::new(Line::styled(
-                name,
-                Style::default().fg(MUTED),
+                terminal_text(name),
+                tui_style(Tone::Muted, false),
             )));
             previous = Some(&choice.category_id);
         }
@@ -190,39 +182,46 @@ fn draw_picker<P>(frame: &mut Frame<'_>, app: &App<P>, area: Rect) {
         let template = choice.variants.get(app.variants[index]);
         let output = template
             .and_then(|template| template.outputs.first())
-            .map(|path| format!("  ({})", path.display()))
+            .map(|path| format!("  ({})", terminal_text(&path.display().to_string())))
             .unwrap_or_default();
         let mut spans = vec![Span::styled(
             format!("{marker} "),
-            Style::default().fg(if app.selected[index] { SELECTED } else { MUTED }),
+            tui_style(
+                if app.selected[index] {
+                    Tone::Success
+                } else {
+                    Tone::Muted
+                },
+                false,
+            ),
         )];
         if choice.variants.len() == 1 {
             if let Some(template) = template {
-                spans.push(Span::raw(&template.id));
+                spans.push(Span::raw(terminal_text(&template.id)));
             }
         } else {
-            spans.push(Span::styled("‹ ", Style::default().fg(MUTED)));
+            spans.push(Span::styled("‹ ", tui_style(Tone::Muted, false)));
             for (variant, template) in choice.variants.iter().enumerate() {
                 if variant > 0 {
-                    spans.push(Span::styled(" · ", Style::default().fg(MUTED)));
+                    spans.push(Span::styled(" · ", tui_style(Tone::Muted, false)));
                 }
                 let style = if variant == app.variants[index] {
-                    Style::default().fg(EMPHASIS).add_modifier(Modifier::BOLD)
+                    tui_style(Tone::Accent, true)
                 } else {
-                    Style::default().fg(MUTED)
+                    tui_style(Tone::Muted, false)
                 };
-                spans.push(Span::styled(&template.id, style));
+                spans.push(Span::styled(terminal_text(&template.id), style));
             }
-            spans.push(Span::styled(" ›", Style::default().fg(MUTED)));
+            spans.push(Span::styled(" ›", tui_style(Tone::Muted, false)));
         }
-        spans.push(Span::styled(output, Style::default().fg(MUTED)));
+        spans.push(Span::styled(output, tui_style(Tone::Muted, false)));
         rows.push(ListItem::new(Line::from(spans)));
     }
     let mut state = ListState::default().with_selected(selected_row);
     frame.render_stateful_widget(
         List::new(rows)
             .highlight_symbol("› ")
-            .highlight_style(Style::default().fg(EMPHASIS).add_modifier(Modifier::BOLD)),
+            .highlight_style(tui_style(Tone::Accent, true)),
         columns[0],
         &mut state,
     );
@@ -237,27 +236,40 @@ fn draw_picker<P>(frame: &mut Frame<'_>, app: &App<P>, area: Rect) {
         let heading = template
             .preview_source
             .as_ref()
-            .map(|source| format!("Source preview · {}", source.display()))
+            .map(|source| {
+                format!(
+                    "Source preview · {}",
+                    terminal_text(&source.display().to_string())
+                )
+            })
             .unwrap_or_else(|| "Preview".to_owned());
         frame.render_widget(
-            Paragraph::new(heading).style(Style::default().fg(MUTED)),
+            Paragraph::new(heading).style(tui_style(Tone::Muted, false)),
             preview_area[0],
         );
-        let mut lines = vec![Line::from(template.description.as_str()), Line::from("")];
+        let mut lines = vec![
+            Line::from(terminal_text(&template.description)),
+            Line::from(""),
+        ];
         for path in &template.outputs {
             lines.push(Line::styled(
-                path.display().to_string(),
-                Style::default().fg(MUTED),
+                terminal_text(&path.display().to_string()),
+                tui_style(Tone::Muted, false),
             ));
         }
         for path in &template.directories {
             lines.push(Line::styled(
-                format!("{}/", path.display()),
-                Style::default().fg(MUTED),
+                format!("{}/", terminal_text(&path.display().to_string())),
+                tui_style(Tone::Muted, false),
             ));
         }
         lines.push(Line::from(""));
-        lines.extend(template.preview.lines().map(Line::from));
+        lines.extend(
+            template
+                .preview
+                .lines()
+                .map(|line| Line::from(terminal_text(line))),
+        );
         frame.render_widget(
             Paragraph::new(lines)
                 .block(Block::default())

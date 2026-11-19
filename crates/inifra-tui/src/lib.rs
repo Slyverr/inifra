@@ -3,6 +3,7 @@
 
 mod init;
 mod model;
+pub mod presentation;
 mod view;
 
 pub use init::run_init;

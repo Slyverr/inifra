@@ -12,5 +12,6 @@ description = "Terminal presentation for Inifra's interactive workflows"
 workspace = true
 
 [dependencies]
+anstyle = "1.0.14"
 crossterm = "0.29.0"
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }

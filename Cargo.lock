@@ -485,6 +485,7 @@ dependencies = [
 name = "inifra-tui"
 version = "0.3.0"
 dependencies = [
+ "anstyle",
  "crossterm",
  "ratatui",
 ]
