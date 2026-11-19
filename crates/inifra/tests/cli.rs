@@ -90,9 +90,28 @@ fn help_lists_catalog_commands() {
         "generate",
         "source",
         "assistant",
+        "ask",
     ] {
         assert!(help.contains(command));
     }
+}
+
+#[test]
+fn ask_requires_a_terminal_before_reading_assistant_configuration() {
+    let config_dir = tempfile::tempdir().unwrap();
+    let output = inifra_with_config(config_dir.path())
+        .arg("ask")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let error = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        error.contains("requires an interactive terminal"),
+        "{error}"
+    );
+    assert!(!config_dir.path().join("assistant.toml").exists());
+    assert!(!config_dir.path().join("credentials.env").exists());
 }
 
 #[test]

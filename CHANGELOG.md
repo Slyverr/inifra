@@ -4,6 +4,14 @@ All notable changes to this project are documented here.
 
 This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Open an inline assistant session with `inifra ask`, slash-command catalog and project inspection, model listing and session switching, and explicit review before applying a validated generation plan.
+- Stream assistant responses through OpenAI Responses, OpenAI-compatible Chat Completions, Anthropic Messages, Gemini Generate Content, and Ollama Chat APIs.
+- Render streamed Markdown emphasis, inline code, links, headings, lists, quotes, and code blocks in the terminal view.
+
 ## [0.5.0] - 2026-11-19
 
 ### Added

@@ -24,3 +24,24 @@ Removing one profile leaves saved credential entries in place because profiles m
 Profiles can read a key from the process environment or from the user-level `credentials.env`. When both are configured for a profile, a nonempty environment value takes precedence. The configuration flow masks keys while they are entered. Credential values are stored literally and never evaluated as shell code; on Unix, the file is created with owner-only permissions.
 
 The default configuration directory follows the platform's user configuration location. Set `INIFRA_CONFIG_DIR` to use a different directory. Do not commit `credentials.env` or share it with a project catalog.
+
+## Ask
+
+After configuring a profile, run an inline assistant session in the current project:
+
+```sh
+inifra ask
+inifra ask --profile local
+```
+
+The session shows the active provider and model. `/models` asks the configured API for model IDs when that API supports listing; pressing Tab after `/model ` fetches IDs on demand and completes matching models. Use `/model ID` to switch models for the current session. `/help` lists the available commands:
+
+- `/templates [query]` searches the loaded catalog.
+- `/inspect ID` shows one template's outputs and inputs.
+- `/project` reports recognized manifests and guidance files in the current directory.
+- `/plan ID... [--set NAME=VALUE] [--overwrite]` prepares a generation plan using Inifra Core's validation.
+- `/apply` opens a No-default confirmation. Files and directories are changed only after an explicit Yes, and the core revalidates the plan before applying it.
+
+The assistant cannot browse the filesystem or apply changes on its own. Slash commands run locally. Their visible results are held for context and sent to the configured provider only with a later message you submit; the interface discloses this before sending. Submitted messages and prior conversation history are sent to the configured provider. Do not include secrets or other sensitive data unless you intend to share them with that provider.
+
+Provider APIs may charge for requests. Inifra displays token usage only when the API reports it; it does not estimate monetary cost. Model listing may be unavailable for a compatible endpoint. Errors include available endpoint and response details while redacting configured credentials. Message, response, conversation, and local-result sizes are bounded by the application.

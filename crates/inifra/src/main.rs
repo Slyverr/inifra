@@ -1,3 +1,4 @@
+mod assistant_ask;
 mod assistant_cli;
 mod assistant_configure;
 mod completions;
@@ -74,6 +75,12 @@ enum Command {
         #[command(subcommand)]
         command: Option<assistant_cli::AssistantCommand>,
     },
+    /// Open an inline assistant session for this project.
+    Ask {
+        /// Use a configured profile instead of the default.
+        #[arg(long)]
+        profile: Option<String>,
+    },
     /// Manage project-pinned Git template sources.
     Source {
         #[command(subcommand)]
@@ -141,6 +148,14 @@ fn run() -> Result<(), Box<dyn Error>> {
         return completions::run(*shell, *install, *uninstall);
     }
     let command = match cli.command {
+        Command::Ask { profile } => {
+            return assistant_ask::run(
+                profile.as_deref(),
+                cli.catalog.as_deref(),
+                user_config::config_dir()?,
+                std::env::current_dir()?,
+            );
+        }
         Command::Assistant { command } => {
             if cli.catalog.is_some() {
                 return Err("--catalog cannot be used with assistant configuration".into());
@@ -372,6 +387,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             preset_cli::run(&catalog, config_dir.as_deref(), command)?;
         }
         Command::Assistant { .. } => unreachable!("handled before catalog loading"),
+        Command::Ask { .. } => unreachable!("handled before catalog loading"),
         Command::Source { .. } => unreachable!("handled before catalog loading"),
         Command::Completions { .. } => unreachable!("handled before catalog loading"),
         Command::Generate {
