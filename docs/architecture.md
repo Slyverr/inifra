@@ -9,7 +9,7 @@ Inifra is a Cargo workspace with a small set of crates separated by responsibili
 | `inifra` | Command parsing, command dispatch, and application wiring. | Template rules, provider protocols, or terminal rendering internals. |
 | `inifra-core` | Template/catalog models, project context, input resolution, rendering, generation plans, validation, and file application. | CLI parsing, terminal handling, or network/provider clients. |
 | `inifra-assistant` | Assistant profiles, provider protocols, request/response handling, and constrained assistant workflows using core services. | Terminal rendering or direct file writes outside core's validated generation flow. |
-| `inifra-tui` | Ratatui screens, terminal lifecycle, input/event handling, and shared interactive presentation. | Template or assistant policy, provider requests, and filesystem changes. |
+| `inifra-tui` | Ratatui screens, terminal lifecycle, input/event handling, and the shared terminal palette and text-safety helpers used by CLI and interactive output. | Template or assistant policy, provider requests, and filesystem changes. |
 
 ## Intended dependency direction
 
@@ -21,6 +21,8 @@ inifra (binary)
 ```
 
 Core stays independent of terminal and network concerns. The CLI coordinates application flows and maps data into TUI view models; the TUI does not depend on the assistant crate or core. The assistant may prepare or inspect core operations, while core remains responsible for validating and applying file changes. The packages are scaffolded before feature code, so Cargo dependencies will be added as implementations first need them instead of creating unused dependency edges.
+
+The terminal crate owns the shared semantic color palette, `NO_COLOR` handling, and escaping of control characters before user-controlled text is displayed. The CLI uses these helpers for redirected-safe colored output, errors, and status lines; interactive screens use the matching Ratatui styles.
 
 For `init`, the CLI supplies catalog view data and a backend adapter to the TUI. The adapter resolves inputs and prepares a core `GenerationPlan`; the TUI retains that exact plan through review and requests its application only after explicit approval. The TUI owns the interaction and terminal lifecycle, while the adapter delegates validation and writes to `inifra-core`.
 
