@@ -152,11 +152,138 @@ fn generates_readme_with_required_input_and_no_optional_description() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let readme = std::fs::read_to_string(target.path().join("README.md")).unwrap();
+    assert_eq!(readme, "# Example\n");
+    assert!(!readme.contains("CONTRIBUTING.md"));
+    assert!(!readme.contains("LICENSE"));
+}
+
+#[test]
+fn contributing_describes_only_the_selected_project_documentation() {
+    let target = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "generate",
+            "contributing",
+            "architecture",
+            "--set",
+            "project_name=Example",
+            "--target",
+            target.path().to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
     assert!(
-        std::fs::read_to_string(target.path().join("README.md"))
-            .unwrap()
-            .starts_with("# Example\n")
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
     );
+
+    let contributing = std::fs::read_to_string(target.path().join("CONTRIBUTING.md")).unwrap();
+    assert!(contributing.contains("| `docs/` | Project documentation |"));
+    assert!(contributing.contains("[the architecture guide](docs/architecture.md)"));
+    assert!(!contributing.contains("development guide"));
+    assert!(!target.path().join("docs/development.md").exists());
+}
+
+#[test]
+fn bundled_references_and_license_alternatives_follow_selected_packs() {
+    let target = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "generate",
+            "readme",
+            "agents",
+            "contributing",
+            "architecture",
+            "development",
+            "security",
+            "license-mit",
+            "license-apache",
+            "--target",
+            target.path().to_str().unwrap(),
+            "--set",
+            "project_name=Example",
+            "--set",
+            "copyright_year=2026",
+            "--set",
+            "copyright_holder=Example Maintainers",
+            "--set",
+            "security_contact=security@example.org",
+            "--set",
+            "supported_versions=Current release",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let readme = std::fs::read_to_string(target.path().join("README.md")).unwrap();
+    assert!(readme.contains("[CONTRIBUTING.md](CONTRIBUTING.md)"));
+    assert!(readme.contains("[MIT License](LICENSE-MIT)"));
+    assert!(readme.contains("[Apache License 2.0](LICENSE-APACHE)"));
+
+    let agents = std::fs::read_to_string(target.path().join("AGENTS.md")).unwrap();
+    assert!(agents.contains("[README.md](README.md)"));
+    assert!(agents.contains("[CONTRIBUTING.md](CONTRIBUTING.md)"));
+
+    let contributing = std::fs::read_to_string(target.path().join("CONTRIBUTING.md")).unwrap();
+    assert!(contributing.contains("[the architecture guide](docs/architecture.md)"));
+    assert!(contributing.contains("[the development guide](docs/development.md)"));
+    assert!(contributing.contains("[the security policy](SECURITY.md)"));
+
+    let copyright = "Copyright 2026 Example Maintainers";
+    assert!(
+        std::fs::read_to_string(target.path().join("LICENSE-MIT"))
+            .unwrap()
+            .contains(copyright)
+    );
+    let apache_license = std::fs::read_to_string(target.path().join("LICENSE-APACHE")).unwrap();
+    assert!(apache_license.contains(copyright));
+    assert!(
+        apache_license
+            .lines()
+            .next()
+            .is_some_and(|line| line.contains("Apache License"))
+    );
+    assert!(target.path().join("LICENSE-MIT").is_file());
+    assert!(target.path().join("LICENSE-APACHE").is_file());
+    assert!(!target.path().join("LICENSE").exists());
+}
+
+#[test]
+fn bundled_license_keeps_its_default_path_when_selected_alone() {
+    let target = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args([
+            "generate",
+            "readme",
+            "license-mit",
+            "--target",
+            target.path().to_str().unwrap(),
+            "--set",
+            "project_name=Example",
+            "--set",
+            "copyright_year=2026",
+            "--set",
+            "copyright_holder=Example Maintainers",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let readme = std::fs::read_to_string(target.path().join("README.md")).unwrap();
+    assert!(readme.contains("[MIT License](LICENSE)"));
+    assert!(!readme.contains("Apache License"));
+    assert!(target.path().join("LICENSE").is_file());
+    assert!(!target.path().join("LICENSE-MIT").exists());
 }
 
 #[test]
@@ -261,7 +388,7 @@ fn lists_catalog_and_dry_run_does_not_create_target() {
         .unwrap();
     assert!(list.status.success());
     assert!(String::from_utf8_lossy(&list.stdout).contains("editorconfig"));
-    assert!(String::from_utf8_lossy(&list.stdout).contains("Project Files\n"));
+    assert!(String::from_utf8_lossy(&list.stdout).contains("Project files\n"));
     let dry_run = Command::new(env!("CARGO_BIN_EXE_inifra"))
         .args([
             "--catalog",
