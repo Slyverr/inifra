@@ -73,7 +73,7 @@ pub(crate) fn validate_definitions(
     path: &Path,
 ) -> Result<(), InputError> {
     for (name, definition) in definitions {
-        if !valid_name(name) || definition.prompt.trim().is_empty() {
+        if !valid_name(name) || name == "references" || definition.prompt.trim().is_empty() {
             return Err(InputError(format!(
                 "{}: invalid definition {name:?}",
                 path.display()
