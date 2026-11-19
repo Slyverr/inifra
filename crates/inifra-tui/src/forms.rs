@@ -47,6 +47,33 @@ pub enum FormOutcome {
 /// Returns an I/O error if the terminal cannot be initialized, drawn, or read. Duplicate field
 /// names are rejected before the terminal is initialized.
 pub fn run_form(title: &str, fields: Vec<TextField>) -> io::Result<FormOutcome> {
+    run_form_with_mode(title, fields, false)
+}
+
+/// Collects one secret value without echoing its contents in the terminal.
+///
+/// Enter submits the value and Esc cancels.
+///
+/// # Errors
+/// Returns an I/O error if the terminal cannot be initialized, drawn, or read.
+pub fn run_secret_input(label: &str) -> io::Result<FormOutcome> {
+    run_form_with_mode(
+        "Credential",
+        vec![TextField {
+            name: "secret".to_owned(),
+            label: label.to_owned(),
+            required: true,
+            default: None,
+        }],
+        true,
+    )
+}
+
+fn run_form_with_mode(
+    title: &str,
+    fields: Vec<TextField>,
+    secret: bool,
+) -> io::Result<FormOutcome> {
     let mut names = BTreeSet::new();
     if fields.iter().any(|field| {
         field.name.trim().is_empty()
@@ -63,7 +90,7 @@ pub fn run_form(title: &str, fields: Vec<TextField>) -> io::Result<FormOutcome> 
     }
 
     let (_restore, mut terminal) = terminal::inline(FORM_HEIGHT)?;
-    let mut app = FormApp::new(title, fields);
+    let mut app = FormApp::new_with_mode(title, fields, secret);
     loop {
         terminal.draw(|frame| draw_form(frame, &app))?;
         match event::read()? {
@@ -127,6 +154,7 @@ pub fn run_confirmation(
 struct FormApp<'a> {
     title: &'a str,
     fields: Vec<TextField>,
+    secret: bool,
     values: BTreeMap<String, String>,
     index: usize,
     input: String,
@@ -135,12 +163,18 @@ struct FormApp<'a> {
 }
 
 impl<'a> FormApp<'a> {
+    #[cfg(test)]
     fn new(title: &'a str, fields: Vec<TextField>) -> Self {
+        Self::new_with_mode(title, fields, false)
+    }
+
+    fn new_with_mode(title: &'a str, fields: Vec<TextField>, secret: bool) -> Self {
         let input = fields[0].default.clone().unwrap_or_default();
         let cursor = input.chars().count();
         Self {
             title,
             fields,
+            secret,
             values: BTreeMap::new(),
             index: 0,
             cursor,
@@ -281,13 +315,22 @@ fn draw_form(frame: &mut Frame<'_>, app: &FormApp<'_>) {
     } else {
         "optional"
     };
-    let default = field
-        .default
-        .as_ref()
-        .map(|value| format!(" · default: {}", terminal_text(value)))
-        .unwrap_or_default();
+    let default = if app.secret {
+        String::new()
+    } else {
+        field
+            .default
+            .as_ref()
+            .map(|value| format!(" · default: {}", terminal_text(value)))
+            .unwrap_or_default()
+    };
     let input_width = area[1].width.saturating_sub(2);
-    let (input, cursor_column) = visible_input(&app.input, app.cursor, input_width);
+    let (input, cursor_column) = if app.secret {
+        let masked = "•".repeat(app.input.chars().count());
+        visible_input(&masked, app.cursor, input_width)
+    } else {
+        visible_input(&app.input, app.cursor, input_width)
+    };
     let body = vec![
         Line::from(format!(
             "{} ({requirement}{default})",
@@ -486,6 +529,33 @@ mod tests {
         assert!(visible.chars().count() <= 8);
         assert!(cursor < 8);
         assert!(visible.starts_with('…'));
+    }
+
+    #[test]
+    fn secret_form_masks_the_value_but_returns_it_unchanged() {
+        let secret = "private-key";
+        let mut app = FormApp::new_with_mode("Credential", vec![field("secret", true, None)], true);
+        app.input = secret.to_owned();
+        app.cursor = secret.chars().count();
+        let backend = TestBackend::new(40, FORM_HEIGHT);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|frame| draw_form(frame, &app)).unwrap();
+        let displayed = terminal
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>();
+        assert!(!displayed.contains(secret));
+        assert!(displayed.contains(&"•".repeat(secret.len())));
+        assert_eq!(
+            app.handle(key(KeyCode::Enter)),
+            Some(FormOutcome::Submitted(BTreeMap::from([(
+                "secret".to_owned(),
+                secret.to_owned(),
+            )])))
+        );
     }
 
     #[test]

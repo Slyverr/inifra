@@ -9,7 +9,7 @@ mod select;
 mod terminal;
 mod view;
 
-pub use forms::{FormOutcome, TextField, run_confirmation, run_form};
+pub use forms::{FormOutcome, TextField, run_confirmation, run_form, run_secret_input};
 pub use init::{run_init, run_init_with_selection};
 pub use model::{
     CatalogView, CategoryView, GenerationReview, InitBackend, InitOutcome, InputPrompt,
