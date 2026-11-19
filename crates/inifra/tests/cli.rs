@@ -67,6 +67,60 @@ fn bundled_catalog_is_available_outside_checkout() {
 }
 
 #[test]
+fn project_local_pack_overlays_bundled_pack_for_inspection_and_generation() {
+    let project = tempfile::tempdir().unwrap();
+    let pack = project
+        .path()
+        .join(".inifra/templates/project-files/readme");
+    std::fs::create_dir_all(&pack).unwrap();
+    std::fs::write(
+        pack.join("template.toml"),
+        "schema_version = 2\ndescription = 'Team README'\n\n[local_inputs.project_name]\nprompt = 'Project name'\nrequired = true\n",
+    )
+    .unwrap();
+    std::fs::write(
+        pack.join("README.md.j2"),
+        "# {{ project_name }}\n\nTeam edition.\n",
+    )
+    .unwrap();
+
+    let inspected = inifra()
+        .current_dir(project.path())
+        .args(["inspect", "readme"])
+        .output()
+        .unwrap();
+    assert!(
+        inspected.status.success(),
+        "{}",
+        String::from_utf8_lossy(&inspected.stderr)
+    );
+    assert!(String::from_utf8_lossy(&inspected.stdout).contains("Team README"));
+
+    let target = project.path().join("generated");
+    let generated = inifra()
+        .current_dir(project.path())
+        .args([
+            "generate",
+            "readme",
+            "--target",
+            target.to_str().unwrap(),
+            "--set",
+            "project_name=Example",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        generated.status.success(),
+        "{}",
+        String::from_utf8_lossy(&generated.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(target.join("README.md")).unwrap(),
+        "# Example\n\nTeam edition.\n"
+    );
+}
+
+#[test]
 fn inspect_shows_template_inputs_and_outputs() {
     let output = inifra().args(["inspect", "readme"]).output().unwrap();
     assert!(output.status.success());

@@ -134,8 +134,12 @@ fn run() -> Result<(), Box<dyn Error>> {
     } else {
         None
     };
-    let (catalog, _bundled_catalog_dir) =
-        user_config::load_catalog(cli.catalog.as_deref(), config_dir.as_deref())?;
+    let project_dir = std::env::current_dir()?;
+    let (catalog, _bundled_catalog_dir) = user_config::load_project_catalog(
+        cli.catalog.as_deref(),
+        config_dir.as_deref(),
+        &project_dir,
+    )?;
     match cli.command {
         Command::List { files } => {
             let mut category = "";
@@ -324,10 +328,16 @@ fn run() -> Result<(), Box<dyn Error>> {
             println!("Validated {} template(s).", catalog.packs.len());
         }
         Command::Init { target, overwrite } => init::run(&catalog, target, overwrite)?,
-        Command::Edit { id } => templates::edit(&catalog, config_dir.as_deref(), &id)?,
-        Command::Rename { old_id, new_id } => {
-            templates::rename(&catalog, config_dir.as_deref(), &old_id, &new_id)?
+        Command::Edit { id } => {
+            templates::edit(&catalog, config_dir.as_deref(), &project_dir, &id)?
         }
+        Command::Rename { old_id, new_id } => templates::rename(
+            &catalog,
+            config_dir.as_deref(),
+            &project_dir,
+            &old_id,
+            &new_id,
+        )?,
         Command::Remove { id } => templates::remove(&catalog, config_dir.as_deref(), &id)?,
         Command::Preset { command } => {
             preset_cli::run(&catalog, config_dir.as_deref(), command)?;

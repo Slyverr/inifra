@@ -21,7 +21,11 @@ pub(crate) fn template_completer() -> ArgValueCompleter {
         let Ok(config_dir) = crate::user_config::config_dir() else {
             return Vec::new();
         };
-        let Ok((catalog, _bundled)) = crate::user_config::load_catalog(None, config_dir.as_deref())
+        let Ok(project_dir) = std::env::current_dir() else {
+            return Vec::new();
+        };
+        let Ok((catalog, _bundled)) =
+            crate::user_config::load_project_catalog(None, config_dir.as_deref(), &project_dir)
         else {
             return Vec::new();
         };
@@ -43,7 +47,11 @@ pub(crate) fn preset_completer() -> ArgValueCompleter {
         let Some(config_dir) = config_dir else {
             return Vec::new();
         };
-        let Ok((catalog, _bundled)) = crate::user_config::load_catalog(None, Some(&config_dir))
+        let Ok(project_dir) = std::env::current_dir() else {
+            return Vec::new();
+        };
+        let Ok((catalog, _bundled)) =
+            crate::user_config::load_project_catalog(None, Some(&config_dir), &project_dir)
         else {
             return Vec::new();
         };
@@ -62,7 +70,11 @@ pub(crate) fn input_completer() -> ArgValueCompleter {
         let Ok(config_dir) = crate::user_config::config_dir() else {
             return Vec::new();
         };
-        let Ok((catalog, _bundled)) = crate::user_config::load_catalog(None, config_dir.as_deref())
+        let Ok(project_dir) = std::env::current_dir() else {
+            return Vec::new();
+        };
+        let Ok((catalog, _bundled)) =
+            crate::user_config::load_project_catalog(None, config_dir.as_deref(), &project_dir)
         else {
             return Vec::new();
         };
