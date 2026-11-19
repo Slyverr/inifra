@@ -283,6 +283,52 @@ fn lists_catalog_and_dry_run_does_not_create_target() {
 }
 
 #[test]
+fn list_summarizes_outputs_and_files_shows_every_path() {
+    let root = tempfile::tempdir().unwrap();
+    let catalog = root.path().join("catalog");
+    write_catalog_file(
+        &catalog,
+        "github/github-issues/template.toml",
+        "schema_version = 2\ndescription = 'Issue forms'\ndirectories = ['docs']\n",
+    );
+    for name in ["bug-report.yml", "feature-request.yml", "question.yml"] {
+        write_catalog_file(
+            &catalog,
+            &format!("github/github-issues/.github/ISSUE_TEMPLATE/{name}"),
+            "name: Example\n",
+        );
+    }
+
+    let compact = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args(["--catalog", catalog.to_str().unwrap(), "list"])
+        .output()
+        .unwrap();
+    assert!(compact.status.success());
+    let text = String::from_utf8(compact.stdout).unwrap();
+    assert!(text.contains("bug-report.yml, +2 other files, 1 directory"));
+    assert!(!text.contains("feature-request.yml"));
+
+    let full = Command::new(env!("CARGO_BIN_EXE_inifra"))
+        .args(["--catalog", catalog.to_str().unwrap(), "list", "--files"])
+        .output()
+        .unwrap();
+    assert!(
+        full.status.success(),
+        "{}",
+        String::from_utf8_lossy(&full.stderr)
+    );
+    let text = String::from_utf8(full.stdout).unwrap();
+    for path in [
+        ".github/ISSUE_TEMPLATE/bug-report.yml",
+        ".github/ISSUE_TEMPLATE/feature-request.yml",
+        ".github/ISSUE_TEMPLATE/question.yml",
+        "docs/",
+    ] {
+        assert!(text.contains(path), "missing {path} in:\n{text}");
+    }
+}
+
+#[test]
 fn generates_a_directory_only_template_and_dry_run_is_read_only() {
     let root = tempfile::tempdir().unwrap();
     let catalog = root.path().join("catalog");
@@ -364,6 +410,7 @@ fn list_uses_category_display_name_override() {
         "project-docs/guide/template.toml",
         "schema_version = 2\ndescription = 'A guide'\n",
     );
+    write_catalog_file(root.path(), "project-docs/guide/guide.md", "Guide\n");
     let output = Command::new(env!("CARGO_BIN_EXE_inifra"))
         .args(["--catalog", root.path().to_str().unwrap(), "list"])
         .output()
