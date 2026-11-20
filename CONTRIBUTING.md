@@ -119,6 +119,10 @@ Pull requests provide the review and integration path for contributors. Normal w
 - Prefer **rebase merging** to retain meaningful individual commits in a linear history; tidy noisy commits before review. GitHub rebase merges may assign new commit hashes.
 - Squash only when intermediate commits are not useful individually; the resulting commit must follow Conventional Commits.
 
+### Project and workspace context
+
+Keep repository-facing material—including documentation, commit messages, issues, and PR descriptions—grounded in checked-in project material, the change under review, or explicit user requirements. Do not expose private workspace plans or notes, conversation details, local machine paths, or personal environment setup as project context. Use external sources only when relevant to the change, cite them when making factual claims, and do not present them as project decisions.
+
 ## Versioning and Releases
 
 Use [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html), with the project's additional release policy:

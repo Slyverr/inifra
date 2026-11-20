@@ -21,6 +21,7 @@ For user-facing changes to CLI output, terminal interfaces, or graphical interfa
 - Preserve unrelated modifications. Do not discard changes, force-push, delete branches/worktrees, or merge into protected branches without authorization.
 - For substantial or risky changes, outline an implementation approach before editing. Use a durable plan only when multi-session continuity or technical complexity warrants it.
 - Update authoritative documentation when APIs, user-visible behavior, design, or development procedures change.
+- Keep repository-facing text grounded in checked-in project material, the change under review, or explicit user requirements. Treat private workspace notes and local machine details as context, not content; follow the boundary in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Verification and Handoff
 
