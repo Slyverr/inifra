@@ -106,7 +106,13 @@ pub(crate) fn input_completer() -> ArgValueCompleter {
     })
 }
 
-pub(crate) fn run(shell: Shell, install: bool, uninstall: bool) -> Result<(), Box<dyn Error>> {
+pub(crate) fn run(
+    shell: Shell,
+    install: bool,
+    uninstall: bool,
+    overwrite: bool,
+    force: bool,
+) -> Result<(), Box<dyn Error>> {
     validate_shell(shell)?;
     let path = if install || uninstall {
         Some(install_path(shell)?)
@@ -115,7 +121,7 @@ pub(crate) fn run(shell: Shell, install: bool, uninstall: bool) -> Result<(), Bo
     };
     if uninstall {
         let path = path.as_ref().expect("an install path was resolved");
-        if uninstall_script(path)? {
+        if uninstall_script(path, force)? {
             println!(
                 "{} {}",
                 inifra_tui::presentation::paint(
@@ -160,7 +166,7 @@ pub(crate) fn run(shell: Shell, install: bool, uninstall: bool) -> Result<(), Bo
     let script = registration_script(shell)?;
     if install {
         let path = path.as_ref().expect("an install path was resolved");
-        let changed = write_script(path, script.as_bytes())?;
+        let changed = write_script(path, script.as_bytes(), overwrite)?;
         let action = if changed {
             "Wrote completion file:"
         } else {
@@ -329,7 +335,7 @@ fn shell_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
 }
 
-fn write_script(path: &Path, contents: &[u8]) -> io::Result<bool> {
+fn write_script(path: &Path, contents: &[u8], overwrite: bool) -> io::Result<bool> {
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -358,12 +364,12 @@ fn write_script(path: &Path, contents: &[u8]) -> io::Result<bool> {
             if existing == contents {
                 return Ok(false);
             }
-            if !is_generated_script(&existing) {
+            if !is_generated_script(&existing) && !overwrite {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
                     format!(
-                        "refusing to overwrite an unmanaged completion file at {}",
-                        path.display()
+                        "refusing to overwrite an unmanaged completion file at {}; rerun with --install --overwrite to replace it",
+                        path.display(),
                     ),
                 ));
             }
@@ -381,7 +387,7 @@ fn write_script(path: &Path, contents: &[u8]) -> io::Result<bool> {
     Ok(true)
 }
 
-fn uninstall_script(path: &Path) -> io::Result<bool> {
+fn uninstall_script(path: &Path, force: bool) -> io::Result<bool> {
     let contents = match fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_symlink() => {
             return Err(io::Error::new(
@@ -402,12 +408,12 @@ fn uninstall_script(path: &Path) -> io::Result<bool> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
     };
-    if !is_generated_script(&contents) {
+    if !is_generated_script(&contents) && !force {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             format!(
-                "refusing to remove a completion file not marked as Inifra-generated: {}",
-                path.display()
+                "refusing to remove a completion file not marked as Inifra-generated: {}; rerun with --uninstall --force to remove it",
+                path.display(),
             ),
         ));
     }
@@ -675,14 +681,16 @@ mod tests {
         let target = directory.path().join("fish/completions/inifra.fish");
         let script = b"# Inifra generated completion file\ncomplete inifra\n";
 
-        assert!(write_script(&target, script).unwrap());
-        assert!(!write_script(&target, script).unwrap());
+        assert!(write_script(&target, script, false).unwrap());
+        assert!(!write_script(&target, script, false).unwrap());
         assert_eq!(fs::read(&target).unwrap(), script);
 
         fs::write(&target, "user-owned file\n").unwrap();
-        let error = write_script(&target, script).unwrap_err();
+        let error = write_script(&target, script, false).unwrap_err();
         assert!(error.to_string().contains("unmanaged"));
         assert_eq!(fs::read_to_string(&target).unwrap(), "user-owned file\n");
+        assert!(write_script(&target, script, true).unwrap());
+        assert_eq!(fs::read(&target).unwrap(), script);
     }
 
     #[test]
@@ -691,8 +699,8 @@ mod tests {
         let target = directory.path().join("inifra.fish");
         fs::write(&target, format!("{COMPLETION_MARKER}\ncomplete inifra\n")).unwrap();
 
-        assert!(uninstall_script(&target).unwrap());
-        assert!(!uninstall_script(&target).unwrap());
+        assert!(uninstall_script(&target, false).unwrap());
+        assert!(!uninstall_script(&target, false).unwrap());
     }
 
     #[test]
@@ -702,10 +710,10 @@ mod tests {
         let original = format!("# User completion\n{COMPLETION_MARKER}\ncomplete custom\n");
         fs::write(&target, &original).unwrap();
 
-        let install_error = write_script(&target, b"# replacement\n").unwrap_err();
+        let install_error = write_script(&target, b"# replacement\n", false).unwrap_err();
         assert_eq!(install_error.kind(), io::ErrorKind::AlreadyExists);
 
-        let uninstall_error = uninstall_script(&target).unwrap_err();
+        let uninstall_error = uninstall_script(&target, false).unwrap_err();
         assert_eq!(uninstall_error.kind(), io::ErrorKind::InvalidData);
         assert_eq!(fs::read_to_string(target).unwrap(), original);
     }
@@ -765,7 +773,28 @@ mod tests {
         fs::write(&outside, "keep\n").unwrap();
         symlink(&outside, &target).unwrap();
 
-        assert!(write_script(&target, b"new\n").is_err());
+        assert!(write_script(&target, b"new\n", true).is_err());
         assert_eq!(fs::read_to_string(outside).unwrap(), "keep\n");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn uninstall_refuses_to_remove_a_symlink_even_when_forced() {
+        use std::os::unix::fs::symlink;
+
+        let directory = TempDir::new().unwrap();
+        let outside = directory.path().join("outside");
+        let target = directory.path().join("inifra.fish");
+        fs::write(&outside, "keep\n").unwrap();
+        symlink(&outside, &target).unwrap();
+
+        assert!(uninstall_script(&target, true).is_err());
+        assert_eq!(fs::read_to_string(outside).unwrap(), "keep\n");
+        assert!(
+            fs::symlink_metadata(target)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
     }
 }

@@ -111,6 +111,12 @@ enum Command {
         /// Remove Inifra's generated completion file.
         #[arg(long)]
         uninstall: bool,
+        /// Replace an existing completion file not marked as Inifra-generated.
+        #[arg(long, requires = "install", conflicts_with = "uninstall")]
+        overwrite: bool,
+        /// Remove an existing completion file not marked as Inifra-generated.
+        #[arg(long, requires = "uninstall", conflicts_with = "install")]
+        force: bool,
     },
     /// Generate files from selected template packs.
     Generate {
@@ -157,12 +163,14 @@ fn run() -> Result<(), Box<dyn Error>> {
         shell,
         install,
         uninstall,
+        overwrite,
+        force,
     } = &cli.command
     {
         if cli.catalog.is_some() {
             return Err("--catalog cannot be used with completions".into());
         }
-        return completions::run(*shell, *install, *uninstall);
+        return completions::run(*shell, *install, *uninstall, *overwrite, *force);
     }
     let command = match cli.command {
         Command::Ask { profile } => {
