@@ -4,6 +4,8 @@
 mod chat;
 mod forms;
 mod init;
+mod init_picker;
+mod init_preview;
 mod markdown;
 mod model;
 pub mod presentation;
@@ -16,6 +18,7 @@ pub use forms::{FormOutcome, TextField, run_confirmation, run_form, run_secret_i
 pub use init::{run_init, run_init_with_selection};
 pub use model::{
     CatalogView, CategoryView, GenerationReview, InitBackend, InitOutcome, InputPrompt,
-    ReviewAction, ReviewedDirectory, ReviewedFile, TemplateChoice, TemplateView,
+    ReviewAction, ReviewedDirectory, ReviewedFile, SelectionPreview, TemplateChoice,
+    TemplateInputView, TemplateSourceView, TemplateView,
 };
 pub use select::run_select;

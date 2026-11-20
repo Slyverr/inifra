@@ -11,6 +11,8 @@ This file defines **agent-specific operating rules** for this repository. Shared
 
 Load only the context needed for the task. Existing code and configuration take precedence over stale descriptive notes when determining actual behavior.
 
+For user-facing changes to CLI output, terminal interfaces, or graphical interfaces, follow [`DESIGN.md`](DESIGN.md). It defines a design and validation process, not a fixed palette or a mandate to redesign unrelated screens.
+
 ## Execution and Coordination
 
 - Follow the repository's conventions, tests, Git workflow, and integration policy in `CONTRIBUTING.md`.
