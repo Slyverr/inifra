@@ -154,7 +154,9 @@ An explicit default destination can be declared with `output = "docs/TERMS.md"`;
 
 The bundled MIT and Apache license packs use this rule: each creates `LICENSE` alone, and selecting both creates `LICENSE-MIT` and `LICENSE-APACHE`.
 
-In the inline `inifra init` picker, templates with the same default output and the same alternative group appear as one choice. Use left/right or `h`/`l` to switch variants; only the active variant is selected. The non-interactive `generate` command can still select both IDs explicitly, in which case the declared alternate paths are used.
+In the inline `inifra init` picker, each template remains its own selectable row, including templates that share a default output. Before co-selection, each row shows its own possible path: `LICENSE[-APACHE]` for the Apache pack and `LICENSE[-MIT]` for the MIT pack. If either is selected alone, it still writes `LICENSE`; when both are selected, the Files and source preview paths update to `LICENSE-APACHE` and `LICENSE-MIT`. More generally, selecting packs in the same co-selection group keeps them independent and resolves each to its declared alternate path.
+
+Press `/` in the picker to filter templates live by category, ID, description, input name or prompt, and output path. Enter closes search and keeps the filter; Esc clears the filter before it can cancel initialization. The `a` group toggle applies to the matching templates in the current category, so it remains available without conflicting with search input. Press `q` to cancel from the picker or review screen; while searching or entering a value, `q` remains text.
 
 ## Optional pack references
 
@@ -178,7 +180,9 @@ References never prompt for or auto-select another pack. The target pack and sou
 
 ## Listing outputs
 
-`inifra list` shows each pack's first file output followed by `+N other files` when there are more, plus a directory count when applicable. Use `inifra list --files` to expand every resolved file and declared directory path. `inspect` shows the complete outputs for one pack, including any co-selected destination.
+`inifra list` shows each pack's first file output followed by `+N other files` when there are more, plus a directory count when applicable. `inifra list --files` shows file paths and directories directly beneath each pack, without extra section labels. Shared path prefixes are grouped, and directory paths end in `/`. `inspect` shows the complete outputs for one pack, including any co-selected destination.
+
+Use `inifra generate <id> --dry-run --show-content` to preview rendered files without writing them. The output first lists planned file and directory actions, then shows content only for new files and a unified diff for replacements. Existing files that would be skipped are listed in the plan but their contents are omitted. Markdown headings, list markers, inline code, and comments use the terminal palette; other file types remain literal. Non-text outputs are identified by byte size.
 
 Version control does not preserve intentionally empty directories, so declare those output paths in `directories`:
 

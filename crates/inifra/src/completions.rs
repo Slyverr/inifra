@@ -123,7 +123,11 @@ pub(crate) fn run(shell: Shell, install: bool, uninstall: bool) -> Result<(), Bo
                     inifra_tui::presentation::Tone::Success,
                     false
                 ),
-                inifra_tui::presentation::terminal_text(&path.display().to_string())
+                inifra_tui::presentation::paint(
+                    inifra_tui::presentation::terminal_text(&path.display().to_string()),
+                    inifra_tui::presentation::Tone::Path,
+                    false
+                )
             );
             if let Some(instruction) = deactivation_instruction(shell, path) {
                 println!(
@@ -133,7 +137,11 @@ pub(crate) fn run(shell: Shell, install: bool, uninstall: bool) -> Result<(), Bo
                         inifra_tui::presentation::Tone::Muted,
                         false
                     ),
-                    inifra_tui::presentation::terminal_text(&instruction)
+                    inifra_tui::presentation::paint(
+                        inifra_tui::presentation::terminal_text(&instruction),
+                        inifra_tui::presentation::Tone::Accent,
+                        false
+                    )
                 );
             }
         } else {
@@ -161,7 +169,11 @@ pub(crate) fn run(shell: Shell, install: bool, uninstall: bool) -> Result<(), Bo
         println!(
             "{} {}",
             inifra_tui::presentation::paint(action, inifra_tui::presentation::Tone::Success, false),
-            inifra_tui::presentation::terminal_text(&path.display().to_string())
+            inifra_tui::presentation::paint(
+                inifra_tui::presentation::terminal_text(&path.display().to_string()),
+                inifra_tui::presentation::Tone::Path,
+                false
+            )
         );
         if let Some(instruction) = activation_instruction(shell, path) {
             println!(
@@ -171,7 +183,11 @@ pub(crate) fn run(shell: Shell, install: bool, uninstall: bool) -> Result<(), Bo
                     inifra_tui::presentation::Tone::Muted,
                     false
                 ),
-                inifra_tui::presentation::terminal_text(&instruction)
+                inifra_tui::presentation::paint(
+                    inifra_tui::presentation::terminal_text(&instruction),
+                    inifra_tui::presentation::Tone::Accent,
+                    false
+                )
             );
         }
     } else {

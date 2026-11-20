@@ -82,6 +82,10 @@ fn help_lists_catalog_commands() {
     let output = inifra().arg("--help").output().unwrap();
     assert!(output.status.success());
     let help = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        !help.contains("\u{1b}["),
+        "redirected help should be plain text"
+    );
     for command in [
         "init",
         "list",
@@ -823,13 +827,12 @@ fn list_summarizes_outputs_and_files_shows_every_path() {
     );
     let text = String::from_utf8(full.stdout).unwrap().replace('\\', "/");
     for path in [
-        ".github/ISSUE_TEMPLATE/bug-report.yml",
-        ".github/ISSUE_TEMPLATE/feature-request.yml",
-        ".github/ISSUE_TEMPLATE/question.yml",
+        ".github/ISSUE_TEMPLATE/{bug-report.yml, feature-request.yml, question.yml}",
         "docs/",
     ] {
         assert!(text.contains(path), "missing {path} in:\n{text}");
     }
+    assert!(!text.contains("Outputs:"));
 }
 
 #[test]
@@ -859,8 +862,13 @@ fn generates_a_directory_only_template_and_dry_run_is_read_only() {
         "{}",
         String::from_utf8_lossy(&dry_run.stderr)
     );
-    assert!(String::from_utf8_lossy(&dry_run.stdout).contains("create directory  code/"));
-    assert!(String::from_utf8_lossy(&dry_run.stdout).contains("Dry run; no files were changed."));
+    let dry_run_output = String::from_utf8_lossy(&dry_run.stdout);
+    assert!(
+        dry_run_output
+            .lines()
+            .any(|line| line.contains("create directory") && line.contains("code/"))
+    );
+    assert!(dry_run_output.contains("No files were changed."));
     assert!(!target.exists());
 
     let inspect = inifra()
@@ -912,9 +920,11 @@ fn generates_a_directory_only_template_and_dry_run_is_read_only() {
         "{}",
         String::from_utf8_lossy(&existing_directory_dry_run.stderr)
     );
+    let dry_run_output = String::from_utf8_lossy(&existing_directory_dry_run.stdout);
     assert!(
-        String::from_utf8_lossy(&existing_directory_dry_run.stdout)
-            .contains("already exists  code/")
+        dry_run_output
+            .lines()
+            .any(|line| line.contains("skip (already exists)") && line.contains("code/"))
     );
 }
 

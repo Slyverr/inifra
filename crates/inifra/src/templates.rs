@@ -34,7 +34,7 @@ pub(crate) fn edit(
             presentation::paint("Copied template to", presentation::Tone::Success, false),
             presentation::paint(
                 presentation::terminal_text(&destination.display().to_string()),
-                presentation::Tone::Muted,
+                presentation::Tone::Path,
                 false
             )
         );
@@ -186,7 +186,8 @@ pub(crate) fn rename(
         format!("; {}", details.join(" and "))
     };
     println!(
-        "Renamed template {} to {}{suffix}.",
+        "{} {} to {}{suffix}.",
+        presentation::paint("Renamed template", presentation::Tone::Success, false),
         presentation::paint_emphasis(old_id, presentation::Tone::Muted),
         presentation::paint_emphasis(new_id, presentation::Tone::Template)
     );
@@ -231,7 +232,8 @@ pub(crate) fn remove(
     }
     user_templates::remove_pack(&templates_root, &pack.category, id)?;
     println!(
-        "Removed user template {}.",
+        "{} {}.",
+        presentation::paint("Removed user template", presentation::Tone::Success, false),
         presentation::paint_emphasis(id, presentation::Tone::Template)
     );
     Ok(())
