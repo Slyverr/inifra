@@ -117,7 +117,12 @@ pub fn run_confirmation(
     question: &str,
     default_yes: bool,
 ) -> io::Result<Option<bool>> {
-    let (_restore, mut terminal) = terminal::inline(CONFIRM_HEIGHT)?;
+    let height = if title.is_empty() {
+        CONFIRM_HEIGHT - 1
+    } else {
+        CONFIRM_HEIGHT
+    };
+    let (_restore, mut terminal) = terminal::inline(height)?;
     let mut yes = default_yes;
     loop {
         terminal.draw(|frame| draw_confirmation(frame, title, question, yes))?;
@@ -302,6 +307,7 @@ fn draw_form(frame: &mut Frame<'_>, app: &FormApp<'_>) {
     let area = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(1),
+        Constraint::Length(1),
         Constraint::Length(2),
     ])
     .split(frame.area());
@@ -350,11 +356,11 @@ fn draw_form(frame: &mut Frame<'_>, app: &FormApp<'_>) {
         ]
     } else {
         vec![
-            Line::from(""),
             Line::from("Enter/Tab next · Shift+Tab previous · Esc cancel"),
+            Line::from(""),
         ]
     };
-    frame.render_widget(Paragraph::new(footer), area[2]);
+    frame.render_widget(Paragraph::new(footer), area[3]);
     let x = area[1].x.saturating_add(2).saturating_add(cursor_column);
     if x < area[1].right() && area[1].height > 2 {
         frame.set_cursor_position((x, area[1].y + 2));
@@ -407,10 +413,12 @@ fn visible_input(input: &str, cursor: usize, width: u16) -> (String, u16) {
 }
 
 fn draw_confirmation(frame: &mut Frame<'_>, title: &str, question: &str, yes: bool) {
+    let title_height = u16::from(!title.is_empty());
     let area = Layout::vertical([
-        Constraint::Length(1),
+        Constraint::Length(title_height),
         Constraint::Min(1),
-        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Length(1),
     ])
     .split(frame.area());
     frame.render_widget(
@@ -439,11 +447,8 @@ fn draw_confirmation(frame: &mut Frame<'_>, title: &str, question: &str, yes: bo
         area[1],
     );
     frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(""),
-            Line::from("←/→ or h/l choose · Enter confirm · Esc cancel"),
-        ]),
-        area[2],
+        Paragraph::new("←/→ or h/l choose · Enter confirm · Esc cancel"),
+        area[3],
     );
 }
 
