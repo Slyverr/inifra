@@ -975,6 +975,7 @@ dependencies = [
  "crossterm",
  "pulldown-cmark",
  "ratatui",
+ "unicode-width",
 ]
 
 [[package]]

@@ -15,7 +15,8 @@ const MAX_VISIBLE_CHOICES: usize = 8;
 
 /// Shows a compact inline choice list and returns the selected row.
 ///
-/// Arrow keys or `j`/`k` move through the list; Enter selects and Esc cancels.
+/// Arrow keys or `j`/`k` move through the list; Enter selects and Esc cancels. An empty title
+/// omits the heading.
 ///
 /// # Errors
 /// Returns an I/O error if the terminal cannot be initialized, drawn, or read. Empty choice lists
@@ -30,7 +31,7 @@ pub fn run_select(title: &str, choices: &[String], initial: usize) -> io::Result
 
     let title_height = u16::from(!title.is_empty());
     let visible = choices.len().min(MAX_VISIBLE_CHOICES) as u16;
-    let (_restore, mut terminal) = terminal::inline(title_height + visible + 1)?;
+    let (_restore, mut terminal) = terminal::inline(title_height + visible + 2)?;
     let mut app = SelectApp::new(choices, initial);
     loop {
         terminal.draw(|frame| draw_select(frame, title, choices, &mut app))?;
@@ -116,9 +117,10 @@ impl SelectApp {
 fn draw_select(frame: &mut Frame<'_>, title: &str, choices: &[String], app: &mut SelectApp) {
     let area = frame.area();
     let title_height = u16::from(!title.is_empty());
-    let [title_area, choices_area, footer_area] = Layout::vertical([
+    let [title_area, choices_area, _footer_gap, footer_area] = Layout::vertical([
         Constraint::Length(title_height),
         Constraint::Min(1),
+        Constraint::Length(1),
         Constraint::Length(1),
     ])
     .areas(area);
