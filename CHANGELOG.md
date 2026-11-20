@@ -11,6 +11,7 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 - Filter templates live in the interactive picker with `/` while preserving the `a` group toggle.
 - Quit the interactive initialization flow with `q` when the interface is not accepting text.
 - Preview rendered text during a read-only `inifra generate --dry-run --show-content`.
+- Add `--overwrite` and `--force` options for explicitly replacing or removing unmarked shell completion files.
 
 ### Changed
 
