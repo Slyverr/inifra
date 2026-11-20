@@ -14,6 +14,7 @@ pub(crate) const CREDENTIALS_FILE: &str = "credentials.env";
 
 /// Non-interactive assistant profile actions and the interactive manager.
 #[derive(Subcommand)]
+#[command(styles = crate::cli_style::styles())]
 pub(crate) enum AssistantCommand {
     /// Show configured profiles.
     Profiles,
@@ -78,7 +79,7 @@ fn manage(config_path: &Path, credentials_path: &Path) -> Result<(), Box<dyn Err
         if config_path.exists() || credentials_path.exists() {
             actions.push("Reset assistant data".to_owned());
         }
-        let Some(selected) = run_select("Assistant", &actions, 0)? else {
+        let Some(selected) = run_select("", &actions, 0)? else {
             return Ok(());
         };
         match actions[selected].as_str() {
@@ -107,7 +108,11 @@ fn manage(config_path: &Path, credentials_path: &Path) -> Result<(), Box<dyn Err
 fn list_profiles(config_path: &Path) -> Result<(), Box<dyn Error>> {
     let config = load_config(config_path)?;
     if config.profiles().is_empty() {
-        println!("No assistant profiles configured. Run `inifra assistant` to create one.");
+        println!(
+            "{} Run {} to create one.",
+            presentation::terminal_text("No assistant profiles configured."),
+            presentation::paint_emphasis("inifra assistant", presentation::Tone::Accent)
+        );
         return Ok(());
     }
     for (id, profile) in config.profiles() {
@@ -136,7 +141,8 @@ fn set_default(config_path: &Path, id: &str) -> Result<(), Box<dyn Error>> {
     config.set_default_profile(id)?;
     config.save(config_path)?;
     println!(
-        "Default assistant profile: {}",
+        "{} {}",
+        presentation::paint_emphasis("Default assistant profile:", presentation::Tone::Accent),
         presentation::paint_emphasis(id, presentation::Tone::Accent)
     );
     Ok(())
@@ -185,21 +191,24 @@ fn remove_profile(config_path: &Path, id: &str) -> Result<(), Box<dyn Error>> {
         profile.provider.display_name(),
         profile.model
     );
-    if run_confirmation("Assistant", &description, false)?.unwrap_or(false) {
+    if run_confirmation("", &description, false)?.unwrap_or(false) {
         config.remove_profile(id)?;
         config.save(config_path)?;
-        println!("Removed assistant profile {id:?}.");
+        println!(
+            "{} {}",
+            presentation::paint(
+                "Removed assistant profile",
+                presentation::Tone::Success,
+                false
+            ),
+            presentation::paint_emphasis(id, presentation::Tone::Accent)
+        );
     }
     Ok(())
 }
 
 fn reset(config_path: &Path, credentials_path: &Path) -> Result<(), Box<dyn Error>> {
-    if !run_confirmation(
-        "Assistant",
-        "Remove all profiles and saved credentials?",
-        false,
-    )?
-    .unwrap_or(false)
+    if !run_confirmation("", "Remove all profiles and saved credentials?", false)?.unwrap_or(false)
     {
         return Ok(());
     }
@@ -207,7 +216,14 @@ fn reset(config_path: &Path, credentials_path: &Path) -> Result<(), Box<dyn Erro
     ensure_removable_file(credentials_path)?;
     remove_if_present(config_path)?;
     remove_if_present(credentials_path)?;
-    println!("Assistant data removed.");
+    println!(
+        "{}",
+        presentation::paint(
+            "Assistant data removed.",
+            presentation::Tone::Success,
+            false
+        )
+    );
     Ok(())
 }
 

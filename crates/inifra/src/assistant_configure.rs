@@ -161,7 +161,12 @@ pub(super) fn configure_profile(
         .profile(&id)
         .ok_or("saved assistant profile is missing from the configuration")?;
     println!(
-        "Saved assistant profile {}  {}  {}",
+        "{} {}  {}  {}",
+        presentation::paint(
+            "Saved assistant profile",
+            presentation::Tone::Success,
+            false
+        ),
         presentation::paint_emphasis(&id, presentation::Tone::Accent),
         presentation::terminal_text(saved_profile.provider.display_name()),
         presentation::terminal_text(&saved_profile.model)

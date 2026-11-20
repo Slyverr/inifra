@@ -4,6 +4,7 @@ use inifra_tui::presentation;
 use std::{error::Error, path::Path};
 
 #[derive(Debug, Subcommand)]
+#[command(styles = crate::cli_style::styles())]
 pub(crate) enum PresetCommand {
     /// List saved presets.
     List,
@@ -108,7 +109,8 @@ pub(crate) fn run(
         PresetCommand::Rename { old_id, new_id } => {
             presets::rename(&root, &old_id, &new_id, catalog)?;
             println!(
-                "Renamed preset {} to {}.",
+                "{} {} to {}.",
+                presentation::paint("Renamed preset", presentation::Tone::Success, false),
                 presentation::paint_emphasis(&old_id, presentation::Tone::Muted),
                 presentation::paint_emphasis(&new_id, presentation::Tone::Accent)
             );
@@ -117,7 +119,8 @@ pub(crate) fn run(
         PresetCommand::Remove { id } => {
             presets::remove(&root, &id)?;
             println!(
-                "Removed preset {}.",
+                "{} {}.",
+                presentation::paint("Removed preset", presentation::Tone::Success, false),
                 presentation::paint_emphasis(&id, presentation::Tone::Accent)
             );
             Ok(())
@@ -193,20 +196,29 @@ fn inspect(root: &Path, catalog: &Catalog, id: &str) -> Result<(), Box<dyn Error
     );
     println!("{}", presentation::terminal_text(&preset.description));
     println!();
-    println!("Templates");
+    println!(
+        "{}",
+        presentation::paint_emphasis("Templates", presentation::Tone::Accent)
+    );
     for template in &preset.templates {
         println!(
             "  {}",
-            presentation::paint(template, presentation::Tone::Template, false)
+            presentation::paint_emphasis(template, presentation::Tone::Accent)
         );
     }
     if !preset.values.is_empty() {
         println!();
-        println!("Saved inputs");
+        println!(
+            "{}",
+            presentation::paint_emphasis("Saved inputs", presentation::Tone::Accent)
+        );
         for (name, value) in &preset.values {
             println!(
                 "  {} = {}",
-                presentation::terminal_text(name),
+                presentation::paint_emphasis(
+                    presentation::terminal_text(name),
+                    presentation::Tone::Warning
+                ),
                 presentation::terminal_text(value)
             );
         }

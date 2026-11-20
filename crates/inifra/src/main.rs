@@ -1,6 +1,7 @@
 mod assistant_ask;
 mod assistant_cli;
 mod assistant_configure;
+mod cli_style;
 mod completions;
 mod init;
 mod preset_cli;
@@ -13,10 +14,22 @@ use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use inifra_core::{apply, workflow};
 use inifra_tui::presentation;
-use std::{collections::BTreeMap, error::Error, path::PathBuf};
+use similar::TextDiff;
+use std::{
+    collections::BTreeMap,
+    error::Error,
+    path::{Component, Path, PathBuf},
+};
+
+const PLAN_ACTION_WIDTH: usize = "skip (already exists)".len();
 
 #[derive(Parser)]
-#[command(version, about = "Create project files from reusable templates")]
+#[command(
+    version,
+    about = "Create project files from reusable templates",
+    color = clap::ColorChoice::Auto,
+    styles = crate::cli_style::styles()
+)]
 struct Cli {
     /// Path to a template catalog.
     #[arg(long, global = true)]
@@ -26,6 +39,7 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+#[command(styles = crate::cli_style::styles())]
 enum Command {
     /// List available template packs.
     List {
@@ -114,6 +128,9 @@ enum Command {
         overwrite: bool,
         #[arg(long)]
         dry_run: bool,
+        /// Show new content and replacement diffs in a dry run.
+        #[arg(long, requires = "dry_run")]
+        show_content: bool,
     },
 }
 
@@ -187,6 +204,7 @@ fn run() -> Result<(), Box<dyn Error>> {
     match command {
         Command::List { files } => {
             let mut category = "";
+            let terminal_width = presentation::terminal_width();
             let width = catalog
                 .packs
                 .iter()
@@ -202,68 +220,56 @@ fn run() -> Result<(), Box<dyn Error>> {
                     println!(
                         "{}",
                         presentation::paint_emphasis(
-                            presentation::terminal_text(&catalog.categories[category].name),
+                            terminal_width.map_or_else(
+                                || presentation::terminal_text(&catalog.categories[category].name),
+                                |width| presentation::truncate_to_width(
+                                    &presentation::terminal_text(
+                                        &catalog.categories[category].name
+                                    ),
+                                    width
+                                )
+                            ),
                             presentation::Tone::Muted
                         )
                     );
                 }
                 let selected = std::slice::from_ref(&pack.id);
                 let outputs = catalog.resolve_outputs(selected)?;
-                let id = presentation::paint_emphasis(
-                    format!("{:width$}", presentation::terminal_text(&pack.id)),
-                    presentation::Tone::Accent,
-                );
+                let id = format!("{:width$}", presentation::terminal_text(&pack.id));
                 let description = presentation::terminal_text(&pack.description);
                 if files {
-                    println!("  {id}  {description}");
-                    if !outputs.is_empty() {
+                    let description = fit_list_description(&id, &description, terminal_width);
+                    println!(
+                        "  {}  {description}",
+                        presentation::paint_emphasis(&id, presentation::Tone::Accent)
+                    );
+                    for paths in compact_output_paths(&outputs, &pack.directories) {
                         println!(
                             "    {}",
-                            presentation::paint_emphasis("Files:", presentation::Tone::Muted)
+                            presentation::paint(
+                                presentation::terminal_text(&paths),
+                                presentation::Tone::Muted,
+                                false
+                            )
                         );
-                        for output in outputs {
-                            println!(
-                                "      {}",
-                                presentation::paint(
-                                    presentation::terminal_text(
-                                        &output.output.display().to_string()
-                                    ),
-                                    presentation::Tone::Muted,
-                                    false
-                                )
-                            );
-                        }
-                    }
-                    if !pack.directories.is_empty() {
-                        println!(
-                            "    {}",
-                            presentation::paint_emphasis("Directories:", presentation::Tone::Muted)
-                        );
-                        for directory in &pack.directories {
-                            println!(
-                                "      {}",
-                                presentation::paint(
-                                    format!(
-                                        "{}/",
-                                        presentation::terminal_text(
-                                            &directory.display().to_string()
-                                        )
-                                    ),
-                                    presentation::Tone::Muted,
-                                    false
-                                )
-                            );
-                        }
                     }
                 } else {
                     let summary = compact_output_summary(&outputs, &pack.directories);
-                    println!(
-                        "  {id}  {description}  {}",
-                        presentation::paint(
-                            presentation::terminal_text(&summary),
-                            presentation::Tone::Muted,
-                            false
+                    let (description, summary) =
+                        fit_list_content(&id, &description, &summary, terminal_width);
+                    let output_summary = summary.map_or_else(String::new, |summary| {
+                        format!(
+                            "  {}",
+                            presentation::paint(
+                                presentation::terminal_text(&summary),
+                                presentation::Tone::Muted,
+                                false
+                            )
                         )
+                    });
+                    println!(
+                        "  {}  {description}{output_summary}",
+                        presentation::paint_emphasis(&id, presentation::Tone::Accent)
                     );
                 }
             }
@@ -287,29 +293,33 @@ fn run() -> Result<(), Box<dyn Error>> {
                 println!();
                 println!(
                     "{}",
-                    presentation::paint_emphasis("Files:", presentation::Tone::Muted)
+                    presentation::paint_emphasis("Files:", presentation::Tone::Accent)
                 );
                 for output in output_paths {
                     println!(
                         "  {}",
                         presentation::paint(
                             presentation::terminal_text(&output.output.display().to_string()),
-                            presentation::Tone::Muted,
+                            presentation::Tone::Path,
                             false
                         )
                     );
                     if let Some(alternative) = output.co_selected_output {
                         println!(
-                            "    {}",
+                            "    {}  {}",
                             presentation::paint(
                                 format!(
-                                    "when paired ({})  {}",
-                                    presentation::terminal_text(&alternative.group),
-                                    presentation::terminal_text(
-                                        &alternative.path.display().to_string()
-                                    )
+                                    "when paired ({})",
+                                    presentation::terminal_text(&alternative.group)
                                 ),
                                 presentation::Tone::Muted,
+                                false
+                            ),
+                            presentation::paint(
+                                presentation::terminal_text(
+                                    &alternative.path.display().to_string()
+                                ),
+                                presentation::Tone::Path,
                                 false
                             )
                         );
@@ -320,7 +330,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 println!();
                 println!(
                     "{}",
-                    presentation::paint_emphasis("Directories:", presentation::Tone::Muted)
+                    presentation::paint_emphasis("Directories:", presentation::Tone::Accent)
                 );
                 for directory in &pack.directories {
                     println!(
@@ -330,7 +340,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                                 "{}/",
                                 presentation::terminal_text(&directory.display().to_string())
                             ),
-                            presentation::Tone::Muted,
+                            presentation::Tone::Path,
                             false
                         )
                     );
@@ -341,7 +351,7 @@ fn run() -> Result<(), Box<dyn Error>> {
                 println!();
                 println!(
                     "{}",
-                    presentation::paint_emphasis("Inputs:", presentation::Tone::Muted)
+                    presentation::paint_emphasis("Inputs:", presentation::Tone::Accent)
                 );
                 for (name, definition) in definitions {
                     let requirement = if definition.required {
@@ -350,12 +360,27 @@ fn run() -> Result<(), Box<dyn Error>> {
                         "optional"
                     };
                     println!(
-                        "  {} ({requirement})  {}",
-                        presentation::terminal_text(&name),
+                        "  {} {}  {}",
+                        presentation::paint_emphasis(
+                            presentation::terminal_text(&name),
+                            presentation::Tone::Warning
+                        ),
+                        presentation::paint(
+                            format!("({requirement})"),
+                            presentation::Tone::Muted,
+                            false
+                        ),
                         presentation::terminal_text(&definition.prompt)
                     );
                     if let Some(default) = &definition.default {
-                        println!("    Default: {}", presentation::terminal_text(default));
+                        println!(
+                            "    {} {}",
+                            presentation::paint("Default:", presentation::Tone::Muted, false),
+                            presentation::paint_emphasis(
+                                presentation::terminal_text(default),
+                                presentation::Tone::Warning
+                            )
+                        );
                     }
                 }
             }
@@ -369,7 +394,14 @@ fn run() -> Result<(), Box<dyn Error>> {
                     presentation::paint_emphasis(&pack.id, presentation::Tone::Accent)
                 );
             }
-            println!("Validated {} template(s).", catalog.packs.len());
+            println!(
+                "{} {} template(s).",
+                presentation::paint("Validated", presentation::Tone::Success, false),
+                presentation::paint_emphasis(
+                    catalog.packs.len().to_string(),
+                    presentation::Tone::Accent
+                )
+            );
         }
         Command::Init { target, overwrite } => init::run(&catalog, target, overwrite)?,
         Command::Edit { id } => {
@@ -396,24 +428,26 @@ fn run() -> Result<(), Box<dyn Error>> {
             set,
             overwrite,
             dry_run,
+            show_content,
         } => {
             let values = parse_assignments(&set)?;
             let plan = workflow::prepare(&catalog, &ids, &values, &target, overwrite)?;
             if dry_run {
-                print_plan(&plan, &target);
+                print_plan(&plan, &target, show_content);
                 println!(
                     "{}",
-                    presentation::paint(
-                        "Dry run; no files were changed.",
-                        presentation::Tone::Muted,
-                        false
-                    )
+                    presentation::paint("No files were changed.", presentation::Tone::Muted, false)
                 );
             } else {
                 apply::apply_plan(&target, &plan)?;
                 println!(
-                    "Target: {}",
-                    presentation::terminal_text(&target.display().to_string())
+                    "{} {}",
+                    presentation::paint_emphasis("Target:", presentation::Tone::Accent),
+                    presentation::paint(
+                        presentation::terminal_text(&target.display().to_string()),
+                        presentation::Tone::Path,
+                        false
+                    )
                 );
                 for directory in &plan.directories {
                     if directory.action == inifra_core::plan::DirectoryAction::Create {
@@ -424,7 +458,11 @@ fn run() -> Result<(), Box<dyn Error>> {
                                 presentation::Tone::Success,
                                 false
                             ),
-                            presentation::terminal_text(&directory.path.display().to_string())
+                            presentation::paint(
+                                presentation::terminal_text(&directory.path.display().to_string()),
+                                presentation::Tone::Path,
+                                false
+                            )
                         );
                     }
                 }
@@ -443,7 +481,11 @@ fn run() -> Result<(), Box<dyn Error>> {
                     println!(
                         "{}  {}",
                         presentation::paint(action, tone, false),
-                        presentation::terminal_text(&file.path.display().to_string())
+                        presentation::paint(
+                            presentation::terminal_text(&file.path.display().to_string()),
+                            presentation::Tone::Path,
+                            false
+                        )
                     );
                 }
             }
@@ -476,11 +518,25 @@ impl Command {
     }
 }
 
-fn print_plan(plan: &inifra_core::plan::GenerationPlan, target: &std::path::Path) {
+fn print_plan(
+    plan: &inifra_core::plan::GenerationPlan,
+    target: &std::path::Path,
+    show_content: bool,
+) {
+    let target = display_target(target);
     println!(
-        "{}: {}",
-        presentation::paint_emphasis("Plan for", presentation::Tone::Accent),
-        presentation::terminal_text(&target.display().to_string())
+        "{}  {}",
+        presentation::paint_emphasis("Preview", presentation::Tone::Accent),
+        presentation::paint(
+            presentation::terminal_text(&target.display().to_string()),
+            presentation::Tone::Path,
+            false
+        )
+    );
+    println!();
+    println!(
+        "{}",
+        presentation::paint_emphasis("Plan", presentation::Tone::Accent)
     );
     for directory in &plan.directories {
         let (action, tone) = match directory.action {
@@ -488,26 +544,339 @@ fn print_plan(plan: &inifra_core::plan::GenerationPlan, target: &std::path::Path
                 ("create directory", presentation::Tone::Success)
             }
             inifra_core::plan::DirectoryAction::Existing => {
-                ("already exists", presentation::Tone::Muted)
+                ("skip (already exists)", presentation::Tone::Muted)
             }
         };
-        println!(
-            "  {}  {}/",
-            presentation::paint(action, tone, false),
-            presentation::terminal_text(&directory.path.display().to_string())
-        );
+        print_plan_entry(action, tone, &format!("{}/", directory.path.display()));
     }
     for file in &plan.files {
         let (action, tone) = match file.action {
             inifra_core::plan::Action::Create => ("create", presentation::Tone::Success),
             inifra_core::plan::Action::Replace => ("replace", presentation::Tone::Warning),
-            inifra_core::plan::Action::Skip => ("already exists", presentation::Tone::Muted),
+            inifra_core::plan::Action::Skip => ("skip (already exists)", presentation::Tone::Muted),
+        };
+        print_plan_entry(action, tone, &file.path.display().to_string());
+    }
+
+    if show_content {
+        let content_files = plan
+            .files
+            .iter()
+            .filter(|file| file.action != inifra_core::plan::Action::Skip)
+            .collect::<Vec<_>>();
+        println!();
+        println!(
+            "{}",
+            presentation::paint_emphasis("Content", presentation::Tone::Accent)
+        );
+        if content_files.is_empty() {
+            let message = if plan.files.is_empty() {
+                "No file content to preview."
+            } else {
+                "All existing files are skipped. Pass --overwrite to preview replacements."
+            };
+            println!(
+                "{}",
+                presentation::paint(message, presentation::Tone::Muted, false)
+            );
+        }
+        for file in content_files {
+            println!();
+            match file.action {
+                inifra_core::plan::Action::Create => {
+                    println!(
+                        "{}",
+                        presentation::paint(
+                            format!(
+                                "--- {} ---",
+                                presentation::terminal_text(&file.path.display().to_string())
+                            ),
+                            presentation::Tone::Path,
+                            false
+                        )
+                    );
+                    print_rendered_content(&file.path, &file.contents);
+                }
+                inifra_core::plan::Action::Replace => {
+                    if let Some(existing) = file.existing_contents.as_deref() {
+                        print_replacement_preview(&file.path, existing, &file.contents);
+                    }
+                }
+                inifra_core::plan::Action::Skip => {}
+            }
+        }
+    }
+}
+
+fn print_plan_entry(action: &str, tone: presentation::Tone, path: &str) {
+    println!(
+        "  {}  {}",
+        presentation::paint(format!("{action:<PLAN_ACTION_WIDTH$}"), tone, false),
+        presentation::paint_emphasis(
+            presentation::terminal_text(path),
+            presentation::Tone::Accent
+        )
+    );
+}
+
+fn print_replacement_preview(path: &Path, existing: &[u8], proposed: &[u8]) {
+    let (Ok(existing), Ok(proposed)) =
+        (std::str::from_utf8(existing), std::str::from_utf8(proposed))
+    else {
+        println!(
+            "{}",
+            presentation::paint_emphasis(
+                presentation::terminal_text(&path.display().to_string()),
+                presentation::Tone::Accent
+            )
+        );
+        println!(
+            "  {}",
+            presentation::paint(
+                format!(
+                    "Binary output: {} → {} bytes",
+                    existing.len(),
+                    proposed.len()
+                ),
+                presentation::Tone::Muted,
+                false
+            )
+        );
+        return;
+    };
+
+    if existing == proposed {
+        println!(
+            "{}  {}",
+            presentation::paint_emphasis(
+                presentation::terminal_text(&path.display().to_string()),
+                presentation::Tone::Accent
+            ),
+            presentation::paint("no content changes", presentation::Tone::Muted, false)
+        );
+        return;
+    }
+
+    let path = presentation::terminal_text(&path.display().to_string());
+    let diff = TextDiff::from_lines(existing, proposed)
+        .unified_diff()
+        .context_radius(3)
+        .header(&format!("a/{path}"), &format!("b/{path}"))
+        .to_string();
+    for line in diff.lines() {
+        let tone = match line {
+            line if line.starts_with("--- ") || line.starts_with("+++ ") => {
+                presentation::Tone::Muted
+            }
+            line if line.starts_with("@@") => presentation::Tone::Accent,
+            line if line.starts_with('+') => presentation::Tone::Success,
+            line if line.starts_with('-') => presentation::Tone::Error,
+            _ => presentation::Tone::Secondary,
         };
         println!(
-            "  {}  {}",
-            presentation::paint(action, tone, false),
-            presentation::terminal_text(&file.path.display().to_string())
+            "  {}",
+            presentation::paint(presentation::terminal_text(line), tone, false)
         );
+    }
+}
+
+fn display_target(target: &Path) -> PathBuf {
+    if let Ok(absolute) = target.canonicalize() {
+        return absolute;
+    }
+    if target.is_absolute() {
+        target.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|current| current.join(target))
+            .unwrap_or_else(|_| target.to_path_buf())
+    }
+}
+
+fn print_rendered_content(path: &Path, contents: &[u8]) {
+    const INDENT: &str = "  ";
+
+    match std::str::from_utf8(contents) {
+        Ok("") => println!("{INDENT}"),
+        Ok(content) => {
+            let is_markdown = path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    extension.eq_ignore_ascii_case("md")
+                        || extension.eq_ignore_ascii_case("markdown")
+                });
+            let mut in_code_block = false;
+            for line in content.lines() {
+                let safe_line = presentation::terminal_text(line);
+                let rendered = if is_markdown {
+                    color_markdown_line(&safe_line, &mut in_code_block)
+                } else {
+                    safe_line
+                };
+                println!("{INDENT}{rendered}");
+            }
+        }
+        Err(_) => println!("{INDENT}[binary output: {} bytes]", contents.len()),
+    }
+}
+
+fn color_markdown_line(line: &str, in_code_block: &mut bool) -> String {
+    let trimmed = line.trim_start();
+    let indentation = &line[..line.len() - trimmed.len()];
+    if trimmed.starts_with("```") {
+        *in_code_block = !*in_code_block;
+        return format!(
+            "{indentation}{}",
+            presentation::paint(trimmed, presentation::Tone::Muted, false)
+        );
+    }
+    if *in_code_block {
+        return format!(
+            "{indentation}{}",
+            presentation::paint(trimmed, presentation::Tone::Secondary, false)
+        );
+    }
+    if trimmed.starts_with('#') {
+        return presentation::paint_emphasis(line, presentation::Tone::Warning);
+    }
+    if trimmed.starts_with("<!--") {
+        return presentation::paint(line, presentation::Tone::Muted, false);
+    }
+    if let Some((marker, rest)) = ["- ", "* ", "+ "]
+        .into_iter()
+        .find_map(|marker| trimmed.strip_prefix(marker).map(|rest| (marker, rest)))
+    {
+        return format!(
+            "{indentation}{}{}",
+            presentation::paint(marker, presentation::Tone::Success, false),
+            color_inline_code(rest)
+        );
+    }
+    if let Some(rest) = trimmed.strip_prefix("> ") {
+        return format!(
+            "{indentation}{}{}",
+            presentation::paint("> ", presentation::Tone::Muted, false),
+            color_inline_code(rest)
+        );
+    }
+    color_inline_code(line)
+}
+
+fn color_inline_code(line: &str) -> String {
+    if line.trim().is_empty() {
+        return line.to_owned();
+    }
+    let mut result = String::with_capacity(line.len());
+    let mut remaining = line;
+    while let Some(start) = remaining.find('`') {
+        result.push_str(&presentation::paint(
+            &remaining[..start],
+            presentation::Tone::Secondary,
+            false,
+        ));
+        let code_start = start + 1;
+        let Some(end) = remaining[code_start..].find('`') else {
+            result.push_str(&presentation::paint(
+                &remaining[start..],
+                presentation::Tone::Secondary,
+                false,
+            ));
+            break;
+        };
+        let code_end = code_start + end;
+        result.push_str(&presentation::paint("`", presentation::Tone::Muted, false));
+        result.push_str(&presentation::paint(
+            &remaining[code_start..code_end],
+            presentation::Tone::Template,
+            false,
+        ));
+        result.push_str(&presentation::paint("`", presentation::Tone::Muted, false));
+        remaining = &remaining[code_end + 1..];
+    }
+    result.push_str(&presentation::paint(
+        remaining,
+        presentation::Tone::Secondary,
+        false,
+    ));
+    result
+}
+
+fn compact_output_paths(
+    outputs: &[inifra_core::output_rules::ResolvedPackOutput],
+    directories: &[PathBuf],
+) -> Vec<String> {
+    let files = compact_paths(outputs.iter().map(|output| output.output.as_path()), false);
+    let directories = compact_paths(directories.iter().map(PathBuf::as_path), true);
+    files.into_iter().chain(directories).collect()
+}
+
+#[derive(Default)]
+struct OutputPathNode {
+    terminal: bool,
+    children: BTreeMap<String, OutputPathNode>,
+}
+
+fn compact_paths<'a>(
+    paths: impl IntoIterator<Item = &'a Path>,
+    directories: bool,
+) -> Option<String> {
+    let mut root = OutputPathNode::default();
+    for path in paths {
+        let mut node = &mut root;
+        let mut has_component = false;
+        for component in path.components() {
+            if let Component::Normal(name) = component {
+                node = node
+                    .children
+                    .entry(name.to_string_lossy().into_owned())
+                    .or_default();
+                has_component = true;
+            }
+        }
+        if has_component {
+            node.terminal = true;
+        }
+    }
+
+    let entries = root
+        .children
+        .iter()
+        .map(|(name, node)| compact_path_entry(name, node, directories))
+        .collect::<Vec<_>>();
+    (!entries.is_empty()).then(|| entries.join(", "))
+}
+
+fn compact_path_entry(name: &str, node: &OutputPathNode, directories: bool) -> String {
+    let mut path = name.to_owned();
+    let mut current = node;
+    while !current.terminal && current.children.len() == 1 {
+        let Some((child_name, child)) = current.children.first_key_value() else {
+            break;
+        };
+        path.push('/');
+        path.push_str(child_name);
+        current = child;
+    }
+
+    if current.children.is_empty() {
+        if directories && current.terminal {
+            path.push('/');
+        }
+        return path;
+    }
+
+    let children = current
+        .children
+        .iter()
+        .map(|(child_name, child)| compact_path_entry(child_name, child, directories))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let nested = format!("{path}/{{{children}}}");
+    if directories && current.terminal {
+        format!("{path}/, {nested}")
+    } else {
+        nested
     }
 }
 
@@ -541,5 +910,89 @@ fn compact_output_summary(
         (Some(files), None) => files,
         (None, Some(directories)) => directories,
         (None, None) => String::new(),
+    }
+}
+
+fn fit_list_description(id: &str, description: &str, width: Option<usize>) -> String {
+    let Some(width) = width else {
+        return description.to_owned();
+    };
+    let prefix_width = 2 + presentation::visible_width(id) + 2;
+    presentation::truncate_to_width(description, width.saturating_sub(prefix_width))
+}
+
+fn fit_list_content(
+    id: &str,
+    description: &str,
+    summary: &str,
+    width: Option<usize>,
+) -> (String, Option<String>) {
+    let Some(width) = width else {
+        return (
+            description.to_owned(),
+            (!summary.is_empty()).then(|| summary.to_owned()),
+        );
+    };
+
+    let prefix_width = 2 + presentation::visible_width(id) + 2;
+    let full_width = prefix_width
+        + presentation::visible_width(description)
+        + if summary.is_empty() {
+            0
+        } else {
+            2 + presentation::visible_width(summary)
+        };
+    if full_width <= width {
+        return (
+            description.to_owned(),
+            (!summary.is_empty()).then(|| summary.to_owned()),
+        );
+    }
+
+    (
+        presentation::truncate_to_width(description, width.saturating_sub(prefix_width)),
+        None,
+    )
+}
+
+#[cfg(test)]
+mod presentation_tests {
+    use super::fit_list_content;
+    use inifra_tui::presentation::visible_width;
+
+    #[test]
+    fn list_omits_secondary_file_summary_when_it_would_wrap() {
+        let id = "github-pull-request";
+        let description = "GitHub pull request description template";
+        let summary = ".github/pull_request_template.md";
+        let (fitted_description, fitted_summary) =
+            fit_list_content(id, description, summary, Some(55));
+
+        assert!(fitted_summary.is_none());
+        assert!(fitted_description.ends_with('…'));
+        assert!(visible_width(&format!("  {id}  {fitted_description}")) <= 55);
+    }
+
+    #[test]
+    fn list_keeps_file_summary_when_it_fits_on_the_same_line() {
+        let id = "readme";
+        let description = "Project overview";
+        let summary = "README.md";
+        let (fitted_description, fitted_summary) =
+            fit_list_content(id, description, summary, Some(80));
+
+        assert_eq!(fitted_description, description);
+        assert_eq!(fitted_summary.as_deref(), Some(summary));
+    }
+
+    #[test]
+    fn list_keeps_complete_content_without_a_terminal_width() {
+        let id = "github-pull-request";
+        let description = "GitHub pull request description template";
+        let summary = ".github/pull_request_template.md";
+        let (fitted_description, fitted_summary) = fit_list_content(id, description, summary, None);
+
+        assert_eq!(fitted_description, description);
+        assert_eq!(fitted_summary.as_deref(), Some(summary));
     }
 }

@@ -10,6 +10,7 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 - Filter templates live in the interactive picker with `/` while preserving the `a` group toggle.
 - Quit the interactive initialization flow with `q` when the interface is not accepting text.
+- Preview rendered text during a read-only `inifra generate --dry-run --show-content`.
 
 ### Changed
 
@@ -18,6 +19,8 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 - Keep templates with coordinated output paths independently selectable and preview their resolved destinations.
 - Disable incompatible template choices before selection and restore keybinding hints after transient validation errors.
 - Distinguish template input names from their prompts in the preview pane.
+- Group common path prefixes in `inifra list --files` and show paths directly under each template.
+- Separate dry-run action summaries from content, omitting skipped files and diffing replacements.
 
 ## [0.6.0] - 2026-11-19
 

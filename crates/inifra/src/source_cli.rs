@@ -11,6 +11,7 @@ use std::{
 };
 
 #[derive(Debug, Subcommand)]
+#[command(styles = crate::cli_style::styles())]
 pub(crate) enum SourceCommand {
     /// Register a Git catalog and pin the selected ref at its current revision.
     Add {
@@ -91,7 +92,14 @@ fn add(project_dir: &Path, name: &str, url: &str, reference: &str) -> Result<(),
 fn list(project_dir: &Path) -> Result<(), Box<dyn Error>> {
     let (_, registry) = load_registry(project_dir)?;
     if registry.sources.is_empty() {
-        println!("No project sources are configured.");
+        println!(
+            "{}",
+            inifra_tui::presentation::paint(
+                "No project sources are configured.",
+                inifra_tui::presentation::Tone::Muted,
+                false
+            )
+        );
         return Ok(());
     }
     for (name, source) in registry.sources {
@@ -117,7 +125,14 @@ fn sync(project_dir: &Path, selected: Option<&str>) -> Result<(), Box<dyn Error>
     let (_, registry) = load_registry(project_dir)?;
     let names = selected_names(&registry, selected)?;
     if names.is_empty() {
-        println!("No project sources are configured.");
+        println!(
+            "{}",
+            inifra_tui::presentation::paint(
+                "No project sources are configured.",
+                inifra_tui::presentation::Tone::Muted,
+                false
+            )
+        );
         return Ok(());
     }
 
@@ -146,7 +161,14 @@ fn update(project_dir: &Path, selected: Option<&str>) -> Result<(), Box<dyn Erro
     let (_, mut registry) = load_registry(project_dir)?;
     let names = selected_names(&registry, selected)?;
     if names.is_empty() {
-        println!("No project sources are configured.");
+        println!(
+            "{}",
+            inifra_tui::presentation::paint(
+                "No project sources are configured.",
+                inifra_tui::presentation::Tone::Muted,
+                false
+            )
+        );
         return Ok(());
     }
 
@@ -164,7 +186,14 @@ fn update(project_dir: &Path, selected: Option<&str>) -> Result<(), Box<dyn Erro
     }
 
     if updated.is_empty() {
-        println!("All selected source pins are up to date.");
+        println!(
+            "{}",
+            inifra_tui::presentation::paint(
+                "All selected source pins are up to date.",
+                inifra_tui::presentation::Tone::Success,
+                false
+            )
+        );
         return Ok(());
     }
     for (name, revision) in &updated {
