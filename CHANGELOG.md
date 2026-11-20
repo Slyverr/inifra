@@ -6,6 +6,19 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 ## [Unreleased]
 
+### Added
+
+- Filter templates live in the interactive picker with `/` while preserving the `a` group toggle.
+- Quit the interactive initialization flow with `q` when the interface is not accepting text.
+
+### Changed
+
+- Use a subdued blue-gray for inactive template choices in the interactive picker.
+- Bring the initialization picker layout, preview hierarchy, and Markdown/Jinja color cues in line with the previous interface.
+- Keep templates with coordinated output paths independently selectable and preview their resolved destinations.
+- Disable incompatible template choices before selection and restore keybinding hints after transient validation errors.
+- Distinguish template input names from their prompts in the preview pane.
+
 ## [0.6.0] - 2026-11-19
 
 ### Added

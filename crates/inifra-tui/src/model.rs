@@ -1,4 +1,7 @@
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 /// Catalog information displayed by the initialization picker.
 #[derive(Clone, Debug)]
@@ -34,14 +37,54 @@ pub struct TemplateView {
     pub id: String,
     /// Human-readable description.
     pub description: String,
-    /// Output file paths.
-    pub outputs: Vec<PathBuf>,
+    /// Shared and pack-local input names and prompts shown in the preview.
+    pub inputs: Vec<TemplateInputView>,
     /// Intentionally empty output directories.
     pub directories: Vec<PathBuf>,
-    /// Source path shown above the preview, if this template has file outputs.
-    pub preview_source: Option<PathBuf>,
-    /// Source preview text.
-    pub preview: String,
+    /// Source contents and output rules shown in the preview.
+    pub sources: Vec<TemplateSourceView>,
+}
+
+/// Final output paths resolved for the current picker selection.
+#[derive(Clone, Debug, Default)]
+pub struct SelectionPreview {
+    /// Final output paths grouped by template identifier and source path.
+    pub outputs: BTreeMap<String, BTreeMap<PathBuf, PathBuf>>,
+    /// IDs of templates that cannot be selected with the current selection.
+    pub unavailable: BTreeSet<String>,
+}
+
+/// A template input shown in the template preview.
+#[derive(Clone, Debug)]
+pub struct TemplateInputView {
+    /// Stable input name.
+    pub name: String,
+    /// Human-readable input prompt.
+    pub prompt: String,
+}
+
+/// One source file shown in the template preview.
+#[derive(Clone, Debug)]
+pub struct TemplateSourceView {
+    /// Path to the source file relative to the template pack.
+    pub source: PathBuf,
+    /// Default output path for this source.
+    pub output: PathBuf,
+    /// Alternate output used when a compatible template is selected with this one.
+    pub alternate_output: Option<PathBuf>,
+    /// Source text, or a safe description for non-text sources.
+    pub content: String,
+}
+
+impl TemplateSourceView {
+    pub(crate) fn resolved_output<'a>(
+        &'a self,
+        outputs: Option<&'a BTreeMap<PathBuf, PathBuf>>,
+    ) -> &'a std::path::Path {
+        outputs
+            .and_then(|outputs| outputs.get(&self.source))
+            .unwrap_or(&self.output)
+    }
 }
 
 /// A value to request once for the selected templates.
@@ -73,7 +116,7 @@ impl ReviewAction {
         match self {
             Self::Create => "create",
             Self::Replace => "replace",
-            Self::Skip => "skip (already exists)",
+            Self::Skip => "keep",
         }
     }
 }
@@ -120,6 +163,23 @@ pub trait InitBackend {
     /// # Errors
     /// Returns a user-facing explanation for an invalid selection.
     fn input_prompts(&mut self, selected: &[String]) -> Result<Vec<InputPrompt>, String>;
+    /// Validates a candidate selection before the picker accepts it.
+    ///
+    /// # Errors
+    /// Returns a user-facing explanation when selected templates cannot be combined.
+    fn validate_selection(&mut self, _selected: &[String]) -> Result<(), String> {
+        Ok(())
+    }
+    /// Resolves display paths and reports templates incompatible with the current selection.
+    ///
+    /// The default implementation validates without overriding paths or marking templates unavailable.
+    ///
+    /// # Errors
+    /// Returns a user-facing explanation when the selection cannot be combined.
+    fn selection_preview(&mut self, selected: &[String]) -> Result<SelectionPreview, String> {
+        self.validate_selection(selected)?;
+        Ok(SelectionPreview::default())
+    }
     /// Prepares the operations without applying them.
     ///
     /// # Errors
@@ -137,10 +197,10 @@ pub trait InitBackend {
 }
 
 /// Result of the interactive initialization.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum InitOutcome {
-    /// The user approved and the backend applied the plan.
-    Applied,
+    /// The user approved and the backend applied the plan described here.
+    Applied(GenerationReview),
     /// The user left without applying a plan.
     Cancelled,
 }
