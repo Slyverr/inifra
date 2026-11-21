@@ -10,7 +10,7 @@ pub use model::{Catalog, Category, Pack, PackReference};
 use include_dir::{Dir, include_dir};
 use std::{error::Error, fmt};
 
-static BUNDLED: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../../templates");
+static BUNDLED: Dir<'_> = include_dir!("$OUT_DIR/bundled_templates");
 
 /// Extracts the compile-time bundled catalog into an existing private directory.
 ///
