@@ -80,6 +80,7 @@ pub fn apply_plan(root: &Path, plan: &GenerationPlan) -> Result<(), ApplyError> 
             )));
         }
     }
+
     for (old, new) in plan.directories.iter().zip(&fresh.directories) {
         if old.action != new.action {
             return Err(ApplyError(format!(
@@ -104,10 +105,12 @@ pub fn apply_plan(root: &Path, plan: &GenerationPlan) -> Result<(), ApplyError> 
             open_or_create_directory(&directory, &planned_directory.path)?;
         }
     }
+
     for file in &plan.files {
         if file.action == Action::Skip {
             continue;
         }
+
         let target = root.join(&file.path);
         let parent = file
             .path
@@ -200,6 +203,7 @@ fn replace_file(
                 target.display()
             )));
         }
+
         let permissions = existing
             .metadata()
             .map_err(|e| ApplyError(format!("{}: {e}", target.display())))?

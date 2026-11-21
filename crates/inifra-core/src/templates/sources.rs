@@ -54,6 +54,7 @@ fn visit(root: &Path, relative: &Path, result: &mut Vec<Source>) -> Result<(), S
                 entry.path().display()
             )));
         }
+
         let path = relative.join(name);
         let kind = entry
             .file_type()
@@ -64,6 +65,7 @@ fn visit(root: &Path, relative: &Path, result: &mut Vec<Source>) -> Result<(), S
             if path == Path::new("template.toml") {
                 continue;
             }
+
             let render = name.ends_with(".j2");
             let output_name = name.strip_suffix(".j2").unwrap_or(name);
             if !safe_component(output_name) {
@@ -98,6 +100,7 @@ pub(crate) fn safe_component(name: &str) -> bool {
     {
         return false;
     }
+
     let stem = name
         .split('.')
         .next()

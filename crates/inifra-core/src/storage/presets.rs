@@ -100,6 +100,7 @@ fn load_one(directory: &Path, catalog: &catalog::Catalog) -> Result<Preset, Pres
         }
         Err(error) => return Err(PresetError(format!("{}: {error}", directory.display()))),
     }
+
     let id = directory
         .file_name()
         .and_then(|name| name.to_str())
@@ -116,6 +117,7 @@ fn load_one(directory: &Path, catalog: &catalog::Catalog) -> Result<Preset, Pres
             manifest.schema_version
         )));
     }
+
     let preset = Preset {
         id: id.to_owned(),
         description: manifest.description,
@@ -180,6 +182,7 @@ pub fn save(
         fs::create_dir(&directory)
             .map_err(|error| PresetError(format!("{}: {error}", directory.display())))?;
     }
+
     let path = directory.join("preset.toml");
     if let Err(error) = write_manifest(&path, preset) {
         if !existed && let Err(cleanup_error) = fs::remove_dir(&directory) {
@@ -261,6 +264,7 @@ fn validate_managed_directory(directory: &Path) -> Result<(), PresetError> {
         }
         Err(error) => return Err(PresetError(format!("{}: {error}", directory.display()))),
     }
+
     for entry in fs::read_dir(directory)
         .map_err(|error| PresetError(format!("{}: {error}", directory.display())))?
     {
@@ -330,6 +334,7 @@ pub fn rename_template_references(
                     *template = new_id.to_owned();
                 }
             }
+
             let updated = toml::to_string_pretty(&manifest)
                 .map_err(|error| PresetError(format!("{}: {error}", path.display())))?;
             updates.push((path, text, updated));
@@ -379,10 +384,12 @@ fn load_manifest_paths(root: &Path) -> Result<Vec<PathBuf>, PresetError> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => return Err(PresetError(format!("{}: {error}", root.display()))),
     }
+
     let entries = match fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) => return Err(PresetError(format!("{}: {error}", root.display()))),
     };
+
     let mut paths = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|error| PresetError(format!("{}: {error}", root.display())))?;
@@ -432,6 +439,7 @@ fn validate_preset(preset: &Preset, catalog: &catalog::Catalog) -> Result<(), Pr
             "description and at least one template are required".into(),
         ));
     }
+
     let mut seen = BTreeSet::new();
     for template in &preset.templates {
         if !catalog::valid_template_id(template) || !seen.insert(template) {
@@ -440,11 +448,13 @@ fn validate_preset(preset: &Preset, catalog: &catalog::Catalog) -> Result<(), Pr
             )));
         }
     }
+
     for name in preset.values.keys() {
         if !inputs::valid_name(name) || name == "references" {
             return Err(PresetError(format!("invalid saved input name {name:?}")));
         }
     }
+
     let definitions = workflow::input_definitions_for_selection(catalog, &preset.templates)
         .map_err(|error| PresetError(error.to_string()))?;
     catalog
@@ -469,6 +479,7 @@ fn write_manifest(path: &Path, preset: &Preset) -> Result<(), PresetError> {
         templates: preset.templates.clone(),
         values: preset.values.clone(),
     };
+
     let text = toml::to_string_pretty(&manifest)
         .map_err(|error| PresetError(format!("{}: {error}", path.display())))?;
     crate::safe_fs::write_atomic(path, text.as_bytes())

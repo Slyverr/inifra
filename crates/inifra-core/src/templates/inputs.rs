@@ -103,6 +103,7 @@ pub fn resolve(
             return Err(InputError(format!("undeclared input {name:?}")));
         }
     }
+
     let mut values = BTreeMap::new();
     for (name, definition) in definitions {
         let value = supplied.get(name).or(definition.default.as_ref());

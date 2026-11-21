@@ -55,6 +55,7 @@ pub fn prepare(
     let packs = selected_packs(catalog, selected)?;
     let used = input_definitions_for_packs(catalog, &packs)?;
     let mut directories = BTreeSet::new();
+
     let values = inputs::resolve(&used, supplied).map_err(|e| WorkflowError(e.to_string()))?;
     let resolved_outputs = catalog
         .resolve_outputs_for_packs(&packs)
@@ -62,6 +63,7 @@ pub fn prepare(
     let references = catalog
         .resolve_references_for_packs(&packs, &resolved_outputs)
         .map_err(|error| WorkflowError(error.to_string()))?;
+
     let mut outputs = Vec::new();
     for pack in packs {
         directories.extend(pack.directories.iter().cloned());
@@ -82,6 +84,7 @@ pub fn prepare(
                 .map_err(|error| WorkflowError(error.to_string()))?,
         );
     }
+
     plan::build_with_directories(
         destination,
         outputs,
@@ -98,6 +101,7 @@ fn selected_packs<'a>(
     if selected.is_empty() {
         return Err(WorkflowError("select at least one template".into()));
     }
+
     let mut seen = BTreeSet::new();
     selected
         .iter()

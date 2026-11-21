@@ -90,6 +90,7 @@ pub fn render_with_references(
             if source.source.as_os_str().is_empty() || !source.source.components().all(|component| matches!(component, Component::Normal(name) if name.to_str().is_some_and(safe_component))) {
                 return Err(RenderError(format!("unsafe source path {}", source.source.display())));
             }
+
             let path = root.join(&source.source);
             let mut options = OpenOptions::new();
             options.read(true).follow(FollowSymlinks::No);

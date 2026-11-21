@@ -130,6 +130,7 @@ fn validate_source_path(path: &Path) -> io::Result<()> {
             "template.toml is reserved for the pack manifest",
         ));
     }
+
     let output_name = path
         .file_name()
         .and_then(|name| name.to_str())
@@ -178,6 +179,7 @@ pub fn rename_pack(
             "new template ID is the same as the current ID",
         ));
     }
+
     let category_path = templates_root.join(category);
     ensure_directory(&category_path, "template category")?;
     let source = category_path.join(old_id);
@@ -215,6 +217,7 @@ pub fn rename_references(templates_root: &Path, old_id: &str, new_id: &str) -> i
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(0),
         Err(error) => return Err(error),
     };
+
     let mut manifests = Vec::new();
     for category in categories {
         let category = category?;
@@ -231,6 +234,7 @@ pub fn rename_references(templates_root: &Path, old_id: &str, new_id: &str) -> i
         if !kind.is_dir() {
             continue;
         }
+
         for pack in fs::read_dir(category.path())? {
             let pack = pack?;
             let kind = pack.file_type()?;

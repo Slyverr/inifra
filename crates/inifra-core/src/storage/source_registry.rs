@@ -61,6 +61,7 @@ impl SourceRegistry {
                 return Err(SourceRegistryError(format!("{}: {error}", path.display())));
             }
         };
+
         let file: RegistryFile = toml::from_str(&text)
             .map_err(|error| SourceRegistryError(format!("{}: {error}", path.display())))?;
         if file.schema_version != SCHEMA_VERSION {
@@ -70,6 +71,7 @@ impl SourceRegistry {
                 file.schema_version
             )));
         }
+
         let registry = Self {
             sources: file.sources,
         };
@@ -87,6 +89,7 @@ impl SourceRegistry {
             schema_version: SCHEMA_VERSION,
             sources: self.sources.clone(),
         };
+
         let text = toml::to_string_pretty(&file)
             .map_err(|error| SourceRegistryError(error.to_string()))?;
         safe_fs::write_atomic(path, text.as_bytes())
@@ -243,6 +246,7 @@ pub fn validate_git_reference(reference: &str) -> Result<(), SourceRegistryError
     if reference == "HEAD" {
         return Ok(());
     }
+
     let Some(name) = reference
         .strip_prefix("refs/heads/")
         .or_else(|| reference.strip_prefix("refs/tags/"))
@@ -251,6 +255,7 @@ pub fn validate_git_reference(reference: &str) -> Result<(), SourceRegistryError
             "Git ref must be HEAD, refs/heads/<name>, or refs/tags/<name>".into(),
         ));
     };
+
     let invalid = name.is_empty()
         || name.starts_with('/')
         || name.ends_with('/')

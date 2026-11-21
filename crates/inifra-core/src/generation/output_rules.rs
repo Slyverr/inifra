@@ -79,6 +79,7 @@ pub(crate) fn parse(
             if let Some(path) = &output {
                 validate_path(path, manifest)?;
             }
+
             let co_selected_output = definition
                 .co_selected_output
                 .map(|alternative| {
@@ -89,6 +90,7 @@ pub(crate) fn parse(
                             alternative.group
                         ));
                     }
+
                     let path = PathBuf::from(alternative.path);
                     validate_path(&path, manifest)?;
                     Ok(CoSelectedOutput {
@@ -126,6 +128,7 @@ pub(crate) fn resolve(packs: &[(&Pack, &[Source])]) -> Result<Vec<ResolvedPackOu
                 ));
             }
         }
+
         for source in *sources {
             let rule = pack
                 .output_rules
@@ -150,6 +153,7 @@ pub(crate) fn resolve(packs: &[(&Pack, &[Source])]) -> Result<Vec<ResolvedPackOu
             .or_default()
             .push(index);
     }
+
     for matching in by_default.values().filter(|matching| matching.len() > 1) {
         let unique_templates: BTreeSet<_> = matching
             .iter()
@@ -158,6 +162,7 @@ pub(crate) fn resolve(packs: &[(&Pack, &[Source])]) -> Result<Vec<ResolvedPackOu
         if unique_templates.len() != matching.len() {
             continue;
         }
+
         let Some(group) = candidates[matching[0]]
             .co_selected_output
             .as_ref()

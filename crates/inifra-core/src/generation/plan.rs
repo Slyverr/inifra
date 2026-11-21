@@ -112,6 +112,7 @@ pub fn build_with_directories(
                     inspect_directory(&current)?;
                 }
             }
+
             let action = match fs::symlink_metadata(&current) {
                 Ok(metadata) if metadata.file_type().is_file() => {
                     if overwrite {
@@ -129,6 +130,7 @@ pub fn build_with_directories(
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Action::Create,
                 Err(error) => return Err(PlanError(format!("{}: {error}", current.display()))),
             };
+
             let existing_contents = if action == Action::Replace {
                 Some(
                     fs::read(&current)
@@ -174,6 +176,7 @@ pub(crate) fn validate_paths<'a>(
         if !seen.insert(path.to_path_buf()) {
             return Err(PlanError(format!("duplicate output {}", path.display())));
         }
+
         let portable = portable_path_key(path);
         if !portable_paths.insert(portable) {
             return Err(PlanError(format!(
@@ -182,11 +185,13 @@ pub(crate) fn validate_paths<'a>(
             )));
         }
     }
+
     for path in &seen {
         if path.ancestors().skip(1).any(|parent| seen.contains(parent)) {
             return Err(PlanError(format!("overlapping output {}", path.display())));
         }
     }
+
     for path in &portable_paths {
         let mut prefix = path.as_str();
         while let Some((parent, _)) = prefix.rsplit_once('/') {

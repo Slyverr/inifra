@@ -713,6 +713,7 @@ fn rejects_unknown_self_and_invalid_reference_declarations() {
             );
             root.write("project/guide/GUIDE.md", "Guide");
         }
+
         let error = Catalog::load(&root.0).unwrap_err().to_string();
         assert!(error.contains(expected), "{error}");
     }

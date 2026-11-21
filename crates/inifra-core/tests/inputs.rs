@@ -14,6 +14,7 @@ fn resolves_defaults_and_explicit_values() {
             default: Some("default".into()),
         },
     )]);
+
     assert_eq!(
         resolve(&definitions, &BTreeMap::new()).unwrap()["name"],
         "default"

@@ -81,6 +81,7 @@ fn validates_supported_git_urls_refs_and_full_revisions() {
     ] {
         assert!(validate_git_url(url).is_ok(), "{url}");
     }
+
     for url in [
         "https://user:token@example.com/repo.git",
         "https://bad host/repo.git",

@@ -1,15 +1,12 @@
 //! Provider-neutral template, project, and generation services for Inifra.
 #![deny(missing_docs)]
 
-pub mod apply;
-pub mod catalog;
-pub mod inputs;
-pub mod output_rules;
-pub mod plan;
-pub mod presets;
-pub mod render;
-mod safe_fs;
-pub mod source_registry;
-pub mod sources;
-pub mod user_templates;
-pub mod workflow;
+mod generation;
+mod storage;
+mod templates;
+
+pub use generation::{apply, output_rules, plan, render, workflow};
+pub use storage::{presets, source_registry};
+pub use templates::{catalog, inputs, sources, user_templates};
+
+pub(crate) use storage::safe_fs;
