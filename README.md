@@ -2,6 +2,10 @@
 
 Inifra is a Rust command-line tool for bootstrapping projects with reusable, customizable file templates. It helps developers keep supporting project files and conventions consistent without recreating them by hand.
 
+## Showcase
+
+https://github.com/user-attachments/assets/229e62c2-5b1f-4e30-82f0-6faa53d9cd60
+
 ## Installation
 
 To install Inifra from a source checkout, use Rust 1.100.0 or newer and Cargo:
