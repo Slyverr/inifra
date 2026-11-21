@@ -1,6 +1,6 @@
 const MAX_EVENT_BYTES: usize = 1024 * 1024;
 
-use crate::stream::FrameParser;
+use crate::transport::stream::FrameParser;
 
 /// Parses server-sent events while preserving state across arbitrary HTTP chunks.
 pub(crate) struct SseParser {
@@ -67,6 +67,7 @@ impl SseParser {
             self.line.clear();
             return Ok(());
         }
+
         let line = std::str::from_utf8(&self.line)
             .map_err(|_| "provider stream contained invalid UTF-8")?;
         if let Some(value) = line.strip_prefix("data:") {

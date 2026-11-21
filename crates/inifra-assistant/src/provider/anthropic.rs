@@ -1,10 +1,10 @@
 use crate::{
     ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatRole, ChatStream, Provider,
     ProviderError, TokenUsage,
-    adapter::{AdapterSpec, add_header, endpoint_url, json_headers, start_stream},
-    http::{HttpRequest, HttpTransport, safe_excerpt},
-    sse::SseParser,
-    stream::DecodedFrame,
+    provider::adapter::{AdapterSpec, add_header, endpoint_url, json_headers, start_stream},
+    transport::http::{HttpRequest, HttpTransport, safe_excerpt},
+    transport::sse::SseParser,
+    transport::stream::DecodedFrame,
 };
 use reqwest::{Url, header};
 use serde::Serialize;
@@ -71,6 +71,7 @@ fn build_request(
     if messages.is_empty() {
         return Err("Anthropic chat requires at least one user or assistant message".to_owned());
     }
+
     let mut headers = json_headers("text/event-stream");
     add_header(
         &mut headers,
@@ -108,6 +109,7 @@ fn anthropic_messages(messages: Vec<ChatMessage>) -> (Option<String>, Vec<ChatMe
             conversation.push(message);
         }
     }
+
     let system = (!system.is_empty()).then(|| system.join("\n\n"));
     (system, conversation)
 }
@@ -169,6 +171,7 @@ fn decode_frame(
     {
         events.push(ChatEvent::TextDelta(text.to_owned()));
     }
+
     let usage = match event_type {
         "message_start" => value.pointer("/message/usage").map(|usage| TokenUsage {
             input_tokens: usage.get("input_tokens").and_then(Value::as_u64),

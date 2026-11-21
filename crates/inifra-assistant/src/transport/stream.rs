@@ -1,6 +1,6 @@
 use crate::{
     AssistantProfile, ChatEvent, ChatStream, ProviderError,
-    http::{BodyStream, HttpRequest, HttpTransport, TransportError, safe_excerpt},
+    transport::http::{BodyStream, HttpRequest, HttpTransport, TransportError, safe_excerpt},
 };
 use async_stream::stream;
 use futures_util::StreamExt;
@@ -73,6 +73,7 @@ where
                 return;
             }
         };
+
         let status = response.status;
         let request_id = response.request_id;
         let mut body = response.body;
@@ -85,6 +86,7 @@ where
                 }
                 Err(TransportError::Network(message)) => (Vec::new(), Some(message)),
             };
+
             let mut detail = error_message(&body, api_key.as_deref());
             if let Some(read_error) = read_error {
                 if !detail.is_empty() {
@@ -137,6 +139,7 @@ where
                     return;
                 }
             };
+
             let frames = match parser.push(&chunk) {
                 Ok(frames) => frames,
                 Err(message) => {
@@ -152,6 +155,7 @@ where
                     return;
                 }
             };
+
             for frame in frames {
                 match decode(
                     &frame,
@@ -192,6 +196,7 @@ where
                 return;
             }
         };
+
         for frame in frames {
             match decode(
                 &frame,

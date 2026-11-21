@@ -1,4 +1,4 @@
-use crate::stream::FrameParser;
+use crate::transport::stream::FrameParser;
 
 const MAX_LINE_BYTES: usize = 1024 * 1024;
 
@@ -52,6 +52,7 @@ impl JsonlParser {
         if self.line.is_empty() {
             return Ok(());
         }
+
         let line = std::str::from_utf8(&self.line)
             .map_err(|_| "provider stream JSON line contained invalid UTF-8")?;
         frames.push(line.to_owned());

@@ -159,6 +159,7 @@ mod tests {
             headers: HeaderMap::new(),
             body: None,
         };
+
         let send =
             tokio::spawn(async move { transport.execute(request, &request_cancellation).await });
         tokio::task::spawn_blocking(move || accepted_receiver.recv().unwrap())
@@ -237,6 +238,7 @@ impl HttpTransport for ReqwestTransport {
             if let Some(body) = body {
                 builder = builder.body(body);
             }
+
             let response = tokio::select! {
                 biased;
                 _ = cancellation.cancelled() => return Err(TransportError::Cancelled),
@@ -244,6 +246,7 @@ impl HttpTransport for ReqwestTransport {
                 result.map_err(|error| TransportError::Network(error.without_url().to_string()))?
                 }
             };
+
             let request_id = ["x-request-id", "request-id"]
                 .iter()
                 .find_map(|name| response.headers().get(*name))

@@ -52,6 +52,7 @@ fn profile_selection_and_removal_keep_a_valid_default() {
         .unwrap();
     config.set_default_profile("second").unwrap();
     config.remove_profile("second").unwrap();
+
     assert_eq!(config.default_profile_id(), Some("first"));
     assert!(config.validate().is_ok());
 }

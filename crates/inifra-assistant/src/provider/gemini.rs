@@ -1,10 +1,10 @@
 use crate::{
     ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatRole, ChatStream, Provider,
     ProviderError, TokenUsage,
-    adapter::{AdapterSpec, add_header, json_headers, start_stream},
-    http::{HttpRequest, HttpTransport, safe_excerpt},
-    sse::SseParser,
-    stream::DecodedFrame,
+    provider::adapter::{AdapterSpec, add_header, json_headers, start_stream},
+    transport::http::{HttpRequest, HttpTransport, safe_excerpt},
+    transport::sse::SseParser,
+    transport::stream::DecodedFrame,
 };
 use reqwest::{Url, header};
 use serde::Serialize;
@@ -38,6 +38,7 @@ fn gemini_endpoint(profile: &AssistantProfile) -> Result<Url, String> {
     if profile.provider != Provider::Gemini || profile.api != ApiProtocol::GeminiGenerateContent {
         return Err("Generate Content API requires a Google Gemini profile".to_owned());
     }
+
     let base = profile
         .base_url
         .as_deref()
@@ -96,6 +97,7 @@ fn build_request(
     if contents.is_empty() {
         return Err("Gemini chat requires at least one user or assistant message".to_owned());
     }
+
     let mut headers = json_headers("text/event-stream");
     add_header(
         &mut headers,
@@ -127,6 +129,7 @@ fn gemini_messages(
             ChatRole::Assistant => contents.push(content("model", message.content)),
         }
     }
+
     let system_instruction = (!system_text.is_empty()).then(|| GeminiSystemInstruction {
         parts: vec![GeminiPart {
             text: system_text.join("\n\n"),
@@ -216,6 +219,7 @@ fn decode_frame(
             events.push(ChatEvent::Usage(usage));
         }
     }
+
     let finish_reason = value
         .pointer("/candidates/0/finishReason")
         .and_then(Value::as_str);

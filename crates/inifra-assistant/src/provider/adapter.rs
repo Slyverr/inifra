@@ -1,7 +1,7 @@
 use crate::{
     AssistantProfile, ChatMessage, ChatStream, ProviderError,
-    http::{HttpRequest, HttpTransport},
-    stream::{FrameDecoder, FrameParser, stream_with_transport},
+    transport::http::{HttpRequest, HttpTransport},
+    transport::stream::{FrameDecoder, FrameParser, stream_with_transport},
 };
 use reqwest::{Url, header};
 use tokio_util::sync::CancellationToken;
@@ -59,6 +59,7 @@ where
             None,
         ));
     }
+
     let api_key = api_key.filter(|key| !key.trim().is_empty());
     if profile.provider != crate::Provider::Ollama && api_key.is_none() {
         return one_error(ProviderError::request(
@@ -70,6 +71,7 @@ where
             None,
         ));
     }
+
     let request =
         match (spec.build_request)(&profile, messages, api_key.as_deref(), endpoint.clone()) {
             Ok(request) => request,

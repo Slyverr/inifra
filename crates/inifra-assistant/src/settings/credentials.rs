@@ -30,6 +30,7 @@ pub fn resolve_credential(
     {
         return Ok(Some(value));
     }
+
     let source = match profile.credential_source {
         CredentialSource::Environment => format!("environment variable {name}"),
         CredentialSource::CredentialsFile => {
@@ -52,6 +53,7 @@ pub fn write_credential(path: &Path, name: &str, value: &str) -> Result<()> {
             "assistant credential must be non-empty and contain no control characters",
         ));
     }
+
     let parent = path
         .parent()
         .filter(|parent| !parent.as_os_str().is_empty())
@@ -64,6 +66,7 @@ pub fn write_credential(path: &Path, name: &str, value: &str) -> Result<()> {
             parent.display()
         )));
     }
+
     let mut entries = read_entries(path)?.unwrap_or_default();
     entries.insert(name.to_owned(), value.to_owned());
     let mut contents =
@@ -91,7 +94,7 @@ pub fn write_credential(path: &Path, name: &str, value: &str) -> Result<()> {
 }
 
 fn validate_name(name: &str) -> Result<()> {
-    if crate::config::valid_env_name(name) {
+    if crate::settings::config::valid_env_name(name) {
         Ok(())
     } else {
         Err(error(format!("invalid credential name {name:?}")))
@@ -121,6 +124,7 @@ fn read_entries(path: &Path) -> Result<Option<BTreeMap<String, String>>> {
             )));
         }
     }
+
     let contents = fs::read_to_string(path)?;
     let mut entries = BTreeMap::new();
     for (index, line) in contents.lines().enumerate() {
@@ -128,6 +132,7 @@ fn read_entries(path: &Path) -> Result<Option<BTreeMap<String, String>>> {
         if line.trim().is_empty() || line.starts_with('#') {
             continue;
         }
+
         let Some((name, value)) = line.split_once('=') else {
             return Err(error(format!(
                 "invalid credentials file entry on line {} in {}",

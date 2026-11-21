@@ -110,6 +110,7 @@ impl AssistantProfile {
                 "assistant model must be a non-empty, single-line value",
             ));
         }
+
         let supported = match self.provider {
             Provider::OpenAi => matches!(
                 self.api,
@@ -200,6 +201,7 @@ impl AssistantConfig {
                 path.display()
             )));
         }
+
         let contents = fs::read_to_string(path)?;
         let config: Self = toml::from_str(&contents)
             .map_err(|parse| error(format!("{}: {parse}", path.display())))?;
@@ -222,6 +224,7 @@ impl AssistantConfig {
                 parent.display()
             )));
         }
+
         let text = toml::to_string_pretty(self).map_err(|parse| error(parse.to_string()))?;
         let mut temporary = NamedTempFile::new_in(parent)?;
         std::io::Write::write_all(&mut temporary, text.as_bytes())?;
@@ -306,6 +309,7 @@ impl AssistantConfig {
                 self.schema_version
             )));
         }
+
         for (id, profile) in &self.profiles {
             validate_profile_id(id)?;
             profile

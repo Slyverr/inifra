@@ -1,7 +1,7 @@
 use crate::{
     ApiProtocol, AssistantProfile, Provider, ProviderError,
-    adapter::{add_header, endpoint_url},
-    http::{HttpRequest, HttpTransport, ReqwestTransport, TransportError, safe_excerpt},
+    provider::adapter::{add_header, endpoint_url},
+    transport::http::{HttpRequest, HttpTransport, ReqwestTransport, TransportError, safe_excerpt},
 };
 use futures_util::StreamExt;
 use reqwest::{Method, Url, header};
@@ -122,6 +122,7 @@ async fn list_models_with_transport<T: HttpTransport>(
         headers,
         body: None,
     };
+
     let response = tokio::time::timeout(REQUEST_TIMEOUT, async {
         let response = transport.execute(request, cancellation).await?;
         let status = response.status;
@@ -270,6 +271,7 @@ fn models_endpoint(profile: &AssistantProfile) -> Result<Url, String> {
         ),
         _ => return Err("profile provider and API protocol do not match".to_owned()),
     };
+
     let base = if profile.api == ApiProtocol::OpenAiChatCompletions {
         without_chat_completion_route(base)?
     } else {
@@ -288,7 +290,7 @@ fn without_chat_completion_route(base: &str) -> Result<String, String> {
 }
 
 async fn read_bounded(
-    mut stream: crate::http::BodyStream,
+    mut stream: crate::transport::http::BodyStream,
     cancellation: &CancellationToken,
 ) -> Result<Vec<u8>, TransportError> {
     let mut body = Vec::new();
@@ -362,6 +364,7 @@ fn decode_models(api: ApiProtocol, body: &[u8]) -> Result<Vec<String>, String> {
             .filter_map(|model| model.get("id").and_then(Value::as_str).map(str::to_owned))
             .collect::<Vec<_>>(),
     };
+
     let mut models = models
         .into_iter()
         .filter(|model| !model.is_empty() && !model.chars().any(char::is_control))

@@ -1,9 +1,8 @@
 use crate::{
     ApiProtocol, AssistantProfile, ChatMessage, ChatStream, ProviderError,
-    adapter::one_error,
-    anthropic, chat_completions, gemini,
-    http::{HttpTransport, ReqwestTransport},
-    ollama, responses,
+    provider::adapter::one_error,
+    provider::{anthropic, chat_completions, gemini, ollama, responses},
+    transport::http::{HttpTransport, ReqwestTransport},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -118,6 +117,7 @@ mod tests {
             api_key_env: Some("OPENAI_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
         };
+
         let mut events = stream_with_transport(
             transport,
             profile,

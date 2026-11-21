@@ -1,10 +1,10 @@
 use crate::{
     ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatStream, Provider, ProviderError,
     TokenUsage,
-    adapter::{AdapterSpec, bearer_headers, endpoint_url, start_stream},
-    http::{HttpRequest, HttpTransport, safe_excerpt},
-    sse::SseParser,
-    stream::DecodedFrame,
+    provider::adapter::{AdapterSpec, bearer_headers, endpoint_url, start_stream},
+    transport::http::{HttpRequest, HttpTransport, safe_excerpt},
+    transport::sse::SseParser,
+    transport::stream::DecodedFrame,
 };
 use reqwest::Url;
 use serde::Serialize;
@@ -93,6 +93,7 @@ fn chat_completions_endpoint(profile: &AssistantProfile) -> Result<Url, String> 
             profile.provider.display_name()
         ));
     }
+
     let default_base = match profile.provider {
         Provider::OpenAi => "https://api.openai.com/v1",
         Provider::NvidiaNim => "https://integrate.api.nvidia.com/v1",
