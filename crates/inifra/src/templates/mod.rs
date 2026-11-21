@@ -1,3 +1,4 @@
+use clap::Args;
 use inifra_core::{catalog::Catalog, presets, sources, user_templates};
 use inifra_tui::{FormOutcome, TextField, presentation};
 use std::{
@@ -6,6 +7,25 @@ use std::{
     path::Path,
     process::Command,
 };
+
+#[derive(Debug, Args)]
+pub(crate) struct EditArgs {
+    #[arg(add = crate::completions::template_completer())]
+    pub(crate) id: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RenameArgs {
+    #[arg(add = crate::completions::template_completer())]
+    pub(crate) old_id: String,
+    pub(crate) new_id: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RemoveArgs {
+    #[arg(add = crate::completions::template_completer())]
+    pub(crate) id: String,
+}
 
 pub(crate) fn edit(
     catalog: &Catalog,
@@ -50,11 +70,13 @@ pub(crate) fn edit(
         )
         .into());
     }
+
     if inifra_tui::run_confirmation("Create template", &format!("Create {id:?}?"), false)?
         != Some(true)
     {
         return Ok(());
     }
+
     let values = match inifra_tui::run_form(
         "New template",
         vec![
@@ -81,6 +103,7 @@ pub(crate) fn edit(
         FormOutcome::Submitted(values) => values,
         FormOutcome::Cancelled => return Ok(()),
     };
+
     let category = values
         .get("category")
         .ok_or("template category was not collected")?;
@@ -119,6 +142,7 @@ pub(crate) fn rename(
     if catalog.packs.iter().any(|candidate| candidate.id == new_id) {
         return Err(format!("template ID {new_id:?} is already in use").into());
     }
+
     let preset_root = presets::store_path(config_dir);
     presets::load_all(&preset_root, catalog)?;
     let category = pack.category.as_str();
@@ -135,9 +159,11 @@ pub(crate) fn rename(
                 )
                 .into());
             }
+
             return Err(error.into());
         }
     };
+
     let preset_references = match presets::rename_template_references(&preset_root, old_id, new_id)
     {
         Ok(count) => count,
@@ -150,13 +176,14 @@ pub(crate) fn rename(
                 )
                 .into());
             }
+
             return Err(error.into());
         }
     };
 
     let validation = (|| {
         let (renamed_catalog, _bundled) =
-            crate::user_config::load_project_catalog(None, Some(config_dir), project_dir)?;
+            crate::config::user::load_project_catalog(None, Some(config_dir), project_dir)?;
         renamed_catalog.validate()?;
         presets::load_all(&preset_root, &renamed_catalog)?;
         Ok::<_, Box<dyn Error>>(())
@@ -170,6 +197,7 @@ pub(crate) fn rename(
             )
             .into());
         }
+
         return Err(error);
     }
 
@@ -177,9 +205,11 @@ pub(crate) fn rename(
     if pack_references > 0 {
         details.push(format!("updated {pack_references} template reference(s)"));
     }
+
     if preset_references > 0 {
         details.push(format!("updated {preset_references} preset(s)"));
     }
+
     let suffix = if details.is_empty() {
         String::new()
     } else {
@@ -211,6 +241,7 @@ pub(crate) fn remove(
         )
         .into());
     }
+
     let referencing_packs = catalog
         .packs
         .iter()
@@ -255,6 +286,7 @@ fn owned_pack<'a>(
         )
         .into());
     }
+
     Ok(pack)
 }
 
@@ -269,12 +301,15 @@ fn rollback_rename(
     if let Err(error) = presets::rename_template_references(preset_root, new_id, old_id) {
         failures.push(format!("preset references: {error}"));
     }
+
     if let Err(error) = user_templates::rename_references(templates_root, new_id, old_id) {
         failures.push(format!("template references: {error}"));
     }
+
     if let Err(error) = user_templates::rename_pack(templates_root, category, new_id, old_id) {
         failures.push(format!("template directory: {error}"));
     }
+
     if failures.is_empty() {
         Ok(())
     } else {
@@ -300,6 +335,7 @@ fn open_pack(directory: &Path) -> Result<(), Box<dyn Error>> {
     if editor.is_empty() {
         return Err("VISUAL or EDITOR must name an editor executable".into());
     }
+
     let executable = editor.remove(0);
     let manifest = directory.join("template.toml");
     let mut files = sources::discover(directory)?
@@ -315,5 +351,6 @@ fn open_pack(directory: &Path) -> Result<(), Box<dyn Error>> {
     if !status.success() {
         return Err(format!("editor {executable:?} exited with {status}").into());
     }
+
     Ok(())
 }

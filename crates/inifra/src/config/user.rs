@@ -11,8 +11,10 @@ pub(crate) fn config_dir() -> Result<Option<PathBuf>, io::Error> {
                 "INIFRA_CONFIG_DIR cannot be empty",
             ));
         }
+
         return Ok(Some(path.into()));
     }
+
     Ok(directories::BaseDirs::new().map(|directories| directories.config_dir().join("inifra")))
 }
 
@@ -25,8 +27,10 @@ pub(crate) fn cache_dir() -> Result<Option<PathBuf>, io::Error> {
                 "INIFRA_CACHE_DIR cannot be empty",
             ));
         }
+
         return Ok(Some(path.into()));
     }
+
     Ok(directories::BaseDirs::new().map(|directories| directories.cache_dir().join("inifra")))
 }
 
@@ -48,6 +52,7 @@ pub(crate) fn load_catalog(
     let Some(config_dir) = config_dir else {
         return Ok((bundled, Some(bundled_dir)));
     };
+
     let user_templates = config_dir.join("templates");
 
     match fs::metadata(&user_templates) {
@@ -121,6 +126,7 @@ pub(crate) fn load_project_catalog(
             .into());
         }
     }
+
     Ok((catalog.with_overlays(overlays)?, bundled_dir))
 }
 
@@ -133,10 +139,11 @@ fn load_project_sources(
     if registry.sources.is_empty() {
         return Ok(());
     }
+
     let cache_dir = cache_dir()?.ok_or("could not determine the user cache directory")?;
     for (name, source) in registry.sources {
         let source_cache = cache_dir.join("sources").join(&name);
-        let snapshot = crate::source_cache::cached_revision(&source_cache, &source.revision)?
+        let snapshot = crate::sources::cache::cached_revision(&source_cache, &source.revision)?
             .ok_or_else(|| {
                 format!(
                     "source {name:?} revision {} is not cached; run `inifra source sync {name}`",
@@ -145,6 +152,7 @@ fn load_project_sources(
             })?;
         overlays.push(Catalog::load_overlay(&snapshot)?.with_namespace(&name)?);
     }
+
     Ok(())
 }
 

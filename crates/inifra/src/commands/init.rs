@@ -1,3 +1,4 @@
+use clap::Args;
 use inifra_core::{
     apply,
     catalog::{Catalog, Pack},
@@ -20,6 +21,16 @@ use std::{
 };
 
 const PREVIEW_LIMIT: u64 = 16 * 1024;
+
+#[derive(Debug, Args)]
+pub(crate) struct InitArgs {
+    /// Destination directory.
+    #[arg(long, default_value = ".")]
+    pub(crate) target: PathBuf,
+    /// Replace existing files after approval.
+    #[arg(long)]
+    pub(crate) overwrite: bool,
+}
 
 /// Runs the inline picker, collects inputs, and applies only the reviewed plan.
 pub fn run(catalog: &Catalog, target: PathBuf, overwrite: bool) -> Result<(), Box<dyn Error>> {
@@ -48,10 +59,12 @@ pub fn run_with_selection(
         target: target.clone(),
         overwrite,
     };
+
     match inifra_tui::run_init_with_selection(view, backend, selected, values)? {
         InitOutcome::Applied(review) => print_applied_summary(&review),
         InitOutcome::Cancelled => {}
     }
+
     Ok(())
 }
 
@@ -82,6 +95,7 @@ fn print_applied_summary(review: &GenerationReview) {
         );
         has_status = true;
     }
+
     for file in &review.files {
         let (label, tone) = match file.action {
             ReviewAction::Create => ("created", presentation::Tone::Success),
@@ -99,6 +113,7 @@ fn print_applied_summary(review: &GenerationReview) {
         );
         has_status = true;
     }
+
     if !has_status {
         println!(
             "{}",
@@ -127,11 +142,13 @@ pub(crate) fn validate_picker_selection(
                 format!("template {id:?} cannot be selected in the initialization picker").into(),
             );
         }
+
         if seen_ids.contains(&id.as_str()) {
             return Err(format!("preset selects template {id:?} more than once").into());
         }
         seen_ids.push(id);
     }
+
     Ok(())
 }
 
@@ -188,6 +205,7 @@ impl InitBackend for CoreInitBackend<'_> {
                 })
                 .collect(),
         };
+
         Ok((review, plan))
     }
 
@@ -203,6 +221,7 @@ impl InitBackend for CoreInitBackend<'_> {
         if selected.is_empty() {
             return Ok(SelectionPreview::default());
         }
+
         let resolved = resolve_selection(self.catalog, selected)?;
         let mut outputs = BTreeMap::<String, BTreeMap<PathBuf, PathBuf>>::new();
         for output in resolved {
@@ -211,17 +230,20 @@ impl InitBackend for CoreInitBackend<'_> {
                 .or_default()
                 .insert(output.source.source, output.output);
         }
+
         let mut unavailable = BTreeSet::new();
         for pack in &self.catalog.packs {
             if selected.contains(&pack.id) {
                 continue;
             }
+
             let mut candidate = selected.to_vec();
             candidate.push(pack.id.clone());
             if resolve_selection(self.catalog, &candidate).is_err() {
                 unavailable.insert(pack.id.clone());
             }
         }
+
         Ok(SelectionPreview {
             outputs,
             unavailable,
@@ -279,6 +301,7 @@ fn catalog_view(catalog: &Catalog) -> Result<CatalogView, Box<dyn Error>> {
             category_order.push(category_id.clone());
         }
     }
+
     let mut templates = Vec::<TemplateChoice>::new();
     let mut grouped_choices = BTreeMap::<(String, Vec<PathBuf>), usize>::new();
     for category_id in category_order {
@@ -286,6 +309,7 @@ fn catalog_view(catalog: &Catalog) -> Result<CatalogView, Box<dyn Error>> {
             if entry_category != &category_id {
                 continue;
             }
+
             if let Some(key) = choice_key {
                 let key = (category_id.clone(), key.clone());
                 if let Some(index) = grouped_choices.get(&key).copied() {
@@ -300,6 +324,7 @@ fn catalog_view(catalog: &Catalog) -> Result<CatalogView, Box<dyn Error>> {
             });
         }
     }
+
     Ok(CatalogView {
         categories,
         templates,
@@ -353,6 +378,7 @@ fn exclusive_choice_key(outputs: &[ResolvedPackOutput]) -> Option<Vec<PathBuf>> 
     {
         return None;
     }
+
     let mut paths = outputs
         .iter()
         .map(|output| output.output.clone())
@@ -370,13 +396,16 @@ fn source_preview(path: &Path, relative: &Path) -> Result<String, Box<dyn Error>
     if truncated {
         bytes.truncate(PREVIEW_LIMIT as usize);
     }
+
     let mut preview = match String::from_utf8(bytes) {
         Ok(text) => text,
         Err(_) => format!("[Binary source: {}]", relative.display()),
     };
+
     if truncated {
         preview.push_str("\n… preview truncated");
     }
+
     Ok(preview)
 }
 
@@ -402,6 +431,7 @@ mod tests {
             .unwrap();
             std::fs::write(pack.join("TERMS.md"), "Terms\n").unwrap();
         }
+
         let catalog = Catalog::load(root.path()).unwrap();
         let view = catalog_view(&catalog).unwrap();
         assert_eq!(view.templates.len(), 2);
@@ -556,6 +586,7 @@ mod tests {
             .unwrap();
             std::fs::write(pack.join("README.md"), id).unwrap();
         }
+
         let catalog = Catalog::load(root.path()).unwrap();
         let mut backend = CoreInitBackend {
             catalog: &catalog,

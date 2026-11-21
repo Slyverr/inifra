@@ -51,6 +51,7 @@ pub(crate) fn fetch_revision(
     if let Some(path) = cached_revision(source_cache_dir, revision)? {
         return Ok(path);
     }
+
     let repository = temporary_repository(revision.len())?;
     git(
         Some(repository.path()),
@@ -79,6 +80,7 @@ pub(crate) fn cached_revision(source_cache_dir: &Path, revision: &str) -> Result
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => return Err(error.into()),
     }
+
     let path = source_cache_dir.join(revision);
     match fs::symlink_metadata(&path) {
         Ok(metadata) if metadata.file_type().is_dir() => Ok(Some(path)),
@@ -119,11 +121,13 @@ fn install(source_cache_dir: &Path, revision: &str, repository: &Path) -> Result
     if let Some(path) = cached_revision(source_cache_dir, revision)? {
         return Ok(path);
     }
+
     let parent = source_cache_dir;
     fs::create_dir_all(parent)?;
     if !fs::symlink_metadata(parent)?.file_type().is_dir() {
         return Err("source cache namespace must be a directory".into());
     }
+
     let temporary = tempfile::tempdir_in(parent)?;
     extract_tree(repository, revision, temporary.path())?;
     let destination = parent.join(revision);
@@ -169,6 +173,7 @@ fn extract_tree(repository: &Path, revision: &str, destination: &Path) -> Result
         if let Some(parent) = target.parent() {
             fs::create_dir_all(parent)?;
         }
+
         let contents = git(
             Some(repository),
             &["cat-file", "blob", object],
@@ -176,6 +181,7 @@ fn extract_tree(repository: &Path, revision: &str, destination: &Path) -> Result
         )?;
         fs::write(target, contents.stdout)?;
     }
+
     Ok(())
 }
 
@@ -183,11 +189,13 @@ fn validate_tree_path(path: &str, seen: &mut BTreeMap<String, String>) -> Result
     if path.is_empty() || path.starts_with('/') || path.ends_with('/') {
         return Err("unsafe source tree path".into());
     }
+
     let mut prefix = String::new();
     for part in path.split('/') {
         if !safe_component(part) {
             return Err("unsafe source tree path component".into());
         }
+
         if !prefix.is_empty() {
             prefix.push('/');
         }
@@ -201,6 +209,7 @@ fn validate_tree_path(path: &str, seen: &mut BTreeMap<String, String>) -> Result
             );
         }
     }
+
     Ok(())
 }
 
@@ -214,6 +223,7 @@ fn safe_component(name: &str) -> bool {
     {
         return false;
     }
+
     let stem = name
         .split('.')
         .next()
@@ -246,6 +256,7 @@ fn git(repository: Option<&Path>, args: &[&str], action: &str) -> Result<Output>
                 detail = detail.replace(argument, "<source URL>");
             }
         }
+
         let detail = detail
             .lines()
             .filter(|line| !line.trim().is_empty())
@@ -257,12 +268,14 @@ fn git(repository: Option<&Path>, args: &[&str], action: &str) -> Result<Output>
         } else {
             detail
         };
+
         return Err(format!(
             "could not {action} (Git exited with {}): {detail}",
             output.status
         )
         .into());
     }
+
     Ok(output)
 }
 
@@ -278,6 +291,7 @@ fn git_command(repository: Option<&Path>) -> Command {
     ] {
         command.env_remove(variable);
     }
+
     if let Some(repository) = repository {
         command.arg("--git-dir").arg(repository);
     }
@@ -424,6 +438,7 @@ mod tests {
                 "{path}"
             );
         }
+
         let mut seen = BTreeMap::new();
         validate_tree_path("Folder/a", &mut seen).unwrap();
         assert!(validate_tree_path("folder/b", &mut seen).is_err());

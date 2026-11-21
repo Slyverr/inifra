@@ -33,6 +33,7 @@ pub(super) fn configure_profile(
             None => return Ok(()),
         },
     };
+
     let existing = config.profile(&id).cloned();
 
     let api_initial = existing
@@ -46,6 +47,7 @@ pub(super) fn configure_profile(
     let Some(api_index) = run_select("API", &api_choices, api_initial)? else {
         return Ok(());
     };
+
     let api = API_CHOICES[api_index];
 
     let provider = if api == ApiProtocol::OpenAiResponses {
@@ -72,6 +74,7 @@ pub(super) fn configure_profile(
         FormOutcome::Submitted(values) => values,
         FormOutcome::Cancelled => return Ok(()),
     };
+
     let model = required_value(&values, "model")?;
     let base_url = values
         .get("base_url")
@@ -83,6 +86,7 @@ pub(super) fn configure_profile(
     } else {
         Some(required_value(&values, "api_key_env")?)
     };
+
     let (credential_source, keep_saved_credential) = if api_key_env.is_none() {
         (CredentialSource::Environment, false)
     } else {
@@ -97,6 +101,7 @@ pub(super) fn configure_profile(
         if can_keep {
             choices.push("Keep current stored key".to_owned());
         }
+
         let credential_initial = existing
             .as_ref()
             .map(|profile| match profile.credential_source {
@@ -108,6 +113,7 @@ pub(super) fn configure_profile(
         let Some(selected) = run_select("Credential", &choices, credential_initial)? else {
             return Ok(());
         };
+
         let keep_saved_credential = selected == 2
             && read_credential(credentials_path, api_key_env.as_deref().unwrap_or_default())?
                 .is_some_and(|secret| !secret.trim().is_empty());
@@ -157,6 +163,7 @@ pub(super) fn configure_profile(
         restore_config(config_path, original)?;
         return Err(error.into());
     }
+
     let saved_profile = config
         .profile(&id)
         .ok_or("saved assistant profile is missing from the configuration")?;
@@ -198,6 +205,7 @@ fn restore_config(path: &Path, original: Option<AssistantConfig>) -> Result<(), 
             Err(error) => return Err(error.into()),
         },
     }
+
     Ok(())
 }
 

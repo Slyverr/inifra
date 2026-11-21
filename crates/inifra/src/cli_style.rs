@@ -24,7 +24,7 @@ pub(crate) fn styles() -> Styles {
 
 #[cfg(test)]
 mod tests {
-    use crate::Cli;
+    use crate::cli::Cli;
     use clap::{ColorChoice, CommandFactory};
 
     #[test]

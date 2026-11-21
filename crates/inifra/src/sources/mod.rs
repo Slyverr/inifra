@@ -10,6 +10,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub(crate) mod cache;
+
 #[derive(Debug, Subcommand)]
 #[command(styles = crate::cli_style::styles())]
 pub(crate) enum SourceCommand {
@@ -65,7 +67,7 @@ fn add(project_dir: &Path, name: &str, url: &str, reference: &str) -> Result<(),
     }
 
     let cache = source_cache_dir(name)?;
-    let revision = crate::source_cache::fetch_ref(url, reference, &cache)?;
+    let revision = cache::fetch_ref(url, reference, &cache)?;
     registry.insert(
         name,
         GitSource {
@@ -102,6 +104,7 @@ fn list(project_dir: &Path) -> Result<(), Box<dyn Error>> {
         );
         return Ok(());
     }
+
     for (name, source) in registry.sources {
         println!(
             "{}  {} @ {}",
@@ -118,6 +121,7 @@ fn list(project_dir: &Path) -> Result<(), Box<dyn Error>> {
             )
         );
     }
+
     Ok(())
 }
 
@@ -139,13 +143,8 @@ fn sync(project_dir: &Path, selected: Option<&str>) -> Result<(), Box<dyn Error>
     for name in names {
         let source = &registry.sources[&name];
         let cache = source_cache_dir(&name)?;
-        let existed = crate::source_cache::cached_revision(&cache, &source.revision)?.is_some();
-        crate::source_cache::fetch_revision(
-            &source.url,
-            &source.reference,
-            &source.revision,
-            &cache,
-        )?;
+        let existed = cache::cached_revision(&cache, &source.revision)?.is_some();
+        cache::fetch_revision(&source.url, &source.reference, &source.revision, &cache)?;
         let action = if existed { "ready" } else { "cached" };
         println!(
             "{}  {} @ {}",
@@ -154,6 +153,7 @@ fn sync(project_dir: &Path, selected: Option<&str>) -> Result<(), Box<dyn Error>
             inifra_tui::presentation::terminal_text(&source.revision)
         );
     }
+
     Ok(())
 }
 
@@ -175,11 +175,7 @@ fn update(project_dir: &Path, selected: Option<&str>) -> Result<(), Box<dyn Erro
     let mut updated = Vec::new();
     for name in names {
         let source = &registry.sources[&name];
-        let revision = crate::source_cache::fetch_ref(
-            &source.url,
-            &source.reference,
-            &source_cache_dir(&name)?,
-        )?;
+        let revision = cache::fetch_ref(&source.url, &source.reference, &source_cache_dir(&name)?)?;
         if revision != source.revision {
             updated.push((name, revision));
         }
@@ -196,6 +192,7 @@ fn update(project_dir: &Path, selected: Option<&str>) -> Result<(), Box<dyn Erro
         );
         return Ok(());
     }
+
     for (name, revision) in &updated {
         let mut source = registry.sources[name].clone();
         source.revision.clone_from(revision);
@@ -214,6 +211,7 @@ fn update(project_dir: &Path, selected: Option<&str>) -> Result<(), Box<dyn Erro
             inifra_tui::presentation::terminal_text(&revision)
         );
     }
+
     Ok(())
 }
 
@@ -255,6 +253,7 @@ fn load_registry(project_dir: &Path) -> Result<(Option<PathBuf>, SourceRegistry)
         Some(directory) => SourceRegistry::load(&directory.join("sources.toml"))?,
         None => SourceRegistry::default(),
     };
+
     Ok((directory, registry))
 }
 
@@ -287,6 +286,6 @@ fn project_config_dir(project_dir: &Path, create: bool) -> Result<Option<PathBuf
 
 fn source_cache_dir(name: &str) -> Result<PathBuf, Box<dyn Error>> {
     let root =
-        crate::user_config::cache_dir()?.ok_or("could not determine the user cache directory")?;
+        crate::config::user::cache_dir()?.ok_or("could not determine the user cache directory")?;
     Ok(root.join("sources").join(name))
 }

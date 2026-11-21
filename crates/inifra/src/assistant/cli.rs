@@ -1,4 +1,4 @@
-use crate::assistant_configure::{configure_profile, profile_id_input};
+use crate::assistant::configure::{configure_profile, profile_id_input};
 use clap::Subcommand;
 use inifra_assistant::AssistantConfig;
 use inifra_tui::{presentation, run_confirmation, run_select};
@@ -13,7 +13,7 @@ pub(crate) const CONFIG_FILE: &str = "assistant.toml";
 pub(crate) const CREDENTIALS_FILE: &str = "credentials.env";
 
 /// Non-interactive assistant profile actions and the interactive manager.
-#[derive(Subcommand)]
+#[derive(Debug, Subcommand)]
 #[command(styles = crate::cli_style::styles())]
 pub(crate) enum AssistantCommand {
     /// Show configured profiles.
@@ -76,12 +76,15 @@ fn manage(config_path: &Path, credentials_path: &Path) -> Result<(), Box<dyn Err
                 "Remove a profile".to_owned(),
             ]);
         }
+
         if config_path.exists() || credentials_path.exists() {
             actions.push("Reset assistant data".to_owned());
         }
+
         let Some(selected) = run_select("", &actions, 0)? else {
             return Ok(());
         };
+
         match actions[selected].as_str() {
             "Create or edit a profile" => {
                 let Some(id) = profile_id_input()? else {
@@ -115,6 +118,7 @@ fn list_profiles(config_path: &Path) -> Result<(), Box<dyn Error>> {
         );
         return Ok(());
     }
+
     for (id, profile) in config.profiles() {
         let marker = if config.default_profile_id() == Some(id.as_str()) {
             format!(
@@ -133,6 +137,7 @@ fn list_profiles(config_path: &Path) -> Result<(), Box<dyn Error>> {
             presentation::terminal_text(&profile.model)
         );
     }
+
     Ok(())
 }
 
@@ -173,6 +178,7 @@ fn choose_profile(config: &AssistantConfig, title: &str) -> Result<Option<String
     if profiles.is_empty() {
         return Ok(None);
     }
+
     let choices = profiles
         .iter()
         .map(|(_, label)| label.clone())
@@ -186,6 +192,7 @@ fn remove_profile(config_path: &Path, id: &str) -> Result<(), Box<dyn Error>> {
     let Some(profile) = config.profile(id) else {
         return Err(format!("unknown assistant profile {id:?}").into());
     };
+
     let description = format!(
         "Remove profile {id:?} ({}, {})?",
         profile.provider.display_name(),
@@ -204,6 +211,7 @@ fn remove_profile(config_path: &Path, id: &str) -> Result<(), Box<dyn Error>> {
             presentation::paint_emphasis(id, presentation::Tone::Accent)
         );
     }
+
     Ok(())
 }
 
@@ -256,5 +264,6 @@ fn require_terminal() -> Result<(), Box<dyn Error>> {
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         return Err("assistant configuration requires an interactive terminal".into());
     }
+
     Ok(())
 }

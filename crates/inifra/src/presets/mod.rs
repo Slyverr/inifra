@@ -137,6 +137,7 @@ fn list(root: &Path, catalog: &Catalog) -> Result<(), Box<dyn Error>> {
         );
         return Ok(());
     }
+
     let width = saved
         .iter()
         .map(|preset| preset.id.len())
@@ -157,6 +158,7 @@ fn list(root: &Path, catalog: &Catalog) -> Result<(), Box<dyn Error>> {
             )
         );
     }
+
     Ok(())
 }
 
@@ -169,12 +171,12 @@ fn save(
     assignments: &[String],
     overwrite: bool,
 ) -> Result<(), Box<dyn Error>> {
-    crate::init::validate_picker_selection(catalog, template_ids)?;
+    crate::commands::init::validate_picker_selection(catalog, template_ids)?;
     let preset = presets::Preset {
         id: id.to_owned(),
         description: description.to_owned(),
         templates: template_ids.to_vec(),
-        values: crate::parse_assignments(assignments)?,
+        values: crate::inputs::parse_assignments(assignments)?,
     };
     presets::save(root, &preset, catalog, overwrite)?;
     println!(
@@ -206,6 +208,7 @@ fn inspect(root: &Path, catalog: &Catalog, id: &str) -> Result<(), Box<dyn Error
             presentation::paint_emphasis(template, presentation::Tone::Accent)
         );
     }
+
     if !preset.values.is_empty() {
         println!();
         println!(
@@ -223,6 +226,7 @@ fn inspect(root: &Path, catalog: &Catalog, id: &str) -> Result<(), Box<dyn Error
             );
         }
     }
+
     Ok(())
 }
 
@@ -239,10 +243,10 @@ fn apply(
         .find(|preset| preset.id == id)
         .ok_or_else(|| format!("unknown preset {id:?}"))?;
     let mut values = preset.values;
-    values.extend(crate::parse_assignments(assignments)?);
+    values.extend(crate::inputs::parse_assignments(assignments)?);
     let definitions = workflow::input_definitions_for_selection(catalog, &preset.templates)?;
     if let Some(name) = values.keys().find(|name| !definitions.contains_key(*name)) {
         return Err(format!("input {name:?} is not used by preset {id:?}").into());
     }
-    crate::init::run_with_selection(catalog, target, overwrite, &preset.templates, values)
+    crate::commands::init::run_with_selection(catalog, target, overwrite, &preset.templates, values)
 }

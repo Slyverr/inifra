@@ -31,10 +31,12 @@ pub(super) fn parse(input: &str) -> Result<Option<Command>, String> {
     if !input.trim_start().starts_with('/') {
         return Ok(None);
     }
+
     let tokens = shlex::split(input).ok_or_else(|| "unclosed quote in command".to_owned())?;
     let Some(command) = tokens.first().map(String::as_str) else {
         return Ok(None);
     };
+
     let arguments = &tokens[1..];
     let unexpected = || format!("unexpected argument for {command}; use /help");
     let parsed = match command {
@@ -55,6 +57,7 @@ pub(super) fn parse(input: &str) -> Result<Option<Command>, String> {
         "/model" => return Err(unexpected()),
         _ => return Err(format!("unknown command {command:?}; use /help")),
     };
+
     Ok(Some(parsed))
 }
 
@@ -85,9 +88,11 @@ fn parse_plan(arguments: &[String]) -> Result<Command, String> {
         }
         index += 1;
     }
+
     if ids.is_empty() {
         return Err("usage: /plan <template-id>... [--set NAME=VALUE] [--overwrite]".to_owned());
     }
+
     Ok(Command::Plan {
         ids,
         values,
@@ -100,6 +105,7 @@ pub(super) fn completions(input: &str, catalog: &Catalog, models: &[String]) -> 
     if !prefix.starts_with('/') {
         return Vec::new();
     }
+
     let Some((command, argument)) = prefix.split_once(char::is_whitespace) else {
         return COMMANDS
             .iter()
@@ -107,6 +113,7 @@ pub(super) fn completions(input: &str, catalog: &Catalog, models: &[String]) -> 
             .map(|command| (*command).to_owned())
             .collect();
     };
+
     let (partial, earlier) = argument
         .rsplit_once(char::is_whitespace)
         .map_or((argument.trim(), ""), |(earlier, partial)| {
@@ -164,6 +171,7 @@ pub(super) fn list_templates(catalog: &Catalog, query: &str) -> String {
         {
             continue;
         }
+
         if count == 30 {
             lines.push("… more matches; refine the query".to_owned());
             break;
@@ -171,6 +179,7 @@ pub(super) fn list_templates(catalog: &Catalog, query: &str) -> String {
         lines.push(format!("{} · {} · {}", pack.id, category, pack.description));
         count += 1;
     }
+
     if count == 0 {
         lines.push("No matching templates.".to_owned());
     }
@@ -206,6 +215,7 @@ pub(super) fn inspect_template(catalog: &Catalog, id: &str) -> Result<String, St
                 .map(|output| format!("{}", output.output.display())),
         );
     }
+
     if !pack.directories.is_empty() {
         lines.push("".to_owned());
         lines.push("Directories".to_owned());
@@ -215,6 +225,7 @@ pub(super) fn inspect_template(catalog: &Catalog, id: &str) -> Result<String, St
                 .map(|path| format!("{}/", path.display())),
         );
     }
+
     if !inputs.is_empty() {
         lines.push("".to_owned());
         lines.push("Inputs".to_owned());
@@ -227,6 +238,7 @@ pub(super) fn inspect_template(catalog: &Catalog, id: &str) -> Result<String, St
             format!("{name} ({required}) · {}", definition.prompt)
         }));
     }
+
     Ok(lines.join("\n"))
 }
 
@@ -325,6 +337,7 @@ pub(super) fn prepare_plan(
         ));
         return Err(lines.join("\n"));
     }
+
     let plan = workflow::prepare(catalog, ids, values, root, overwrite)
         .map_err(|error| error.to_string())?;
     let mut lines = vec!["Plan for the current project".to_owned()];
@@ -335,6 +348,7 @@ pub(super) fn prepare_plan(
         };
         lines.push(format!("{action} · {}/", directory.path.display()));
     }
+
     for file in &plan.files {
         let action = match file.action {
             inifra_core::plan::Action::Create => "create",
@@ -343,11 +357,13 @@ pub(super) fn prepare_plan(
         };
         lines.push(format!("{action} · {}", file.path.display()));
     }
+
     if plan.files.is_empty() && plan.directories.is_empty() {
         lines.push("The plan has no filesystem changes.".to_owned());
     } else {
         lines.push("No files have been changed. Use /apply to review and approve.".to_owned());
     }
+
     Ok((lines.join("\n"), plan))
 }
 
