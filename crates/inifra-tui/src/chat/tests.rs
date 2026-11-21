@@ -1,0 +1,187 @@
+use super::*;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use ratatui::{Terminal, backend::TestBackend};
+use std::sync::mpsc;
+
+fn key(code: KeyCode, modifiers: KeyModifiers) -> KeyEvent {
+    KeyEvent::new(code, modifiers)
+}
+
+#[test]
+fn enter_submits_input_and_shift_enter_keeps_a_newline() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    let (actions, received) = mpsc::channel();
+    handle_key(
+        key(KeyCode::Char('h'), KeyModifiers::NONE),
+        &mut app,
+        &actions,
+    )
+    .unwrap();
+    handle_key(key(KeyCode::Enter, KeyModifiers::SHIFT), &mut app, &actions).unwrap();
+    handle_key(
+        key(KeyCode::Char('i'), KeyModifiers::NONE),
+        &mut app,
+        &actions,
+    )
+    .unwrap();
+    assert_eq!(app.input_text(), "h\ni");
+    handle_key(key(KeyCode::Enter, KeyModifiers::NONE), &mut app, &actions).unwrap();
+    assert_eq!(
+        received.try_recv().unwrap(),
+        ChatAction::Submit("h\ni".to_owned())
+    );
+    assert!(app.input.is_empty());
+}
+
+#[test]
+fn escape_cancels_stream_and_quits_when_idle() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    let (actions, received) = mpsc::channel();
+    app.streaming = true;
+    assert!(!handle_key(key(KeyCode::Esc, KeyModifiers::NONE), &mut app, &actions).unwrap());
+    assert_eq!(received.try_recv().unwrap(), ChatAction::Cancel);
+    assert!(handle_key(key(KeyCode::Esc, KeyModifiers::NONE), &mut app, &actions).unwrap());
+    assert_eq!(received.try_recv().unwrap(), ChatAction::Quit);
+}
+
+#[test]
+fn tab_completes_a_candidate_and_updates_the_cursor() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    app.input = "/mo".chars().collect();
+    app.cursor = app.input.len();
+    app.completions = vec!["/model gpt-test".to_owned()];
+    let (actions, received) = mpsc::channel();
+    handle_key(key(KeyCode::Tab, KeyModifiers::NONE), &mut app, &actions).unwrap();
+    assert_eq!(app.input_text(), "/model gpt-test");
+    assert_eq!(app.cursor, app.input.len());
+    assert!(matches!(
+        received.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+}
+
+#[test]
+fn tab_cycles_through_candidates_sharing_the_same_prefix() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    app.input = "/model gpt".chars().collect();
+    app.cursor = app.input.len();
+    app.completions = vec!["/model gpt-fast".to_owned(), "/model gpt-pro".to_owned()];
+    let (actions, _) = mpsc::channel();
+
+    handle_key(key(KeyCode::Tab, KeyModifiers::NONE), &mut app, &actions).unwrap();
+    assert_eq!(app.input_text(), "/model gpt-fast");
+    handle_key(key(KeyCode::Tab, KeyModifiers::NONE), &mut app, &actions).unwrap();
+    assert_eq!(app.input_text(), "/model gpt-pro");
+    handle_key(key(KeyCode::Tab, KeyModifiers::NONE), &mut app, &actions).unwrap();
+    assert_eq!(app.input_text(), "/model gpt-fast");
+}
+
+#[test]
+fn streamed_events_keep_editor_and_session_footer_visible() {
+    let mut app = ChatApp::new(ChatConfig {
+        provider: "NVIDIA NIM".to_owned(),
+        model: "nemotron".to_owned(),
+    });
+    app.push_message(Role::User, "hello".to_owned());
+    let (sender, events) = mpsc::channel();
+    sender.send(ChatEvent::AssistantStarted).unwrap();
+    sender
+        .send(ChatEvent::TextDelta("Hello **there**.".to_owned()))
+        .unwrap();
+    sender
+        .send(ChatEvent::Session {
+            provider: "NVIDIA NIM".to_owned(),
+            model: "nemotron".to_owned(),
+            turns: 1,
+            usage: ChatUsage {
+                total_tokens: Some(42),
+                ..ChatUsage::default()
+            },
+        })
+        .unwrap();
+    drain_events(&events, &mut app);
+    let backend = TestBackend::new(80, VIEWPORT_HEIGHT);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal.draw(|frame| view::draw(frame, &app)).unwrap();
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(rendered.contains("› hello"));
+    assert!(rendered.contains("Inifra ›"));
+    assert!(rendered.contains("Waiting for response…"));
+    assert!(rendered.contains("NVIDIA NIM"));
+    assert!(rendered.contains("42 tokens"));
+}
+
+#[test]
+fn confirmation_is_bound_to_its_request_and_defaults_to_no() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    let (actions, received) = mpsc::channel();
+    let (sender, events) = mpsc::channel();
+    sender
+        .send(ChatEvent::ConfirmationRequested {
+            request_id: 17,
+            prompt: "Apply this plan?".to_owned(),
+        })
+        .unwrap();
+    drain_events(&events, &mut app);
+    assert!(!app.confirmation.as_ref().unwrap().approved);
+
+    let backend = TestBackend::new(60, VIEWPORT_HEIGHT);
+    let mut terminal = Terminal::new(backend).unwrap();
+    terminal.draw(|frame| view::draw(frame, &app)).unwrap();
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(rendered.contains("Apply this plan?"));
+    assert!(rendered.contains("[ No ]"));
+
+    handle_key(key(KeyCode::Enter, KeyModifiers::NONE), &mut app, &actions).unwrap();
+    assert_eq!(
+        received.try_recv().unwrap(),
+        ChatAction::Confirm {
+            request_id: 17,
+            approved: false
+        }
+    );
+}
+
+#[test]
+fn commands_get_ghost_text_and_headings_are_rendered_without_markers() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    app.input = "/he".chars().collect();
+    app.cursor = app.input.len();
+    app.completions = vec!["/help".to_owned()];
+    assert_eq!(view::ghost_completion(&app).as_deref(), Some("lp"));
+    let rendered = super::markdown::render("## Heading\n- one");
+    assert_eq!(rendered[0].spans[0].content, "Heading");
+    assert_eq!(rendered[1].spans[0].content, "• ");
+}
+
+#[test]
+fn empty_input_keeps_the_message_placeholder_without_a_command_suggestion() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    app.completions = vec!["/help".to_owned()];
+    let backend = TestBackend::new(80, VIEWPORT_HEIGHT);
+    let mut terminal = Terminal::new(backend).unwrap();
+
+    terminal.draw(|frame| view::draw(frame, &app)).unwrap();
+
+    let rendered = terminal
+        .backend()
+        .buffer()
+        .content()
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect::<String>();
+    assert!(rendered.contains("Type a message…"));
+    assert!(!rendered.contains("/help"));
+}

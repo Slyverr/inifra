@@ -1,4 +1,6 @@
-use crate::http::{BodyStream, HttpRequest, HttpResponse, HttpTransport, TransportError};
+use crate::transport::http::{
+    BodyStream, HttpRequest, HttpResponse, HttpTransport, TransportError,
+};
 use futures_util::stream;
 use reqwest::{Method, header::HeaderMap};
 use std::{

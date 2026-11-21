@@ -448,6 +448,7 @@ fn generate_uses_co_selected_output_alternatives() {
         );
         write_catalog_file(&catalog, &format!("project-policies/{id}/LICENSE.txt"), id);
     }
+
     let target = root.path().join("target");
     let output = inifra()
         .args([
@@ -490,6 +491,7 @@ fn generates_and_preserves_existing_files_without_overwrite() {
             .output()
             .unwrap()
     };
+
     let created = run();
     assert!(
         created.status.success(),
@@ -1119,6 +1121,7 @@ fn generate_rejects_conflicting_scoped_inputs_without_writing() {
             "{{ name }}",
         );
     }
+
     let target = root.path().join("target");
     let output = inifra()
         .args([

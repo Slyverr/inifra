@@ -1,32 +1,23 @@
 //! Assistant profiles, provider adapters, and constrained assistant workflows.
 #![deny(missing_docs)]
 
-mod adapter;
-mod anthropic;
-mod chat;
-mod chat_completions;
-mod client;
-mod config;
-mod credentials;
-mod gemini;
-mod http;
-mod jsonl;
-mod models;
-mod ollama;
-mod responses;
-mod sse;
-mod stream;
+mod conversation;
+mod provider;
+mod settings;
 #[cfg(test)]
 mod test_support;
+mod transport;
 
-pub use chat::{ChatEvent, ChatMessage, ChatRole, ChatStream, TokenUsage};
-pub use client::ProviderClient;
-pub use config::{ApiProtocol, AssistantConfig, AssistantProfile, CredentialSource, Provider};
-pub use credentials::{read_credential, resolve_credential, write_credential};
-pub use http::ProviderError;
-pub use models::list_models;
+pub use conversation::chat::{ChatEvent, ChatMessage, ChatRole, ChatStream, TokenUsage};
+pub use conversation::client::ProviderClient;
+pub use conversation::models::list_models;
+pub use settings::config::{
+    ApiProtocol, AssistantConfig, AssistantProfile, CredentialSource, Provider,
+};
+pub use settings::credentials::{read_credential, resolve_credential, write_credential};
 /// Cancellation signal used to stop a provider request and response stream.
 pub use tokio_util::sync::CancellationToken;
+pub use transport::http::ProviderError;
 
 /// An invalid assistant configuration or unavailable credential.
 #[derive(Debug)]

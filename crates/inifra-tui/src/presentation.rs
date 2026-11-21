@@ -35,6 +35,7 @@ pub fn paint(text: impl AsRef<str>, tone: Tone, stderr: bool) -> String {
     } else {
         io::stdout().is_terminal()
     };
+
     let enabled = is_terminal && std::env::var_os("NO_COLOR").is_none();
     paint_with_style(text.as_ref(), tone, false, enabled)
 }
@@ -99,6 +100,7 @@ pub fn truncate_to_width(text: &str, max_width: usize) -> String {
     if visible_width(text) <= max_width {
         return text.to_owned();
     }
+
     if max_width == 0 {
         return String::new();
     }
@@ -122,6 +124,7 @@ pub(crate) fn tui_style(tone: Tone, bold: bool) -> TuiStyle {
     } else {
         tui_color(tone)
     };
+
     let mut style = TuiStyle::default().fg(color);
     if bold {
         style = style.add_modifier(Modifier::BOLD);

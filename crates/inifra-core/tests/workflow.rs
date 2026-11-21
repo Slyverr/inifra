@@ -112,6 +112,7 @@ fn conflicting_selected_packs_fail_without_creating_destination() {
         .unwrap();
         fs::write(dir.join("README.md"), id).unwrap();
     }
+
     let catalog = Catalog::load(&root.join("catalog")).unwrap();
     let destination = root.join("target");
     let error = workflow::prepare(
@@ -344,6 +345,7 @@ fn invalid_reference_sources_fail_before_planning_or_writing() {
         fs::write(pack.join("template.toml"), manifest).unwrap();
         fs::write(pack.join(source), "Content").unwrap();
     }
+
     let catalog = Catalog::load(&catalog_root).unwrap();
     let destination = root.join("target");
     let error = workflow::prepare(
