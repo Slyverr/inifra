@@ -1,0 +1,55 @@
+name: Publish crates.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to publish (for example, v0.8.0)
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  publish:
+    name: Publish tagged workspace crates
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+          fetch-depth: 0
+      - name: Install stable Rust
+        run: rustup toolchain install stable --profile minimal
+      - name: Validate release tag and metadata
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: python3 scripts/validate-release-tag.py
+      - name: Verify tag CI passed
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          RELEASE_SHA="$(git rev-parse "$RELEASE_TAG^{commit}")"
+          PASSED="$(gh run list --workflow ci.yml --event push --commit "$RELEASE_SHA" --json status,conclusion --jq 'any(.[]; .status == "completed" and .conclusion == "success")')"
+          test "$PASSED" = true
+      - name: Verify the matching GitHub Release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: gh release view "$RELEASE_TAG"
+      - name: Require the crates.io publishing secret
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          if [[ -z "$CARGO_REGISTRY_TOKEN" ]]; then
+            echo "::error::Set the repository Actions secret CARGO_REGISTRY_TOKEN before publishing."
+            exit 1
+          fi
+      - name: Publish workspace crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: scripts/publish-crates.sh --publish

@@ -6,6 +6,12 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 ## [Unreleased]
 
+### Added
+
+- Provide a Nix flake with a pinned development shell and installable package.
+- Build platform binaries and publish release archives on GitHub Releases after tag CI passes.
+- Prepare the workspace crates for crates.io distribution, with a manual, CI-gated publishing workflow.
+
 ## [0.7.0] - 2026-11-20
 
 ### Added

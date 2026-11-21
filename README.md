@@ -8,11 +8,19 @@ https://github.com/user-attachments/assets/229e62c2-5b1f-4e30-82f0-6faa53d9cd60
 
 ## Installation
 
-To install Inifra from a source checkout, use Rust 1.100.0 or newer and Cargo:
+Install the latest published version from crates.io with Cargo:
+
+```sh
+cargo install inifra --locked
+```
+
+To install from a source checkout, use Rust 1.100.0 or newer and Cargo:
 
 ```sh
 cargo install --path crates/inifra --locked
 ```
+
+Download prebuilt binaries from [GitHub Releases](https://github.com/Slyverr/inifra/releases). On Nix, install the package from the flake with `nix profile install github:Slyverr/inifra`. See [Nix support](docs/nix.md) for the development shell and local build commands.
 
 ## Quick Start
 

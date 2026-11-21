@@ -4,11 +4,15 @@ Contributions are welcome. This guide covers development setup, project organiza
 
 ## Getting Started
 
-Development requires Rust 1.100.0 or newer, Cargo, rustup, and Git. Install the stable Rust toolchain with Rustfmt and Clippy:
+For a rustup-based setup, install Rust 1.100.0 or newer with Cargo, Rustfmt, and Clippy:
 
 ```sh
 rustup toolchain install stable --profile minimal --component clippy --component rustfmt
 ```
+
+Nix users can enter the pinned project environment with `nix develop`; see [Nix support](docs/nix.md).
+
+Git is required for development and for using Git-backed template sources.
 
 Run Inifra from the repository root:
 
@@ -65,6 +69,8 @@ cargo +1.100.0 test --workspace --locked
 ```
 
 Run applicable checks and report anything not executed. The documented CI workflow runs stable Rust formatting, linting, and tests on Linux, macOS, and Windows, plus MSRV checks on Linux; consult [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for authoritative configuration.
+
+To verify the crates.io package archives locally, run `scripts/publish-crates.sh --dry-run`. It stages the root `templates/` catalog into `inifra-core` for packaging, then removes the staged copy. Use `--allow-dirty` only for a local dry run with uncommitted changes.
 
 ## Git and Commits
 
@@ -152,10 +158,12 @@ Release tags identify a verified revision on `main` or an active maintenance bra
 2. **Major/minor:** Include a final, nonempty `chore(release): prepare vX.Y.Z` commit in the PR that completes the release scope whenever practical. Use a separate release-preparation PR only when the implementation has already merged or the metadata change must be reviewed independently. No commit body is needed by default.
 3. **Patch:** No required release-preparation commit. Include necessary version and changelog updates before tagging, keeping fix commits separate from release-only metadata when practical so the fix can be cleanly cherry-picked. If a separate metadata commit is necessary, use one without a ceremonial release-preparation step.
 4. CI must validate PRs targeting both `main` and supported `release/vX.Y` branches. Confirm the **exact final commit** passes relevant checks before tagging. Only a maintainer or explicitly authorized automation creates the immutable `vX.Y.Z` tag on that commit.
-5. Verify the tag target and signature **if signing is configured**. Tag-triggered CI, where configured, must test the exact tagged revision; if artifacts are published in the future, publication must depend on passing those checks regardless of release branch. Confirm `.github/workflows/ci.yml` and any release workflows actually implement these triggers before relying on them.
-6. If a defect is found after tagging, publish a new patch rather than moving an existing tag.
+5. Verify the tag target and signature **if signing is configured**. Tag-triggered CI tests the exact tagged revision, validates every Cargo package archive, and builds release binaries. A passing run creates a GitHub Release with platform archives and checksums.
+6. After reviewing the GitHub Release, dispatch the **Publish crates.io** workflow from `main` with that tag. It verifies the tag, successful tag CI, and the GitHub Release, then publishes the workspace crates through Cargo. Configure the repository Actions secret `CARGO_REGISTRY_TOKEN` before using this workflow. Never place the token in source, workflow inputs, or logs.
+7. Crates.io versions are immutable. If a workspace publish stops after publishing some crates, inspect crates.io and the workflow log before retrying; do not blindly rerun a partially completed publication.
+8. If a defect is found after tagging, publish a new patch rather than moving an existing tag.
 
-**Current publication policy:** Git tags mark releases. Do not publish GitHub Releases or upload packages to crates.io unless this policy is explicitly changed.
+**Publication policy:** Every published version has an immutable `vX.Y.Z` Git tag. A successful tag workflow creates the matching GitHub Release and binary archives. Crates.io publication is a separate, manually dispatched workflow that runs only after tag CI and the GitHub Release are verified.
 
 ## Documentation and Support
 
