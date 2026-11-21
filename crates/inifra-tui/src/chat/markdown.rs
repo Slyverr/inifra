@@ -9,6 +9,7 @@ pub(super) fn render(markdown: &str) -> Vec<Line<'static>> {
     if markdown.is_empty() {
         return vec![Line::from("")];
     }
+
     let mut in_code = false;
     markdown
         .lines()
@@ -17,9 +18,11 @@ pub(super) fn render(markdown: &str) -> Vec<Line<'static>> {
                 in_code = !in_code;
                 return Line::from("");
             }
+
             if in_code {
                 return Line::styled(terminal_text(line), tui_style(Tone::Muted, false));
             }
+
             let trimmed = line.trim_start();
             let (text, style) = if let Some(heading) = trimmed
                 .strip_prefix("### ")
@@ -85,6 +88,7 @@ fn inline_spans(markdown: &str, base_style: Style) -> Vec<Span<'static>> {
                 if let Some(previous) = styles.pop() {
                     style = previous;
                 }
+
                 if let Some(destination) = links.pop() {
                     spans.push(Span::styled(
                         format!(" ({})", terminal_text(&destination)),
@@ -124,6 +128,7 @@ fn inline_spans(markdown: &str, base_style: Style) -> Vec<Span<'static>> {
             Event::Start(_) | Event::End(_) => {}
         }
     }
+
     if spans.is_empty() {
         spans.push(Span::raw(terminal_text(markdown)));
     }

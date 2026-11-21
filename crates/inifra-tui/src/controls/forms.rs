@@ -85,6 +85,7 @@ fn run_form_with_mode(
             "form fields need nonempty names and labels, with unique names",
         ));
     }
+
     if fields.is_empty() {
         return Ok(FormOutcome::Submitted(BTreeMap::new()));
     }
@@ -122,6 +123,7 @@ pub fn run_confirmation(
     } else {
         CONFIRM_HEIGHT
     };
+
     let (_restore, mut terminal) = terminal::inline(height)?;
     let mut yes = default_yes;
     loop {
@@ -194,6 +196,7 @@ impl<'a> FormApp<'a> {
         {
             return Some(FormOutcome::Cancelled);
         }
+
         match key.code {
             KeyCode::BackTab => return self.move_field(false),
             KeyCode::Tab => return self.move_field(true),
@@ -236,6 +239,7 @@ impl<'a> FormApp<'a> {
             }
             _ => {}
         }
+
         None
     }
 
@@ -246,6 +250,7 @@ impl<'a> FormApp<'a> {
         } else {
             self.input.clone()
         };
+
         if forward && field.required && value.trim().is_empty() {
             self.error = Some("A value is required.".to_owned());
             return None;
@@ -258,9 +263,11 @@ impl<'a> FormApp<'a> {
         } else {
             self.index.saturating_sub(1)
         };
+
         if forward && next == self.fields.len() {
             return Some(FormOutcome::Submitted(std::mem::take(&mut self.values)));
         }
+
         if !forward && self.index == 0 {
             self.values.remove(&field.name);
             return None;
@@ -321,6 +328,7 @@ fn draw_form(frame: &mut Frame<'_>, app: &FormApp<'_>) {
     } else {
         "optional"
     };
+
     let default = if app.secret {
         String::new()
     } else {
@@ -330,6 +338,7 @@ fn draw_form(frame: &mut Frame<'_>, app: &FormApp<'_>) {
             .map(|value| format!(" · default: {}", terminal_text(value)))
             .unwrap_or_default()
     };
+
     let input_width = area[1].width.saturating_sub(2);
     let (input, cursor_column) = if app.secret {
         let masked = "•".repeat(app.input.chars().count());
@@ -337,6 +346,7 @@ fn draw_form(frame: &mut Frame<'_>, app: &FormApp<'_>) {
     } else {
         visible_input(&app.input, app.cursor, input_width)
     };
+
     let body = vec![
         Line::from(format!(
             "{} ({requirement}{default})",
@@ -385,6 +395,7 @@ fn visible_input(input: &str, cursor: usize, width: u16) -> (String, u16) {
         }
         start += 1;
     }
+
     let mut prefix = String::new();
     if start > 0 {
         prefix.push('…');
@@ -402,6 +413,7 @@ fn visible_input(input: &str, cursor: usize, width: u16) -> (String, u16) {
         visible.push(*character);
         visible_width = next_width;
     }
+
     let cursor_text = characters[start..cursor].iter().collect::<String>();
     let cursor_column = Line::from(cursor_text.as_str()).width() + usize::from(start > 0);
     prefix.push_str(&visible);

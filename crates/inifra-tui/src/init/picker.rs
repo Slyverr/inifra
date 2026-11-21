@@ -1,7 +1,7 @@
+use super::preview;
 use crate::{
     TemplateChoice, TemplateView,
     init::App,
-    init_preview,
     presentation::{Tone, terminal_text, tui_style},
 };
 use ratatui::{
@@ -37,10 +37,11 @@ pub(super) fn draw<P>(frame: &mut Frame<'_>, app: &App<P>, area: Rect) {
     if area.is_empty() {
         return;
     }
+
     let [list_area, preview_area] = picker_areas(area, entries(app).len());
     draw_list(frame, list_area, app);
     if let Some(template) = current_template(app) {
-        init_preview::draw(
+        preview::draw(
             frame,
             preview_area,
             template,
@@ -110,6 +111,7 @@ fn draw_list<P>(frame: &mut Frame<'_>, area: Rect, app: &App<P>) {
     if area.is_empty() {
         return;
     }
+
     let entries = entries(app);
     let cursor_entry = entries
         .iter()
@@ -158,6 +160,7 @@ fn entries<P>(app: &App<P>) -> Vec<Entry<'_>> {
         if previous_category.is_some() && previous_category != Some(category) {
             entries.push(Entry::Gap);
         }
+
         if previous_category != Some(category) {
             entries.push(Entry::Category(category));
             previous_category = Some(category);
@@ -235,6 +238,7 @@ fn append_template_ids<P>(
         if position > 0 {
             spans.push(Span::raw("  ·  "));
         }
+
         let template = &choice.variants[index];
         let is_current = index == current_index;
         let id = if is_current && choice.variants.len() > 1 {
@@ -242,12 +246,14 @@ fn append_template_ids<P>(
         } else {
             template.id.clone()
         };
+
         let unavailable = app.unavailable_templates.contains(&template.id);
         let mut style = if is_current && (row_index == app.cursor || choice.variants.len() > 1) {
             tui_style(Tone::Accent, true)
         } else {
             tui_style(Tone::Secondary, false)
         };
+
         if unavailable {
             style = style.add_modifier(Modifier::CROSSED_OUT);
         }
@@ -302,6 +308,7 @@ fn conditional_output_summary(default: &Path, alternate: &Path) -> String {
     if default == alternate {
         return default.into_owned();
     }
+
     if let Some(suffix) = alternate.strip_prefix(default.as_ref())
         && suffix
             .chars()
@@ -554,7 +561,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
         terminal
             .draw(|frame| {
-                crate::init_preview::draw(frame, Rect::new(0, 0, 70, 24), template, None, 0);
+                super::super::preview::draw(frame, Rect::new(0, 0, 70, 24), template, None, 0);
             })
             .unwrap();
         let text = format!("{:?}", terminal.backend().buffer());
@@ -593,7 +600,7 @@ mod tests {
         let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
         terminal
             .draw(|frame| {
-                crate::init_preview::draw(frame, Rect::new(0, 0, 70, 24), template, resolved, 0);
+                super::super::preview::draw(frame, Rect::new(0, 0, 70, 24), template, resolved, 0);
             })
             .unwrap();
         let text = format!("{:?}", terminal.backend().buffer());

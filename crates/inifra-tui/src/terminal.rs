@@ -121,6 +121,7 @@ fn fit_inline_height(terminal_height: u16, maximum: u16, minimum: u16) -> io::Re
             ),
         ));
     }
+
     Ok(height)
 }
 

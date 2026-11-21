@@ -35,6 +35,7 @@ fn draw_select<P>(frame: &mut Frame<'_>, app: &App<P>) {
         draw_resize_notice(frame, area);
         return;
     }
+
     let [header, _top_gap, body, _footer_gap, footer] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -46,12 +47,12 @@ fn draw_select<P>(frame: &mut Frame<'_>, app: &App<P>) {
         ])
         .areas(area);
     frame.render_widget(Paragraph::new(picker_title(app)), header);
-    super::init_picker::draw(frame, app, body);
+    super::picker::draw(frame, app, body);
     draw_picker_footer(
         frame,
         footer,
         app.error_message(),
-        super::init_picker::has_alternatives(app),
+        super::picker::has_alternatives(app),
         app.search_active,
         !app.search_query.is_empty(),
     );
@@ -103,6 +104,7 @@ fn draw_input<P>(frame: &mut Frame<'_>, prompt: &crate::InputPrompt, app: &App<P
         draw_resize_notice(frame, area);
         return;
     }
+
     let [prompt_area, hint_area, input_area, _spacer, footer_area] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(1); 5])
@@ -150,11 +152,13 @@ fn draw_input<P>(frame: &mut Frame<'_>, prompt: &crate::InputPrompt, app: &App<P
     } else {
         input.clone()
     };
+
     let style = if app.input.is_empty() {
         tui_style(Tone::Muted, false)
     } else {
         ratatui::style::Style::default()
     };
+
     let cursor_prefix = app.input.chars().take(app.input_cursor).collect::<String>();
     let cursor_width = UnicodeWidthStr::width(terminal_text(&cursor_prefix).as_str());
     let visible_width = usize::from(edit_area.width).max(1);
@@ -192,6 +196,7 @@ fn draw_review(
         draw_resize_notice(frame, area);
         return;
     }
+
     let [target, summary, items, question, _spacer, footer] = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -357,6 +362,7 @@ fn search_footer(width: u16) -> Line<'static> {
     if full.width() <= usize::from(width) {
         return full;
     }
+
     let compact = Line::from(vec![
         key("Type"),
         normal(" filter · "),
@@ -409,6 +415,7 @@ fn picker_footer(alternatives: bool, filter_active: bool, width: u16) -> Line<'s
     } else {
         spans.extend([key("q/Esc"), normal(" quit")]);
     }
+
     let full = Line::from(spans);
     if full.width() <= usize::from(width) {
         return full;
@@ -423,6 +430,7 @@ fn picker_footer(alternatives: bool, filter_active: bool, width: u16) -> Line<'s
     if alternatives {
         compact.extend([normal(" · "), key("←/→"), normal(" cycle")]);
     }
+
     let mut ending = vec![key("Enter"), normal(" next · ")];
     if filter_active {
         ending.extend([
@@ -434,6 +442,7 @@ fn picker_footer(alternatives: bool, filter_active: bool, width: u16) -> Line<'s
     } else {
         ending.extend([key("q/Esc"), normal(" quit")]);
     }
+
     let ending_width = Line::from(ending.clone()).width() + " · ".len();
 
     for (shortcut, label) in [
@@ -473,6 +482,7 @@ fn picker_footer(alternatives: bool, filter_active: bool, width: u16) -> Line<'s
     } else {
         essential_spans.extend([key("q/Esc"), normal(" quit")]);
     }
+
     let essential = Line::from(essential_spans);
     if essential.width() <= usize::from(width) {
         essential
@@ -615,6 +625,7 @@ mod tests {
             }],
             index: 0,
         };
+
         let mut terminal = Terminal::new(TestBackend::new(80, 5)).unwrap();
         terminal.draw(|frame| draw(frame, &app)).unwrap();
         let text = format!("{:?}", terminal.backend().buffer());
@@ -640,6 +651,7 @@ mod tests {
             plan: (),
             approve: false,
         };
+
         let mut terminal = Terminal::new(TestBackend::new(80, 10)).unwrap();
         terminal.draw(|frame| draw(frame, &app)).unwrap();
         let text = format!("{:?}", terminal.backend().buffer());

@@ -56,6 +56,7 @@ pub(super) fn draw(
     } else {
         scroll
     };
+
     let body = Rect::new(
         area.x,
         area.y.saturating_add(1),
@@ -97,6 +98,7 @@ fn preview_lines(
             }),
         );
     }
+
     if !template.directories.is_empty() {
         push_section(
             &mut lines,
@@ -113,6 +115,7 @@ fn preview_lines(
             }),
         );
     }
+
     if !template.inputs.is_empty() {
         push_section(
             &mut lines,
@@ -157,6 +160,7 @@ fn preview_lines(
             );
         }
     }
+
     if !source_lines.is_empty() {
         push_section(&mut lines, "Source preview", source_lines);
     }
@@ -201,11 +205,13 @@ fn source_line(text: &str) -> PreviewLine {
     } else {
         Style::default()
     };
+
     let marker = if text.starts_with("- ") || text.starts_with("* ") {
         Some(2)
     } else {
         None
     };
+
     let mut spans = Vec::new();
     if let Some(marker_end) = marker {
         spans.push(Span::styled(
@@ -213,6 +219,7 @@ fn source_line(text: &str) -> PreviewLine {
             tui_style(Tone::Success, false),
         ));
     }
+
     let rest = marker.map_or(text, |end| &text[end..]);
     append_template_spans(rest, base, &mut spans);
     PreviewLine {
@@ -231,18 +238,22 @@ fn append_template_spans(text: &str, base: Style, spans: &mut Vec<Span<'static>>
             (Some(index), None) | (None, Some(index)) => Some(index),
             (None, None) => None,
         };
+
         let Some(start) = next else {
             spans.push(Span::styled(rest.to_owned(), base));
             break;
         };
+
         if start > 0 {
             spans.push(Span::styled(rest[..start].to_owned(), base));
         }
+
         let opener = if rest[start..].starts_with("{{") {
             ("{{", "}}")
         } else {
             ("{%", "%}")
         };
+
         let end = rest[start + opener.0.len()..]
             .find(opener.1)
             .map(|offset| start + opener.0.len() + offset + opener.1.len())
