@@ -498,6 +498,7 @@ mod tests {
             base_url: None,
             api_key_env: Some("OPENAI_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
+            effort: None,
         };
         let profiles = BTreeMap::from([
             ("default".to_owned(), profile.clone()),
@@ -510,6 +511,7 @@ mod tests {
                     base_url: None,
                     api_key_env: None,
                     credential_source: CredentialSource::Environment,
+                    effort: None,
                 },
             ),
             (
@@ -521,6 +523,7 @@ mod tests {
                     base_url: None,
                     api_key_env: Some("INIFRA_TEST_SWITCH_PROFILE_MISSING_KEY".to_owned()),
                     credential_source: CredentialSource::Environment,
+                    effort: None,
                 },
             ),
         ]);

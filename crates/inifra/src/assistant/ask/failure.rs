@@ -161,6 +161,7 @@ mod tests {
             base_url: None,
             api_key_env: Some("TEST_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
+            effort: None,
         }
     }
 

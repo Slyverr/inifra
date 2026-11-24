@@ -1,5 +1,5 @@
 use inifra_assistant::{
-    ApiProtocol, AssistantConfig, AssistantProfile, CredentialSource, Provider,
+    ApiProtocol, AssistantConfig, AssistantProfile, CredentialSource, Effort, Provider,
 };
 
 fn profile(provider: Provider, api: ApiProtocol) -> AssistantProfile {
@@ -15,6 +15,7 @@ fn profile(provider: Provider, api: ApiProtocol) -> AssistantProfile {
         api_key_env: (!matches!(provider, Provider::Ollama | Provider::CustomEndpoint))
             .then(|| "EXAMPLE_API_KEY".into()),
         credential_source: CredentialSource::Environment,
+        effort: None,
     }
 }
 
@@ -166,4 +167,28 @@ fn rejects_profile_ids_that_are_not_stable_lowercase_names() {
             )
             .is_err()
     );
+}
+
+#[test]
+fn effort_is_saved_only_when_set_and_parses_case_insensitively() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("assistant.toml");
+    let mut config = AssistantConfig::default();
+    let mut reasoning = profile(Provider::OpenAi, ApiProtocol::OpenAiResponses);
+    reasoning.effort = Some(Effort::High);
+    config.insert_profile("deep", reasoning).unwrap();
+    config
+        .insert_profile("plain", profile(Provider::Ollama, ApiProtocol::OllamaChat))
+        .unwrap();
+    config.save(&path).unwrap();
+
+    let serialized = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(serialized.matches("effort").count(), 1);
+    assert!(serialized.contains("effort = \"high\""));
+    let loaded = AssistantConfig::load(&path).unwrap().unwrap();
+    assert_eq!(loaded.profile("deep").unwrap().effort, Some(Effort::High));
+    assert_eq!(loaded.profile("plain").unwrap().effort, None);
+
+    assert_eq!(Effort::parse(" Medium "), Some(Effort::Medium));
+    assert_eq!(Effort::parse("max"), None);
 }

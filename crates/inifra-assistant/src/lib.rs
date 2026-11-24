@@ -12,7 +12,8 @@ pub use conversation::chat::{ChatEvent, ChatMessage, ChatRole, ChatStream, Token
 pub use conversation::client::ProviderClient;
 pub use conversation::models::list_models;
 pub use settings::config::{
-    ApiProtocol, AssistantConfig, AssistantProfile, CredentialSource, Provider, is_valid_profile_id,
+    ApiProtocol, AssistantConfig, AssistantProfile, CredentialSource, Effort, Provider,
+    is_valid_profile_id,
 };
 pub use settings::credentials::{read_credential, resolve_credential, write_credential};
 pub use settings::presets::{

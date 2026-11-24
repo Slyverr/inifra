@@ -357,6 +357,7 @@ mod tests {
             api_key_env: (!matches!(provider, Provider::Ollama | Provider::CustomEndpoint))
                 .then(|| "TEST_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
+            effort: None,
         }
     }
 

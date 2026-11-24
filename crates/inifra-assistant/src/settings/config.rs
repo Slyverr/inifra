@@ -104,6 +104,52 @@ pub enum CredentialSource {
     CredentialsFile,
 }
 
+/// How much reasoning a model should do before answering.
+///
+/// Each protocol adapter maps the level to its own request field. Models without reasoning
+/// support may reject the field; omitting the effort leaves the choice to the provider.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Effort {
+    /// Brief reasoning.
+    Low,
+    /// Moderate reasoning.
+    Medium,
+    /// Extended reasoning.
+    High,
+}
+
+impl Effort {
+    /// All levels, from least to most reasoning.
+    pub const ALL: [Self; 3] = [Self::Low, Self::Medium, Self::High];
+
+    /// Lowercase name used in configuration and commands.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+
+    /// Token budget for protocols that size reasoning in tokens (Anthropic, Gemini).
+    pub fn thinking_budget(self) -> u32 {
+        match self {
+            Self::Low => 2_048,
+            Self::Medium => 8_192,
+            Self::High => 24_576,
+        }
+    }
+
+    /// Parses `low`, `medium`, or `high`, ignoring case and surrounding space.
+    pub fn parse(value: &str) -> Option<Self> {
+        let value = value.trim();
+        Self::ALL
+            .into_iter()
+            .find(|effort| effort.as_str().eq_ignore_ascii_case(value))
+    }
+}
+
 /// Provider preset, API protocol, model, endpoint override, and credential reference.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -123,6 +169,9 @@ pub struct AssistantProfile {
     /// Credential lookup source for the named API key.
     #[serde(default)]
     pub credential_source: CredentialSource,
+    /// Default reasoning effort; `None` sends no effort setting.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<Effort>,
 }
 
 impl AssistantProfile {

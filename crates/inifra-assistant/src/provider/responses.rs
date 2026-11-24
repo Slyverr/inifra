@@ -44,10 +44,17 @@ fn responses_endpoint(profile: &AssistantProfile) -> Result<Url, String> {
 }
 
 #[derive(Serialize)]
+struct Reasoning {
+    effort: &'static str,
+}
+
+#[derive(Serialize)]
 struct ResponsesBody<'a> {
     model: &'a str,
     input: Vec<ChatMessage>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<Reasoning>,
 }
 
 fn build_request(
@@ -61,6 +68,9 @@ fn build_request(
         model: &profile.model,
         input: messages,
         stream: true,
+        reasoning: profile.effort.map(|effort| Reasoning {
+            effort: effort.as_str(),
+        }),
     })
     .map_err(|_| "could not encode the Responses API request".to_owned())?;
     Ok(HttpRequest {
@@ -178,6 +188,7 @@ mod tests {
             base_url: None,
             api_key_env: Some("OPENAI_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
+            effort: None,
         }
     }
 
@@ -236,5 +247,32 @@ mod tests {
         let error = events.next().await.unwrap().unwrap_err().to_string();
         assert!(error.contains("rejected [redacted]"));
         assert!(!error.contains("test-secret"));
+    }
+
+    #[test]
+    fn effort_maps_to_the_protocol_reasoning_setting_only_when_set() {
+        let mut profile = crate::AssistantProfile {
+            provider: crate::Provider::OpenAi,
+            api: crate::ApiProtocol::OpenAiResponses,
+            model: "model".to_owned(),
+            base_url: None,
+            api_key_env: None,
+            credential_source: crate::CredentialSource::Environment,
+            effort: Some(crate::Effort::High),
+        };
+        let messages = vec![crate::ChatMessage::new(crate::ChatRole::User, "hi")];
+        let endpoint = reqwest::Url::parse("https://api.example.test/v1/responses").unwrap();
+        let body_of = |profile: &crate::AssistantProfile| -> serde_json::Value {
+            let request =
+                super::build_request(profile, messages.clone(), None, endpoint.clone()).unwrap();
+            serde_json::from_slice(&request.body.unwrap()).unwrap()
+        };
+
+        let body = body_of(&profile);
+        assert_eq!(body["reasoning"]["effort"], "high");
+
+        profile.effort = None;
+        let body = body_of(&profile);
+        assert!(body.get("reasoning").is_none());
     }
 }

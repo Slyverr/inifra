@@ -17,6 +17,7 @@ fn profile(model: &str) -> AssistantProfile {
         base_url: None,
         api_key_env: Some("OPENAI_API_KEY".to_owned()),
         credential_source: CredentialSource::Environment,
+        effort: None,
     }
 }
 
