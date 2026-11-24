@@ -140,6 +140,7 @@ fn streamed_events_keep_editor_and_session_footer_visible() {
         profile: "nim".to_owned(),
         provider: "NVIDIA NIM".to_owned(),
         model: "nemotron".to_owned(),
+        effort: None,
     });
     app.push_message(Role::User, "hello".to_owned());
     let (sender, events) = mpsc::channel();
@@ -152,6 +153,7 @@ fn streamed_events_keep_editor_and_session_footer_visible() {
             profile: "nim".to_owned(),
             provider: "NVIDIA NIM".to_owned(),
             model: "nemotron".to_owned(),
+            effort: None,
             turns: 1,
             usage: ChatUsage {
                 total_tokens: Some(42),
@@ -317,6 +319,7 @@ fn footer_leads_with_the_profile_and_compacts_token_counts() {
         profile: "work".to_owned(),
         provider: "OpenAI".to_owned(),
         model: "gpt-5".to_owned(),
+        effort: Some("high".to_owned()),
     });
     app.usage = ChatUsage {
         input_tokens: Some(1_234),
@@ -326,7 +329,7 @@ fn footer_leads_with_the_profile_and_compacts_token_counts() {
     let rows = render(&app, 80);
     assert_eq!(
         rows.last().unwrap(),
-        "work · OpenAI · gpt-5 · 1.2k in · 340 out"
+        "work · OpenAI · gpt-5 · high effort · 1.2k in · 340 out"
     );
     assert_eq!(view::compact_count(999), "999");
     assert_eq!(view::compact_count(1_000), "1k");
@@ -342,4 +345,159 @@ fn empty_chat_points_to_help() {
         rows.iter()
             .any(|row| row == "Ask about your project or browse templates. /help lists commands.")
     );
+}
+
+fn switcher_app() -> (ChatApp, mpsc::Sender<ChatEvent>, mpsc::Receiver<ChatEvent>) {
+    let app = ChatApp::new(ChatConfig {
+        profile: "local".to_owned(),
+        provider: "Ollama".to_owned(),
+        model: "qwen3:8b".to_owned(),
+        effort: None,
+    });
+    let (sender, events) = mpsc::channel();
+    sender
+        .send(ChatEvent::SwitcherOpened {
+            profiles: vec![
+                SwitcherProfile {
+                    id: "local".to_owned(),
+                    detail: "Ollama · Ollama Chat".to_owned(),
+                    default_model: "qwen3:8b".to_owned(),
+                },
+                SwitcherProfile {
+                    id: "work".to_owned(),
+                    detail: "OpenAI · Responses".to_owned(),
+                    default_model: "gpt-5".to_owned(),
+                },
+            ],
+            active: "local".to_owned(),
+            model: "qwen3:8b".to_owned(),
+            efforts: ["provider default", "low", "medium", "high"]
+                .map(str::to_owned)
+                .to_vec(),
+            effort: None,
+        })
+        .unwrap();
+    (app, sender, events)
+}
+
+#[test]
+fn ctrl_o_asks_the_application_to_open_the_switcher() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    let (actions, received) = mpsc::channel();
+    handle_key(
+        key(KeyCode::Char('o'), KeyModifiers::CONTROL),
+        &mut app,
+        &actions,
+    )
+    .unwrap();
+    assert_eq!(received.try_recv(), Ok(ChatAction::OpenSwitcher));
+}
+
+#[test]
+fn switcher_loads_models_shows_them_and_applies_profile_model_and_effort() {
+    let (mut app, sender, events) = switcher_app();
+    assert_eq!(
+        drain_events(&events, &mut app),
+        [ChatAction::LoadModels("local".to_owned())]
+    );
+    sender
+        .send(ChatEvent::ModelsListed {
+            profile: "local".to_owned(),
+            models: ModelList::Ready(vec!["qwen3:8b".to_owned(), "llama3.2".to_owned()]),
+        })
+        .unwrap();
+    drain_events(&events, &mut app);
+
+    let rows = render(&app, 100);
+    assert_eq!(rows[0], "Inifra · switch model");
+    assert!(rows[2].contains("Profiles") && rows[2].contains("Models · local"));
+    assert!(rows[3].contains("local") && rows[3].contains("› qwen3:8b"));
+    assert!(rows[4].contains("llama3.2"));
+    assert!(
+        rows.iter()
+            .any(|row| row.contains("Effort   ‹ provider default ›"))
+    );
+
+    let (actions, received) = mpsc::channel();
+    handle_key(
+        key(KeyCode::Char('j'), KeyModifiers::NONE),
+        &mut app,
+        &actions,
+    )
+    .unwrap();
+    handle_key(
+        key(KeyCode::Char('e'), KeyModifiers::NONE),
+        &mut app,
+        &actions,
+    )
+    .unwrap();
+    handle_key(
+        key(KeyCode::Char('e'), KeyModifiers::NONE),
+        &mut app,
+        &actions,
+    )
+    .unwrap();
+    handle_key(key(KeyCode::Enter, KeyModifiers::NONE), &mut app, &actions).unwrap();
+    assert_eq!(
+        received.try_recv(),
+        Ok(ChatAction::Switch(SwitchRequest {
+            profile: "local".to_owned(),
+            model: "llama3.2".to_owned(),
+            effort: Some("medium".to_owned()),
+            save_default: false,
+        }))
+    );
+    assert!(app.switcher.is_none());
+}
+
+#[test]
+fn switcher_requests_models_for_other_profiles_and_offers_their_default_model() {
+    let (mut app, sender, events) = switcher_app();
+    drain_events(&events, &mut app);
+    let (actions, received) = mpsc::channel();
+    handle_key(key(KeyCode::Tab, KeyModifiers::NONE), &mut app, &actions).unwrap();
+    handle_key(key(KeyCode::Down, KeyModifiers::NONE), &mut app, &actions).unwrap();
+    assert_eq!(
+        received.try_recv(),
+        Ok(ChatAction::LoadModels("work".to_owned()))
+    );
+    sender
+        .send(ChatEvent::ModelsListed {
+            profile: "work".to_owned(),
+            models: ModelList::Unavailable("OPENAI_API_KEY is not set.".to_owned()),
+        })
+        .unwrap();
+    drain_events(&events, &mut app);
+    let rows = render(&app, 100);
+    assert!(rows.iter().any(|row| row.contains("gpt-5   default")));
+    assert!(
+        rows.iter()
+            .any(|row| row.contains("OPENAI_API_KEY is not set."))
+    );
+
+    handle_key(
+        key(KeyCode::Char('s'), KeyModifiers::NONE),
+        &mut app,
+        &actions,
+    )
+    .unwrap();
+    assert_eq!(
+        received.try_recv(),
+        Ok(ChatAction::Switch(SwitchRequest {
+            profile: "work".to_owned(),
+            model: "gpt-5".to_owned(),
+            effort: None,
+            save_default: true,
+        }))
+    );
+}
+
+#[test]
+fn escape_closes_the_switcher_without_changes() {
+    let (mut app, _sender, events) = switcher_app();
+    drain_events(&events, &mut app);
+    let (actions, received) = mpsc::channel();
+    handle_key(key(KeyCode::Esc, KeyModifiers::NONE), &mut app, &actions).unwrap();
+    assert!(app.switcher.is_none());
+    assert!(received.try_recv().is_err());
 }

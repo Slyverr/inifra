@@ -1,5 +1,6 @@
 mod commands;
 mod failure;
+mod switching;
 mod worker;
 
 use crate::{assistant::cli, config::user};
@@ -73,6 +74,7 @@ pub(crate) fn run(
             Session::new(
                 connection,
                 profiles,
+                config_path,
                 credentials_path,
                 catalog,
                 project_dir,
@@ -88,6 +90,7 @@ pub(crate) fn run(
             profile: session_profile_id_label,
             provider: profile.provider.display_name().to_owned(),
             model: profile.model.clone(),
+            effort: switching::effort_label(profile.effort),
         },
         actions_tx.clone(),
         events_rx,
@@ -119,6 +122,7 @@ struct ActiveConnection {
 struct Session {
     connection: ActiveConnection,
     profiles: BTreeMap<String, AssistantProfile>,
+    config_path: PathBuf,
     credentials_path: PathBuf,
     catalog: Catalog,
     project_dir: PathBuf,
@@ -139,6 +143,7 @@ impl Session {
     fn new(
         connection: ActiveConnection,
         profiles: BTreeMap<String, AssistantProfile>,
+        config_path: PathBuf,
         credentials_path: PathBuf,
         catalog: Catalog,
         project_dir: PathBuf,
@@ -147,6 +152,7 @@ impl Session {
         Self {
             connection,
             profiles,
+            config_path,
             credentials_path,
             catalog,
             project_dir,
@@ -169,6 +175,7 @@ impl Session {
             profile: self.connection.id.clone(),
             provider: self.connection.profile.provider.display_name().to_owned(),
             model: self.connection.profile.model.clone(),
+            effort: switching::effort_label(self.connection.profile.effort),
             turns: self.turns,
             usage: self.usage,
         });
@@ -283,37 +290,10 @@ fn handle_command(
                 let _ = events.send(ChatEvent::Notice(format!("Already using profile {id}.")));
                 return;
             }
-
-            let Some(profile) = session.profiles.get(&id).cloned() else {
-                let _ = events.send(ChatEvent::Error(format!(
-                    "No profile named {id}.\nList profiles with `/profile`, or create one with `inifra assistant`."
-                )));
+            if !switching::activate_profile(&id, session, events) {
                 return;
-            };
-            let credential = match resolve_credential(&profile, &session.credentials_path, |name| {
-                std::env::var(name).ok()
-            }) {
-                Ok(credential) => credential,
-                Err(error) => {
-                    let _ = events.send(ChatEvent::Error(failure::describe_switch_failure(
-                        &id,
-                        &profile,
-                        &session.connection.id,
-                        &error.to_string(),
-                    )));
-                    return;
-                }
-            };
+            }
 
-            session.clear_pending_plan(events);
-            session.clear_local_context();
-            session.history.truncate(1);
-            session.known_models.clear();
-            session.connection = ActiveConnection {
-                id: id.clone(),
-                profile,
-                credential,
-            };
             session.send_session(events);
             let profile = &session.connection.profile;
             let _ = events.send(ChatEvent::Notice(format!(
@@ -321,6 +301,10 @@ fn handle_command(
                 profile.provider.display_name(),
                 profile.model
             )));
+        }
+        commands::Command::Switcher => switching::open_switcher(session, events),
+        commands::Command::Effort(value) => {
+            switching::set_effort(value.as_deref(), session, events);
         }
         commands::Command::Models => {
             worker::start_models(session, events, worker_tx, active);
@@ -475,13 +459,15 @@ fn history_size(history: &[ChatMessage]) -> usize {
 mod tests {
     use super::commands;
     use super::worker::{ActiveRequest, add_usage, merge_usage};
-    use super::{ActiveConnection, Session, apply_confirmation, handle_command, history_size};
+    use super::{
+        ActiveConnection, Session, apply_confirmation, handle_command, history_size, switching,
+    };
     use inifra_assistant::{
-        ApiProtocol, AssistantProfile, ChatMessage, ChatRole, CredentialSource, Provider,
-        TokenUsage,
+        ApiProtocol, AssistantConfig, AssistantProfile, ChatMessage, ChatRole, CredentialSource,
+        Effort, Provider, TokenUsage,
     };
     use inifra_core::{catalog::Catalog, workflow};
-    use inifra_tui::{ChatEvent, ChatUsage};
+    use inifra_tui::{ChatEvent, ChatUsage, SwitchRequest};
     use std::{
         collections::BTreeMap,
         path::{Path, PathBuf},
@@ -534,6 +520,7 @@ mod tests {
                 credential: None,
             },
             profiles,
+            project_dir.join("assistant.toml"),
             PathBuf::new(),
             catalog,
             project_dir,
@@ -717,5 +704,87 @@ mod tests {
         assert!(
             matches!(received.try_recv(), Ok(ChatEvent::Error(message)) if message.contains("missing assistant credential"))
         );
+    }
+
+    fn notices(received: &mpsc::Receiver<ChatEvent>) -> Vec<String> {
+        received
+            .try_iter()
+            .filter_map(|event| match event {
+                ChatEvent::Notice(text) | ChatEvent::Error(text) => Some(text),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn effort_command_sets_shows_and_resets_the_session_effort() {
+        let parent = tempfile::tempdir().unwrap();
+        let mut session = session(parent.path().to_path_buf());
+        let (events, received) = mpsc::channel::<ChatEvent>();
+
+        switching::set_effort(Some("HIGH"), &mut session, &events);
+        assert_eq!(session.connection.profile.effort, Some(Effort::High));
+        let sent = received.try_iter().collect::<Vec<_>>();
+        assert!(sent.iter().any(|event| matches!(
+            event,
+            ChatEvent::Session { effort: Some(effort), .. } if effort == "high"
+        )));
+
+        switching::set_effort(Some("extreme"), &mut session, &events);
+        assert_eq!(session.connection.profile.effort, Some(Effort::High));
+        assert!(notices(&received)[0].starts_with("Unknown effort extreme."));
+
+        switching::set_effort(Some("default"), &mut session, &events);
+        assert_eq!(session.connection.profile.effort, None);
+        assert!(notices(&received)[0].contains("provider default"));
+    }
+
+    #[test]
+    fn model_without_an_id_opens_the_switcher() {
+        assert!(matches!(
+            commands::parse("/model").unwrap(),
+            Some(commands::Command::Switcher)
+        ));
+        assert!(matches!(
+            commands::parse("/effort medium").unwrap(),
+            Some(commands::Command::Effort(Some(ref value))) if value == "medium"
+        ));
+    }
+
+    #[test]
+    fn switching_and_saving_updates_the_saved_default_profile() {
+        let parent = tempfile::tempdir().unwrap();
+        let mut session = session(parent.path().to_path_buf());
+        let mut config = AssistantConfig::default();
+        for (id, profile) in &session.profiles {
+            config.insert_profile(id, profile.clone()).unwrap();
+        }
+        config.set_default_profile("local").unwrap();
+        config.save(&session.config_path).unwrap();
+        let (events, received) = mpsc::channel::<ChatEvent>();
+
+        switching::apply_switch(
+            SwitchRequest {
+                profile: "default".to_owned(),
+                model: "faster-model".to_owned(),
+                effort: Some("low".to_owned()),
+                save_default: true,
+            },
+            &mut session,
+            &events,
+        );
+
+        assert_eq!(session.connection.profile.model, "faster-model");
+        assert_eq!(session.connection.profile.effort, Some(Effort::Low));
+        let saved = AssistantConfig::load(&session.config_path)
+            .unwrap()
+            .unwrap();
+        assert_eq!(saved.default_profile_id(), Some("default"));
+        let profile = saved.profile("default").unwrap();
+        assert_eq!(profile.model, "faster-model");
+        assert_eq!(profile.effort, Some(Effort::Low));
+        let messages = notices(&received);
+        assert!(messages[0].starts_with("Now using default · OpenAI · faster-model · low effort."));
+        assert!(messages[1].starts_with("Saved default as the default profile"));
     }
 }

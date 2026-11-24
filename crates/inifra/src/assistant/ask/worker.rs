@@ -1,7 +1,7 @@
 use super::{
     AssistantProfile, MAX_HISTORY_BYTES, MAX_HISTORY_MESSAGES, MAX_RESPONSE_BYTES,
     MAX_USER_MESSAGE_BYTES, Session, apply_confirmation, commands, failure::RequestFailure,
-    handle_command, history_size, local_context_message,
+    handle_command, history_size, local_context_message, switching,
 };
 use futures_util::StreamExt;
 use inifra_assistant::{
@@ -28,7 +28,26 @@ pub(super) struct ActiveRequest {
     thread: JoinHandle<()>,
 }
 
+/// Why a background model listing failed.
+pub(super) enum RuntimeError {
+    /// The async runtime could not start.
+    Runtime(String),
+    /// The provider request failed.
+    Provider(inifra_assistant::ProviderError),
+}
+
+impl From<std::io::Error> for RuntimeError {
+    fn from(error: std::io::Error) -> Self {
+        Self::Runtime(format!("Could not start the model-list runtime: {error}"))
+    }
+}
+
 pub(super) enum WorkerResult {
+    /// Model IDs for a profile shown in the switcher; not tied to the active request.
+    SwitcherModels {
+        profile: String,
+        result: Result<Vec<String>, RuntimeError>,
+    },
     Chat {
         response: Result<String, RequestFailure>,
         usage: TokenUsage,
@@ -48,7 +67,12 @@ pub(super) fn run_session(
 
     loop {
         while let Ok(result) = worker_rx.try_recv() {
-            finish_worker(result, &mut session, &events, &mut active);
+            match result {
+                WorkerResult::SwitcherModels { profile, result } => {
+                    switching::finish_models(profile, result, &mut session, &events);
+                }
+                result => finish_worker(result, &mut session, &events, &mut active),
+            }
         }
 
         match actions.recv_timeout(Duration::from_millis(40)) {
@@ -76,6 +100,27 @@ pub(super) fn run_session(
                 request_id,
                 approved,
             }) => apply_confirmation(request_id, approved, &mut session, &events),
+            Ok(ChatAction::OpenSwitcher) => {
+                if active.is_some() || session.pending_confirmation.is_some() {
+                    let _ = events.send(ChatEvent::Error(
+                        "Wait for the current operation to finish.".to_owned(),
+                    ));
+                } else {
+                    switching::open_switcher(&session, &events);
+                }
+            }
+            Ok(ChatAction::LoadModels(profile)) => {
+                switching::load_models(profile, &session, &events, &worker_tx);
+            }
+            Ok(ChatAction::Switch(request)) => {
+                if active.is_some() || session.pending_confirmation.is_some() {
+                    let _ = events.send(ChatEvent::Error(
+                        "Wait for the current operation to finish.".to_owned(),
+                    ));
+                } else {
+                    switching::apply_switch(request, &mut session, &events);
+                }
+            }
             Ok(ChatAction::Submit(input)) => {
                 if active.is_some() || session.pending_confirmation.is_some() {
                     let _ = events.send(ChatEvent::Error(
@@ -250,6 +295,7 @@ fn stream_chat(
                         profile: footer.profile_id.clone(),
                         provider: profile.provider.display_name().to_owned(),
                         model: profile.model.clone(),
+                        effort: switching::effort_label(profile.effort),
                         turns: footer.turns,
                         usage: add_usage(footer.base_usage, usage),
                     });
@@ -314,7 +360,7 @@ pub(super) fn start_models(
     });
 }
 
-fn assistant_runtime() -> std::io::Result<tokio::runtime::Runtime> {
+pub(super) fn assistant_runtime() -> std::io::Result<tokio::runtime::Runtime> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

@@ -151,7 +151,7 @@ impl From<&str> for Row {
 pub(crate) enum RowState {
     /// The keyboard cursor is on this row.
     Focused,
-    /// A choice that can be focused but is not.
+    /// A choice that can be focused but is not; shown in the secondary color.
     Idle,
     /// A read-only summary row.
     Summary,
@@ -167,7 +167,8 @@ pub(crate) fn row_line(row: &Row, state: RowState, label_width: usize) -> Line<'
     }];
     spans.push(match state {
         RowState::Focused => Span::styled(label, tui_style(Tone::Accent, true)),
-        RowState::Idle | RowState::Summary => Span::raw(label),
+        RowState::Idle => Span::styled(label, tui_style(Tone::Secondary, false)),
+        RowState::Summary => Span::raw(label),
     });
 
     if row.detail.is_some() || row.badge.is_some() {

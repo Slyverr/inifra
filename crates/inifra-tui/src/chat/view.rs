@@ -9,6 +9,11 @@ use ratatui::{
 };
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &ChatApp) {
+    if let Some(switcher) = &app.switcher {
+        super::switcher::draw(frame, switcher);
+        return;
+    }
+
     let area = frame.area();
     let chunks = Layout::vertical([
         Constraint::Min(1),
@@ -267,6 +272,13 @@ fn draw_footer(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Rect
             details.push(separator());
         }
         details.push(Span::styled(terminal_text(text), style));
+    }
+    if let Some(effort) = &app.effort {
+        details.push(separator());
+        details.push(Span::styled(
+            format!("{} effort", terminal_text(effort)),
+            tui_style(Tone::Secondary, false),
+        ));
     }
 
     if let Some(usage) = usage_label(app) {
