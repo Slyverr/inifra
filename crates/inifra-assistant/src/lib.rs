@@ -20,7 +20,7 @@ pub use settings::presets::{
 };
 /// Cancellation signal used to stop a provider request and response stream.
 pub use tokio_util::sync::CancellationToken;
-pub use transport::http::ProviderError;
+pub use transport::http::{FailureKind, ProviderError};
 
 /// An invalid assistant configuration or unavailable credential.
 #[derive(Debug)]
