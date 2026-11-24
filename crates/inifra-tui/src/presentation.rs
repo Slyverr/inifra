@@ -8,7 +8,7 @@ use unicode_width::UnicodeWidthStr;
 const SECONDARY_RGB: (u8, u8, u8) = (160, 172, 193);
 
 /// A semantic terminal color used by Inifra's command and interactive output.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Tone {
     /// Primary emphasis and keyboard guidance.
     Accent,

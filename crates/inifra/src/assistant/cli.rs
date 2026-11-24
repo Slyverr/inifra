@@ -1,7 +1,11 @@
-use crate::assistant::configure::{configure_profile, profile_id_input};
+use crate::assistant::UiExit;
+use crate::assistant::configure::configure_profile;
 use clap::Subcommand;
 use inifra_assistant::AssistantConfig;
-use inifra_tui::{presentation, run_confirmation, run_select};
+use inifra_tui::{
+    Badge, Heading, InteractionOutcome, Row, SelectScreen, presentation, presentation::Tone,
+    run_confirmation, run_select,
+};
 use std::{
     error::Error,
     fs,
@@ -52,58 +56,137 @@ pub(crate) fn run(
         Some(AssistantCommand::Configure { id }) => {
             require_terminal()?;
             let config = load_config(&config_path)?;
-            configure_profile(&config_path, &credentials_path, config, id.as_deref())
+            configure_profile(&config_path, &credentials_path, config, id.as_deref()).map(|_| ())
         }
         Some(AssistantCommand::Remove { id }) => {
             require_terminal()?;
-            remove_profile(&config_path, &id)
+            remove_profile(&config_path, &id).map(|_| ())
         }
         Some(AssistantCommand::Reset) => {
             require_terminal()?;
-            reset(&config_path, &credentials_path)
+            reset(&config_path, &credentials_path).map(|_| ())
         }
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ManagerAction {
+    Create,
+    Edit,
+    ChangeDefault,
+    Remove,
+    Reset,
+}
+
+impl ManagerAction {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Create => "Create a profile",
+            Self::Edit => "Edit a profile",
+            Self::ChangeDefault => "Change default profile",
+            Self::Remove => "Remove a profile",
+            Self::Reset => "Reset assistant data",
+        }
+    }
+}
+
+fn manager_actions(has_profiles: bool, has_data: bool) -> Vec<ManagerAction> {
+    let mut actions = vec![ManagerAction::Create];
+    if has_profiles {
+        actions.extend([
+            ManagerAction::Edit,
+            ManagerAction::ChangeDefault,
+            ManagerAction::Remove,
+        ]);
+    }
+    if has_data {
+        actions.push(ManagerAction::Reset);
+    }
+    actions
+}
+
+/// Summary rows for saved profiles: ID, connection, model, and the default tag.
+pub(crate) fn profile_rows(config: &AssistantConfig) -> Vec<Row> {
+    config
+        .profiles()
+        .iter()
+        .map(|(id, profile)| {
+            let row = Row::new(id.clone()).detail(format!(
+                "{} · {} · {}",
+                profile.provider.display_name(),
+                profile.api.short_name(),
+                profile.model
+            ));
+            if config.default_profile_id() == Some(id.as_str()) {
+                row.badge(Badge::new("default", Tone::Success))
+            } else {
+                row
+            }
+        })
+        .collect()
+}
+
+fn manager_screen(config: &AssistantConfig, actions: &[ManagerAction]) -> SelectScreen {
+    let mut screen = SelectScreen::new(
+        Heading::new("assistant profiles"),
+        actions.iter().map(|action| action.label()),
+    );
+    screen.summary = profile_rows(config);
+    if screen.summary.is_empty() {
+        screen.note = Some("No profiles yet. Create one to use inifra ask.".to_owned());
+    }
+    screen
+}
+
 fn manage(config_path: &Path, credentials_path: &Path) -> Result<(), Box<dyn Error>> {
     require_terminal()?;
+    let mut last_action = ManagerAction::Create;
     loop {
         let config = load_config(config_path)?;
-        let mut actions = vec!["Create or edit a profile".to_owned()];
-        if !config.profiles().is_empty() {
-            actions.extend([
-                "Change default profile".to_owned(),
-                "Remove a profile".to_owned(),
-            ]);
-        }
+        let actions = manager_actions(
+            !config.profiles().is_empty(),
+            config_path.exists() || credentials_path.exists(),
+        );
+        let mut screen = manager_screen(&config, &actions);
+        screen.initial = actions
+            .iter()
+            .position(|action| *action == last_action)
+            .unwrap_or_default();
 
-        if config_path.exists() || credentials_path.exists() {
-            actions.push("Reset assistant data".to_owned());
-        }
-
-        let Some(selected) = run_select("", &actions, 0)? else {
-            return Ok(());
+        let action = match run_select(&screen)? {
+            InteractionOutcome::Selected(selected) => actions[selected],
+            InteractionOutcome::Back | InteractionOutcome::Quit => return Ok(()),
         };
+        last_action = action;
 
-        match actions[selected].as_str() {
-            "Create or edit a profile" => {
-                let Some(id) = profile_id_input()? else {
-                    continue;
-                };
-                configure_profile(config_path, credentials_path, config, Some(&id))?;
+        let exit = match action {
+            ManagerAction::Create => {
+                configure_profile(config_path, credentials_path, config, None)?
             }
-            "Change default profile" => {
-                if let Some(id) = choose_profile(&config, "Default profile")? {
+            ManagerAction::Edit => match choose_profile(&config, "edit profile")? {
+                InteractionOutcome::Selected(id) => {
+                    configure_profile(config_path, credentials_path, config, Some(&id))?
+                }
+                InteractionOutcome::Back => UiExit::Continue,
+                InteractionOutcome::Quit => UiExit::Quit,
+            },
+            ManagerAction::ChangeDefault => match choose_profile(&config, "default profile")? {
+                InteractionOutcome::Selected(id) => {
                     set_default(config_path, &id)?;
+                    UiExit::Continue
                 }
-            }
-            "Remove a profile" => {
-                if let Some(id) = choose_profile(&config, "Remove profile")? {
-                    remove_profile(config_path, &id)?;
-                }
-            }
-            "Reset assistant data" => reset(config_path, credentials_path)?,
-            _ => unreachable!("assistant actions are defined above"),
+                InteractionOutcome::Back => UiExit::Continue,
+                InteractionOutcome::Quit => UiExit::Quit,
+            },
+            ManagerAction::Remove => match choose_profile(&config, "remove profile")? {
+                InteractionOutcome::Selected(id) => remove_profile(config_path, &id)?,
+                InteractionOutcome::Back => UiExit::Continue,
+                InteractionOutcome::Quit => UiExit::Quit,
+            },
+            ManagerAction::Reset => reset(config_path, credentials_path)?,
+        };
+        if exit == UiExit::Quit {
+            return Ok(());
         }
     }
 }
@@ -147,78 +230,84 @@ fn set_default(config_path: &Path, id: &str) -> Result<(), Box<dyn Error>> {
     config.save(config_path)?;
     println!(
         "{} {}",
-        presentation::paint_emphasis("Default assistant profile:", presentation::Tone::Accent),
-        presentation::paint_emphasis(id, presentation::Tone::Accent)
+        presentation::paint("Default profile", Tone::Success, false),
+        presentation::paint_emphasis(id, Tone::Accent)
     );
     Ok(())
 }
 
-fn choose_profile(config: &AssistantConfig, title: &str) -> Result<Option<String>, Box<dyn Error>> {
-    let profiles = config
-        .profiles()
-        .iter()
-        .map(|(id, profile)| {
-            let is_default = config.default_profile_id() == Some(id.as_str());
-            let label = if is_default {
-                format!(
-                    "{id}  ·  {}  ·  {}  ·  default",
-                    profile.provider.display_name(),
-                    profile.model
-                )
-            } else {
-                format!(
-                    "{id}  ·  {}  ·  {}",
-                    profile.provider.display_name(),
-                    profile.model
-                )
-            };
-            (id.clone(), label)
-        })
-        .collect::<Vec<_>>();
-    if profiles.is_empty() {
-        return Ok(None);
+fn choose_profile(
+    config: &AssistantConfig,
+    task: &str,
+) -> Result<InteractionOutcome<String>, Box<dyn Error>> {
+    let ids = config.profiles().keys().cloned().collect::<Vec<_>>();
+    if ids.is_empty() {
+        return Ok(InteractionOutcome::Back);
     }
 
-    let choices = profiles
-        .iter()
-        .map(|(_, label)| label.clone())
-        .collect::<Vec<_>>();
-    let selected = run_select(title, &choices, 0)?;
-    Ok(selected.map(|index| profiles[index].0.clone()))
+    let screen = SelectScreen {
+        heading: Heading::new(task),
+        choices: profile_rows(config),
+        initial: config
+            .default_profile_id()
+            .and_then(|default| ids.iter().position(|id| id == default))
+            .unwrap_or_default(),
+        ..SelectScreen::default()
+    };
+    Ok(match run_select(&screen)? {
+        InteractionOutcome::Selected(index) => InteractionOutcome::Selected(ids[index].clone()),
+        InteractionOutcome::Back => InteractionOutcome::Back,
+        InteractionOutcome::Quit => InteractionOutcome::Quit,
+    })
 }
 
-fn remove_profile(config_path: &Path, id: &str) -> Result<(), Box<dyn Error>> {
+fn remove_profile(config_path: &Path, id: &str) -> Result<UiExit, Box<dyn Error>> {
     let mut config = load_config(config_path)?;
     let Some(profile) = config.profile(id) else {
         return Err(format!("unknown assistant profile {id:?}").into());
     };
 
     let description = format!(
-        "Remove profile {id:?} ({}, {})?",
+        "Remove {id} ({} · {})? Saved credentials are kept.",
         profile.provider.display_name(),
         profile.model
     );
-    if run_confirmation("", &description, false)?.unwrap_or(false) {
+    match run_confirmation(
+        &Heading::new("remove profile").context(id),
+        &description,
+        false,
+    )? {
+        InteractionOutcome::Selected(true) => {}
+        InteractionOutcome::Selected(false) | InteractionOutcome::Back => {
+            return Ok(UiExit::Continue);
+        }
+        InteractionOutcome::Quit => return Ok(UiExit::Quit),
+    }
+
+    {
         config.remove_profile(id)?;
         config.save(config_path)?;
         println!(
             "{} {}",
-            presentation::paint(
-                "Removed assistant profile",
-                presentation::Tone::Success,
-                false
-            ),
+            presentation::paint("Removed profile", Tone::Success, false),
             presentation::paint_emphasis(id, presentation::Tone::Accent)
         );
     }
 
-    Ok(())
+    Ok(UiExit::Continue)
 }
 
-fn reset(config_path: &Path, credentials_path: &Path) -> Result<(), Box<dyn Error>> {
-    if !run_confirmation("", "Remove all profiles and saved credentials?", false)?.unwrap_or(false)
-    {
-        return Ok(());
+fn reset(config_path: &Path, credentials_path: &Path) -> Result<UiExit, Box<dyn Error>> {
+    match run_confirmation(
+        &Heading::new("reset assistant data"),
+        "Remove all profiles and saved credentials?",
+        false,
+    )? {
+        InteractionOutcome::Selected(true) => {}
+        InteractionOutcome::Selected(false) | InteractionOutcome::Back => {
+            return Ok(UiExit::Continue);
+        }
+        InteractionOutcome::Quit => return Ok(UiExit::Quit),
     }
     ensure_removable_file(config_path)?;
     ensure_removable_file(credentials_path)?;
@@ -232,7 +321,7 @@ fn reset(config_path: &Path, credentials_path: &Path) -> Result<(), Box<dyn Erro
             false
         )
     );
-    Ok(())
+    Ok(UiExit::Continue)
 }
 
 fn ensure_removable_file(path: &Path) -> Result<(), Box<dyn Error>> {
@@ -266,4 +355,57 @@ fn require_terminal() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ManagerAction, manager_actions, manager_screen};
+    use inifra_assistant::{
+        ApiProtocol, AssistantConfig, AssistantProfile, CredentialSource, Provider,
+    };
+
+    #[test]
+    fn manager_offers_only_create_until_profiles_exist() {
+        assert_eq!(manager_actions(false, false), [ManagerAction::Create]);
+        assert_eq!(
+            manager_actions(true, true),
+            [
+                ManagerAction::Create,
+                ManagerAction::Edit,
+                ManagerAction::ChangeDefault,
+                ManagerAction::Remove,
+                ManagerAction::Reset,
+            ]
+        );
+    }
+
+    #[test]
+    fn manager_summarizes_profiles_or_explains_the_empty_state() {
+        let empty = manager_screen(&AssistantConfig::default(), &[ManagerAction::Create]);
+        assert!(empty.summary.is_empty());
+        assert!(empty.note.as_deref().unwrap().contains("inifra ask"));
+
+        let mut config = AssistantConfig::default();
+        config
+            .insert_profile(
+                "local",
+                AssistantProfile {
+                    provider: Provider::Ollama,
+                    api: ApiProtocol::OllamaChat,
+                    model: "qwen3:8b".to_owned(),
+                    base_url: None,
+                    api_key_env: None,
+                    credential_source: CredentialSource::Environment,
+                },
+            )
+            .unwrap();
+        let screen = manager_screen(&config, &[ManagerAction::Create]);
+        assert_eq!(screen.summary[0].label, "local");
+        assert_eq!(
+            screen.summary[0].detail.as_deref(),
+            Some("Ollama · Ollama Chat · qwen3:8b")
+        );
+        assert_eq!(screen.summary[0].badge.as_ref().unwrap().text, "default");
+        assert!(screen.note.is_none());
+    }
 }

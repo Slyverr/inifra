@@ -1,3 +1,4 @@
+use inifra_assistant::AssistantProfile;
 use inifra_core::{catalog::Catalog, plan::GenerationPlan, workflow};
 use std::{collections::BTreeMap, path::Path};
 
@@ -6,6 +7,7 @@ const COMMANDS: &[&str] = &[
     "/templates",
     "/inspect",
     "/project",
+    "/profile",
     "/model",
     "/models",
     "/plan",
@@ -17,6 +19,8 @@ pub(super) enum Command {
     Templates(String),
     Inspect(String),
     Project,
+    Profiles,
+    Profile(String),
     Models,
     Model(String),
     Plan {
@@ -44,6 +48,8 @@ pub(super) fn parse(input: &str) -> Result<Option<Command>, String> {
         "/templates" => Command::Templates(arguments.join(" ")),
         "/inspect" if arguments.len() == 1 => Command::Inspect(arguments[0].clone()),
         "/project" if arguments.is_empty() => Command::Project,
+        "/profile" if arguments.is_empty() => Command::Profiles,
+        "/profile" if arguments.len() == 1 => Command::Profile(arguments[0].clone()),
         "/models" if arguments.is_empty() => Command::Models,
         "/model" if arguments.len() == 1 => Command::Model(arguments[0].clone()),
         "/model" if arguments.is_empty() => {
@@ -51,7 +57,7 @@ pub(super) fn parse(input: &str) -> Result<Option<Command>, String> {
         }
         "/plan" => parse_plan(arguments)?,
         "/apply" if arguments.is_empty() => Command::Apply,
-        "/help" | "/inspect" | "/project" | "/models" | "/apply" => {
+        "/help" | "/inspect" | "/project" | "/profile" | "/models" | "/apply" => {
             return Err(unexpected());
         }
         "/model" => return Err(unexpected()),
@@ -100,7 +106,12 @@ fn parse_plan(arguments: &[String]) -> Result<Command, String> {
     })
 }
 
-pub(super) fn completions(input: &str, catalog: &Catalog, models: &[String]) -> Vec<String> {
+pub(super) fn completions(
+    input: &str,
+    catalog: &Catalog,
+    models: &[String],
+    profiles: &BTreeMap<String, AssistantProfile>,
+) -> Vec<String> {
     let prefix = input.trim_start();
     if !prefix.starts_with('/') {
         return Vec::new();
@@ -121,6 +132,7 @@ pub(super) fn completions(input: &str, catalog: &Catalog, models: &[String]) -> 
         });
     let values = match command {
         "/model" => models.to_vec(),
+        "/profile" => profiles.keys().cloned().collect(),
         "/inspect" | "/plan" => catalog.packs.iter().map(|pack| pack.id.clone()).collect(),
         _ => return Vec::new(),
     };
@@ -144,6 +156,7 @@ pub(super) fn help() -> String {
         "/templates [query]                 Search this project's template catalog",
         "/inspect <id>                      Show one template's outputs and inputs",
         "/project                           Show known project files",
+        "/profile [id]                     List or switch saved assistant profiles",
         "/models                            Fetch model IDs supported by the provider",
         "/model <id>                       Switch models for this session",
         "/plan <id>... [--set name=value]  Prepare a generation plan; no files are written",
@@ -153,6 +166,23 @@ pub(super) fn help() -> String {
         "Local commands stay on this machine until you send a message; then their visible results may be included as context for the configured provider.",
     ]
     .join("\n")
+}
+
+pub(super) fn list_profiles(
+    profiles: &BTreeMap<String, AssistantProfile>,
+    active_id: &str,
+) -> String {
+    let mut lines = vec!["Assistant profiles".to_owned()];
+    for (id, profile) in profiles {
+        let active = if id == active_id { "* " } else { "  " };
+        lines.push(format!(
+            "{active}{id} · {} · {} · {}",
+            profile.provider.display_name(),
+            profile.api.short_name(),
+            profile.model
+        ));
+    }
+    lines.join("\n")
 }
 
 pub(super) fn list_templates(catalog: &Catalog, query: &str) -> String {
@@ -394,8 +424,13 @@ pub(super) fn plan_result(plan: &GenerationPlan) -> String {
     format!("Applied the plan: {created_files} file(s), {created_directories} directory(ies).")
 }
 
-pub(super) fn completion_values(catalog: &Catalog, input: &str, models: &[String]) -> Vec<String> {
-    let values = completions(input, catalog, models);
+pub(super) fn completion_values(
+    catalog: &Catalog,
+    input: &str,
+    models: &[String],
+    profiles: &BTreeMap<String, AssistantProfile>,
+) -> Vec<String> {
+    let values = completions(input, catalog, models, profiles);
     values.into_iter().take(100).collect()
 }
 
@@ -409,13 +444,24 @@ pub(super) fn requests_model_completion(input: &str, models: &[String]) -> bool 
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, parse, prepare_plan, requests_model_completion};
+    use super::{
+        Command, completions, list_profiles, parse, prepare_plan, requests_model_completion,
+    };
+    use inifra_assistant::{ApiProtocol, AssistantProfile, CredentialSource, Provider};
     use inifra_core::catalog::Catalog;
     use std::{collections::BTreeMap, path::Path};
 
     #[test]
     fn parses_local_commands_and_plan_assignments() {
         assert!(matches!(parse("/help").unwrap(), Some(Command::Help)));
+        assert!(matches!(
+            parse("/profile").unwrap(),
+            Some(Command::Profiles)
+        ));
+        assert!(matches!(
+            parse("/profile nvidia").unwrap(),
+            Some(Command::Profile(id)) if id == "nvidia"
+        ));
         assert!(matches!(
             parse("/plan readme agents --set project_name=\"My Project\" --overwrite").unwrap(),
             Some(Command::Plan { ids, values, overwrite: true })
@@ -444,6 +490,31 @@ mod tests {
             "/model ",
             &["model-a".to_owned()]
         ));
+    }
+
+    #[test]
+    fn profile_completion_lists_only_configured_profiles_without_credentials() {
+        let catalog_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../templates");
+        let catalog = Catalog::load(&catalog_root).unwrap();
+        let profiles = BTreeMap::from([(
+            "nvidia".to_owned(),
+            AssistantProfile {
+                provider: Provider::NvidiaNim,
+                api: ApiProtocol::OpenAiChatCompletions,
+                model: "nemotron-test".to_owned(),
+                base_url: None,
+                api_key_env: Some("NVIDIA_API_KEY".to_owned()),
+                credential_source: CredentialSource::Environment,
+            },
+        )]);
+
+        assert_eq!(
+            completions("/profile n", &catalog, &[], &profiles),
+            ["/profile nvidia"]
+        );
+        let listed = list_profiles(&profiles, "nvidia");
+        assert!(listed.contains("* nvidia · NVIDIA NIM · Chat Completions · nemotron-test"));
+        assert!(!listed.contains("NVIDIA_API_KEY"));
     }
 
     #[test]

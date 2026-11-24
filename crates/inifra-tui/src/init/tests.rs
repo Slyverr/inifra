@@ -290,7 +290,7 @@ fn escape_clears_an_applied_filter_before_cancelling_the_picker() {
 }
 
 #[test]
-fn q_cancels_without_text_input_but_remains_search_and_input_text() {
+fn q_quits_without_text_input_but_remains_search_and_input_text() {
     let mut picker = app();
     let mut backend = FakeBackend::default();
 
@@ -311,6 +311,15 @@ fn q_cancels_without_text_input_but_remains_search_and_input_text() {
     };
     assert!(matches!(
         review.handle(key(KeyCode::Char('q')), &mut backend),
+        Some(InitOutcome::Cancelled)
+    ));
+
+    let mut interrupted = app();
+    assert!(matches!(
+        interrupted.handle(
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            &mut backend
+        ),
         Some(InitOutcome::Cancelled)
     ));
 
@@ -339,6 +348,42 @@ fn q_cancels_without_text_input_but_remains_search_and_input_text() {
             .is_none()
     );
     assert_eq!(input.input, "q");
+}
+
+#[test]
+fn escape_backs_from_input_and_review_to_the_picker() {
+    let mut app = app();
+    let mut backend = FakeBackend::default();
+    app.screen = Screen::Input {
+        prompts: vec![InputPrompt {
+            name: "name".into(),
+            prompt: "Project name".into(),
+            required: false,
+            default: None,
+        }],
+        index: 0,
+    };
+    app.input = "Draft name".into();
+
+    assert!(app.handle(key(KeyCode::Esc), &mut backend).is_none());
+    assert!(matches!(app.screen, Screen::Select));
+    assert_eq!(
+        app.values.get("name").map(String::as_str),
+        Some("Draft name")
+    );
+
+    app.screen = Screen::Review {
+        review: GenerationReview {
+            target: ".".into(),
+            files: Vec::new(),
+            directories: Vec::new(),
+        },
+        plan: 42,
+        approve: true,
+    };
+
+    assert!(app.handle(key(KeyCode::Esc), &mut backend).is_none());
+    assert!(matches!(app.screen, Screen::Select));
 }
 
 #[test]
@@ -440,7 +485,7 @@ fn text_input_keeps_h_and_l_as_text_and_arrows_edit_the_cursor() {
 }
 
 #[test]
-fn input_cancellation_leaves_the_plan_unapplied() {
+fn escape_backs_from_input_and_leaves_the_plan_unapplied() {
     let mut app = app();
     let mut backend = FakeBackend {
         require_input: true,
@@ -450,10 +495,8 @@ fn input_cancellation_leaves_the_plan_unapplied() {
     app.handle(key(KeyCode::Enter), &mut backend);
     assert!(matches!(app.screen, Screen::Input { index: 0, .. }));
 
-    assert!(matches!(
-        app.handle(key(KeyCode::Esc), &mut backend),
-        Some(InitOutcome::Cancelled)
-    ));
+    assert!(app.handle(key(KeyCode::Esc), &mut backend).is_none());
+    assert!(matches!(app.screen, Screen::Select));
     assert!(backend.applied.is_empty());
 }
 
