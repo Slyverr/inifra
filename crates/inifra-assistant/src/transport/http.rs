@@ -5,6 +5,30 @@ use std::{error::Error, fmt, future::Future, time::Duration};
 use tokio_util::sync::CancellationToken;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+const CONNECT_FAILURE: &str = "could not connect";
+const TIMEOUT_FAILURE: &str = "timed out";
+
+/// The broad cause of a provider failure, used to suggest a next step.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum FailureKind {
+    /// The endpoint could not be reached (connection refused, DNS, TLS).
+    Unreachable,
+    /// The endpoint did not respond in time.
+    TimedOut,
+    /// The provider rejected the credential (HTTP 401 or 403).
+    Unauthorized,
+    /// The model or API route does not exist (HTTP 404).
+    NotFound,
+    /// The provider is rate limiting requests (HTTP 429).
+    RateLimited,
+    /// The provider failed while handling the request (HTTP 5xx).
+    ServerError,
+    /// The provider rejected the request for another reason (other HTTP 4xx).
+    Rejected,
+    /// The request failed after the response started or for a local reason.
+    Other,
+}
 
 /// A provider request failure with actionable, credential-safe diagnostics.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -103,6 +127,68 @@ impl ProviderError {
     }
 }
 
+impl ProviderError {
+    /// Classifies the failure from its HTTP status or transport cause.
+    pub fn kind(&self) -> FailureKind {
+        match self.status {
+            Some(401 | 403) => FailureKind::Unauthorized,
+            Some(404) => FailureKind::NotFound,
+            Some(429) => FailureKind::RateLimited,
+            Some(500..=599) => FailureKind::ServerError,
+            Some(400..=499) => FailureKind::Rejected,
+            Some(_) => FailureKind::Other,
+            None if self.detail.contains(CONNECT_FAILURE) => FailureKind::Unreachable,
+            None if self.detail.contains(TIMEOUT_FAILURE) => FailureKind::TimedOut,
+            None => FailureKind::Other,
+        }
+    }
+
+    /// Provider that handled the request.
+    pub fn provider(&self) -> Provider {
+        self.provider
+    }
+
+    /// Protocol used for the request.
+    pub fn api(&self) -> ApiProtocol {
+        self.api
+    }
+
+    /// Requested model.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Credential-safe request URL, with non-route path segments redacted.
+    pub fn endpoint(&self) -> Option<&str> {
+        self.endpoint.as_deref()
+    }
+
+    /// Scheme, host, and port of the request URL.
+    pub fn origin(&self) -> Option<&str> {
+        let endpoint = self.endpoint.as_deref()?;
+        let host_start = endpoint.find("://").map_or(0, |index| index + 3);
+        let end = endpoint[host_start..]
+            .find('/')
+            .map_or(endpoint.len(), |index| host_start + index);
+        Some(&endpoint[..end])
+    }
+
+    /// HTTP status, when the provider responded.
+    pub fn status(&self) -> Option<u16> {
+        self.status
+    }
+
+    /// Provider request ID, when one was returned.
+    pub fn request_id(&self) -> Option<&str> {
+        self.request_id.as_deref()
+    }
+
+    /// Credential-safe provider or transport detail.
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
+}
+
 impl fmt::Display for ProviderError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
@@ -133,10 +219,75 @@ impl Error for ProviderError {}
 
 #[cfg(test)]
 mod tests {
-    use super::{HttpRequest, HttpTransport, ReqwestTransport, TransportError};
+    use super::{
+        FailureKind, HttpRequest, HttpTransport, ProviderError, ReqwestTransport, TransportError,
+    };
+    use crate::{ApiProtocol, Provider};
     use reqwest::{Method, Url, header::HeaderMap};
     use std::{io::Read, net::TcpListener, sync::mpsc, time::Duration};
     use tokio_util::sync::CancellationToken;
+
+    fn response_error(status: u16) -> ProviderError {
+        ProviderError::response(
+            Provider::OpenAi,
+            ApiProtocol::OpenAiResponses,
+            "gpt-test",
+            &Url::parse("https://api.example.test/v1/responses").unwrap(),
+            status,
+            None,
+            "provider detail",
+            None,
+        )
+    }
+
+    #[test]
+    fn failures_are_classified_by_status_and_transport_cause() {
+        assert_eq!(response_error(401).kind(), FailureKind::Unauthorized);
+        assert_eq!(response_error(403).kind(), FailureKind::Unauthorized);
+        assert_eq!(response_error(404).kind(), FailureKind::NotFound);
+        assert_eq!(response_error(429).kind(), FailureKind::RateLimited);
+        assert_eq!(response_error(503).kind(), FailureKind::ServerError);
+        assert_eq!(response_error(400).kind(), FailureKind::Rejected);
+
+        let endpoint = Url::parse("http://127.0.0.1:9/api/chat").unwrap();
+        let unreachable = ProviderError::request(
+            Provider::Ollama,
+            ApiProtocol::OllamaChat,
+            "llama",
+            &endpoint,
+            "could not connect: Connection refused (os error 111)",
+            None,
+        );
+        assert_eq!(unreachable.kind(), FailureKind::Unreachable);
+        assert_eq!(unreachable.origin(), Some("http://127.0.0.1:9"));
+        assert_eq!(
+            response_error(500).origin(),
+            Some("https://api.example.test")
+        );
+    }
+
+    #[tokio::test]
+    async fn closed_ports_report_a_connection_failure_with_its_cause() {
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let transport = ReqwestTransport::new().unwrap();
+        let request = HttpRequest {
+            method: Method::GET,
+            endpoint: Url::parse(&format!("http://127.0.0.1:{port}/")).unwrap(),
+            headers: HeaderMap::new(),
+            body: None,
+        };
+        let Err(TransportError::Network(detail)) =
+            transport.execute(request, &CancellationToken::new()).await
+        else {
+            panic!("a closed port must fail with a network error");
+        };
+        assert!(detail.starts_with("could not connect"), "{detail}");
+        assert!(detail.len() > "could not connect".len(), "{detail}");
+    }
 
     #[tokio::test]
     async fn cancellation_interrupts_a_pending_http_send() {
@@ -242,9 +393,7 @@ impl HttpTransport for ReqwestTransport {
             let response = tokio::select! {
                 biased;
                 _ = cancellation.cancelled() => return Err(TransportError::Cancelled),
-                result = builder.send() => {
-                result.map_err(|error| TransportError::Network(error.without_url().to_string()))?
-                }
+                result = builder.send() => result.map_err(network_error)?,
             };
 
             let request_id = ["x-request-id", "request-id"]
@@ -255,11 +404,7 @@ impl HttpTransport for ReqwestTransport {
             let status = response.status().as_u16();
             let body = response
                 .bytes_stream()
-                .map(|chunk| {
-                    chunk
-                        .map(|bytes| bytes.to_vec())
-                        .map_err(|error| TransportError::Network(error.without_url().to_string()))
-                })
+                .map(|chunk| chunk.map(|bytes| bytes.to_vec()).map_err(network_error))
                 .boxed();
             Ok(HttpResponse {
                 status,
@@ -268,6 +413,32 @@ impl HttpTransport for ReqwestTransport {
             })
         }
     }
+}
+
+/// Describes a reqwest failure with a stable cause prefix and the innermost source message,
+/// which is where connection errors such as "Connection refused" are reported.
+fn network_error(error: reqwest::Error) -> TransportError {
+    let cause = if error.is_connect() {
+        Some(CONNECT_FAILURE)
+    } else if error.is_timeout() {
+        Some(TIMEOUT_FAILURE)
+    } else {
+        None
+    };
+    let error = error.without_url();
+    let mut root: &dyn Error = &error;
+    while let Some(source) = root.source() {
+        root = source;
+    }
+    let root = root.to_string();
+    let summary = error.to_string();
+    let detail = match cause {
+        Some(cause) if root != summary => format!("{cause}: {root}"),
+        Some(cause) => cause.to_owned(),
+        None if root != summary => format!("{summary}: {root}"),
+        None => summary,
+    };
+    TransportError::Network(detail)
 }
 
 pub(crate) fn safe_excerpt(bytes: &[u8], api_key: Option<&str>) -> String {
