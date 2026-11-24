@@ -8,7 +8,10 @@ mod model;
 pub mod presentation;
 mod terminal;
 
-pub use chat::{ChatAction, ChatConfig, ChatEvent, ChatExit, ChatUsage, run_chat};
+pub use chat::{
+    ChatAction, ChatConfig, ChatEvent, ChatExit, ChatUsage, ModelList, SwitchRequest,
+    SwitcherProfile, run_chat,
+};
 pub use controls::{
     Badge, FieldCheck, FormOutcome, Heading, InteractionOutcome, Row, SelectScreen, TextField,
     run_confirmation, run_form, run_secret_input, run_select,

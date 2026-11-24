@@ -10,6 +10,7 @@ const COMMANDS: &[&str] = &[
     "/profile",
     "/model",
     "/models",
+    "/effort",
     "/plan",
     "/apply",
 ];
@@ -23,6 +24,8 @@ pub(super) enum Command {
     Profile(String),
     Models,
     Model(String),
+    Switcher,
+    Effort(Option<String>),
     Plan {
         ids: Vec<String>,
         values: BTreeMap<String, String>,
@@ -52,15 +55,15 @@ pub(super) fn parse(input: &str) -> Result<Option<Command>, String> {
         "/profile" if arguments.len() == 1 => Command::Profile(arguments[0].clone()),
         "/models" if arguments.is_empty() => Command::Models,
         "/model" if arguments.len() == 1 => Command::Model(arguments[0].clone()),
-        "/model" if arguments.is_empty() => {
-            return Err("usage: /model <model-id> · use /models to list available IDs".to_owned());
-        }
+        "/model" if arguments.is_empty() => Command::Switcher,
+        "/effort" if arguments.is_empty() => Command::Effort(None),
+        "/effort" if arguments.len() == 1 => Command::Effort(Some(arguments[0].clone())),
         "/plan" => parse_plan(arguments)?,
         "/apply" if arguments.is_empty() => Command::Apply,
         "/help" | "/inspect" | "/project" | "/profile" | "/models" | "/apply" => {
             return Err(unexpected());
         }
-        "/model" => return Err(unexpected()),
+        "/model" | "/effort" => return Err(unexpected()),
         _ => return Err(format!("unknown command {command:?}; use /help")),
     };
 
@@ -133,6 +136,9 @@ pub(super) fn completions(
     let values = match command {
         "/model" => models.to_vec(),
         "/profile" => profiles.keys().cloned().collect(),
+        "/effort" => ["low", "medium", "high", "default"]
+            .map(str::to_owned)
+            .to_vec(),
         "/inspect" | "/plan" => catalog.packs.iter().map(|pack| pack.id.clone()).collect(),
         _ => return Vec::new(),
     };
@@ -150,22 +156,50 @@ pub(super) fn completions(
 }
 
 pub(super) fn help() -> String {
-    [
-        "Chat with the configured assistant, or use local commands:",
-        "",
-        "/templates [query]                 Search this project's template catalog",
-        "/inspect <id>                      Show one template's outputs and inputs",
-        "/project                           Show known project files",
-        "/profile [id]                     List or switch saved assistant profiles",
-        "/models                            Fetch model IDs supported by the provider",
-        "/model <id>                       Switch models for this session",
-        "/plan <id>... [--set name=value]  Prepare a generation plan; no files are written",
-        "/apply                             Review and explicitly approve the pending plan",
-        "/help                              Show this help",
-        "",
-        "Local commands stay on this machine until you send a message; then their visible results may be included as context for the configured provider.",
-    ]
-    .join("\n")
+    let commands = [
+        (
+            "/templates [query]",
+            "Search this project's template catalog",
+        ),
+        ("/inspect <id>", "Show one template's outputs and inputs"),
+        ("/project", "Show known project files"),
+        ("/profile [id]", "List or switch saved assistant profiles"),
+        (
+            "/model [id]",
+            "Switch models; without an ID, open the switcher",
+        ),
+        ("/models", "Fetch model IDs supported by the provider"),
+        (
+            "/effort [level]",
+            "Show or set reasoning effort: low, medium, high, default",
+        ),
+        (
+            "/plan <id>... [--set name=value]",
+            "Prepare a generation plan; no files are written",
+        ),
+        ("/apply", "Review and explicitly approve the pending plan"),
+        ("/help", "Show this help"),
+    ];
+    let width = commands
+        .iter()
+        .map(|(command, _)| command.chars().count())
+        .max()
+        .unwrap_or_default();
+    let mut lines = vec![
+        "Chat with the configured assistant, or use local commands:".to_owned(),
+        String::new(),
+    ];
+    lines.extend(
+        commands
+            .iter()
+            .map(|(command, description)| format!("{command:<width$}  {description}")),
+    );
+    lines.extend([
+        String::new(),
+        "Ctrl+O opens the switcher for profile, model, and effort.".to_owned(),
+        "Local commands stay on this machine until you send a message; then their visible results may be included as context for the configured provider.".to_owned(),
+    ]);
+    lines.join("\n")
 }
 
 pub(super) fn list_profiles(

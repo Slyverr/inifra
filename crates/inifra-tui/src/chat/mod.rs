@@ -1,6 +1,7 @@
 //! Inline assistant conversation and Markdown rendering.
 
 mod markdown;
+mod switcher;
 mod view;
 
 use crate::terminal;
@@ -24,6 +25,43 @@ pub struct ChatConfig {
     pub provider: String,
     /// Configured model identifier.
     pub model: String,
+    /// Active reasoning effort, if one is set.
+    pub effort: Option<String>,
+}
+
+/// One saved connection offered by the in-chat switcher.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct SwitcherProfile {
+    /// Profile ID.
+    pub id: String,
+    /// Short connection summary, such as `OpenAI · Responses`.
+    pub detail: String,
+    /// The profile's saved default model.
+    pub default_model: String,
+}
+
+/// Model IDs for one profile in the switcher.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ModelList {
+    /// The application is fetching the list.
+    Loading,
+    /// Model IDs reported by the provider.
+    Ready(Vec<String>),
+    /// The list cannot be fetched; the text explains why.
+    Unavailable(String),
+}
+
+/// A profile, model, and effort chosen in the switcher.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SwitchRequest {
+    /// Profile ID to use.
+    pub profile: String,
+    /// Model ID to use.
+    pub model: String,
+    /// Effort label, or `None` for the provider default.
+    pub effort: Option<String>,
+    /// Also save the selection as the default profile and its defaults.
+    pub save_default: bool,
 }
 
 /// Events sent from the TUI to the application orchestrator.
@@ -38,6 +76,12 @@ pub enum ChatAction {
     Quit,
     /// Request completion candidates for the current input.
     Complete(String),
+    /// Open the profile and model switcher. Sent on Ctrl+O while idle.
+    OpenSwitcher,
+    /// Fetch model IDs for one profile shown in the switcher.
+    LoadModels(String),
+    /// Apply a switcher selection.
+    Switch(SwitchRequest),
     /// Confirm or reject one explicit plan-application prompt.
     Confirm {
         /// ID supplied with the confirmation request.
@@ -66,6 +110,8 @@ pub enum ChatEvent {
         provider: String,
         /// Active model identifier.
         model: String,
+        /// Active reasoning effort, if one is set.
+        effort: Option<String>,
         /// Number of completed user requests in this session.
         turns: u64,
         /// Cumulative token usage reported by the provider.
@@ -85,6 +131,26 @@ pub enum ChatEvent {
     /// guidance, where `backticked` text is shown as a command and a line starting with
     /// `details: ` is shown muted. An error during a response marks that response as failed.
     Error(String),
+    /// Show the profile and model switcher.
+    SwitcherOpened {
+        /// Saved profiles.
+        profiles: Vec<SwitcherProfile>,
+        /// Active profile ID.
+        active: String,
+        /// Active model.
+        model: String,
+        /// Effort labels; the first means "provider default".
+        efforts: Vec<String>,
+        /// Active effort label, if one is set.
+        effort: Option<String>,
+    },
+    /// Model IDs for a profile shown in the switcher.
+    ModelsListed {
+        /// Profile ID the list belongs to.
+        profile: String,
+        /// The models, or why they are unavailable.
+        models: ModelList,
+    },
     /// Pause chat input and ask for an explicit Yes/No decision.
     ConfirmationRequested {
         /// ID returned with the user's confirmation decision.
@@ -131,9 +197,11 @@ pub fn run_chat(
     let mut terminal = terminal::InlineTerminal::new(EMPTY_VIEWPORT_HEIGHT)?;
 
     loop {
-        drain_events(&events, &mut app);
+        for request in drain_events(&events, &mut app) {
+            actions.send(request).map_err(channel_error)?;
+        }
 
-        let next_viewport_height = if app.messages.is_empty() {
+        let next_viewport_height = if app.messages.is_empty() && app.switcher.is_none() {
             EMPTY_VIEWPORT_HEIGHT
         } else {
             VIEWPORT_HEIGHT
@@ -194,6 +262,8 @@ struct ChatApp {
     profile: String,
     provider: String,
     model: String,
+    effort: Option<String>,
+    switcher: Option<switcher::Switcher>,
     usage: ChatUsage,
     messages: Vec<Message>,
     input: Vec<char>,
@@ -213,6 +283,8 @@ impl ChatApp {
             profile: config.profile,
             provider: config.provider,
             model: config.model,
+            effort: config.effort,
+            switcher: None,
             usage: ChatUsage::default(),
             messages: Vec::new(),
             input: Vec::new(),
@@ -271,7 +343,8 @@ impl ChatApp {
     }
 }
 
-fn drain_events(events: &Receiver<ChatEvent>, app: &mut ChatApp) {
+fn drain_events(events: &Receiver<ChatEvent>, app: &mut ChatApp) -> Vec<ChatAction> {
+    let mut pending_requests = Vec::new();
     while let Ok(event) = events.try_recv() {
         match event {
             ChatEvent::AssistantStarted => app.start_assistant(),
@@ -282,12 +355,14 @@ fn drain_events(events: &Receiver<ChatEvent>, app: &mut ChatApp) {
                 profile,
                 provider,
                 model,
+                effort,
                 turns: _,
                 usage,
             } => {
                 app.profile = profile;
                 app.provider = provider;
                 app.model = model;
+                app.effort = effort;
                 app.usage = usage;
             }
             ChatEvent::Completions(completions) => {
@@ -305,6 +380,25 @@ fn drain_events(events: &Receiver<ChatEvent>, app: &mut ChatApp) {
                 app.working = None;
                 app.push_message(Role::Error, text);
             }
+            ChatEvent::SwitcherOpened {
+                profiles,
+                active,
+                model,
+                efforts,
+                effort,
+            } => {
+                let mut opened =
+                    switcher::Switcher::new(profiles, &active, model, efforts, effort.as_deref());
+                if let Some(profile) = opened.initial_request() {
+                    pending_requests.push(ChatAction::LoadModels(profile));
+                }
+                app.switcher = Some(opened);
+            }
+            ChatEvent::ModelsListed { profile, models } => {
+                if let Some(switcher) = &mut app.switcher {
+                    switcher.set_models(profile, models);
+                }
+            }
             ChatEvent::ConfirmationRequested { request_id, prompt } => {
                 app.confirmation = Some(Confirmation {
                     request_id,
@@ -314,6 +408,7 @@ fn drain_events(events: &Receiver<ChatEvent>, app: &mut ChatApp) {
             }
         }
     }
+    pending_requests
 }
 
 fn handle_key(key: KeyEvent, app: &mut ChatApp, actions: &Sender<ChatAction>) -> io::Result<bool> {
@@ -338,6 +433,37 @@ fn handle_key(key: KeyEvent, app: &mut ChatApp, actions: &Sender<ChatAction>) ->
         }
         let _ = actions.send(ChatAction::Quit);
         return Ok(true);
+    }
+
+    if let Some(open) = &mut app.switcher {
+        match open.handle(key) {
+            switcher::SwitcherOutcome::Stay => {}
+            switcher::SwitcherOutcome::LoadModels(profile) => {
+                actions
+                    .send(ChatAction::LoadModels(profile))
+                    .map_err(channel_error)?;
+            }
+            switcher::SwitcherOutcome::Close => app.switcher = None,
+            switcher::SwitcherOutcome::Switch(request) => {
+                app.switcher = None;
+                actions
+                    .send(ChatAction::Switch(request))
+                    .map_err(channel_error)?;
+            }
+        }
+        return Ok(false);
+    }
+
+    if key.code == KeyCode::Char('o')
+        && control
+        && !app.streaming
+        && app.working.is_none()
+        && app.confirmation.is_none()
+    {
+        actions
+            .send(ChatAction::OpenSwitcher)
+            .map_err(channel_error)?;
+        return Ok(false);
     }
 
     if let Some(confirmation) = &mut app.confirmation {

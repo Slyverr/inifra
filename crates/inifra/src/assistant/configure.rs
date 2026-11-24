@@ -1,6 +1,6 @@
 use super::UiExit;
 use inifra_assistant::{
-    ApiProtocol, AssistantConfig, AssistantProfile, ConnectionTemplate, CredentialSource,
+    ApiProtocol, AssistantConfig, AssistantProfile, ConnectionTemplate, CredentialSource, Effort,
     PROVIDER_PRESETS, Provider, ProviderPreset, connection_template, is_valid_profile_id,
     read_credential, write_credential,
 };
@@ -166,7 +166,7 @@ pub(super) fn configure_profile(
         base_url,
         api_key_env: api_key_env.clone(),
         credential_source,
-        effort: None,
+        effort: values.get("effort").and_then(|value| Effort::parse(value)),
     };
     profile.validate()?;
 
@@ -332,6 +332,18 @@ fn profile_fields(
             .required()
             .hint("switch for one session with /model in inifra ask")
             .default_value(existing.map(|profile| profile.model.clone())),
+        TextField::new("effort", "Default effort")
+            .hint("low, medium, or high; leave empty for the provider default")
+            .default_value(
+                existing
+                    .and_then(|profile| profile.effort)
+                    .map(|effort| effort.as_str().to_owned()),
+            )
+            .check(|value| {
+                Effort::parse(value)
+                    .map(|_| ())
+                    .ok_or_else(|| "Use low, medium, or high, or leave it empty.".to_owned())
+            }),
     ];
     if template.base_url_required || existing.is_some_and(|profile| profile.base_url.is_some()) {
         let field = TextField::new("base_url", "API base URL")
