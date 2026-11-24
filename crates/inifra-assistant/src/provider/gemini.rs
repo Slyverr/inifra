@@ -67,6 +67,20 @@ struct GeminiBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     system_instruction: Option<GeminiSystemInstruction>,
     contents: Vec<GeminiContent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    generation_config: Option<GeminiGenerationConfig>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiGenerationConfig {
+    thinking_config: GeminiThinkingConfig,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GeminiThinkingConfig {
+    thinking_budget: u32,
 }
 
 #[derive(Serialize)]
@@ -86,7 +100,7 @@ struct GeminiPart {
 }
 
 fn build_request(
-    _profile: &AssistantProfile,
+    profile: &AssistantProfile,
     messages: Vec<ChatMessage>,
     api_key: Option<&str>,
     endpoint: Url,
@@ -107,6 +121,11 @@ fn build_request(
     let body = serde_json::to_vec(&GeminiBody {
         system_instruction,
         contents,
+        generation_config: profile.effort.map(|effort| GeminiGenerationConfig {
+            thinking_config: GeminiThinkingConfig {
+                thinking_budget: effort.thinking_budget(),
+            },
+        }),
     })
     .map_err(|_| "could not encode the Gemini Generate Content request".to_owned())?;
     Ok(HttpRequest {
@@ -249,6 +268,7 @@ mod tests {
             base_url: None,
             api_key_env: Some("GEMINI_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
+            effort: None,
         }
     }
 
@@ -315,5 +335,37 @@ mod tests {
         assert!(error.contains("/[path redacted]/models/[model]:streamGenerateContent"));
         assert!(!error.contains("test-secret"));
         assert!(!error.contains("/models/gemini-example:"));
+    }
+
+    #[test]
+    fn effort_maps_to_the_protocol_reasoning_setting_only_when_set() {
+        let mut profile = crate::AssistantProfile {
+            provider: crate::Provider::Gemini,
+            api: crate::ApiProtocol::GeminiGenerateContent,
+            model: "model".to_owned(),
+            base_url: None,
+            api_key_env: None,
+            credential_source: crate::CredentialSource::Environment,
+            effort: Some(crate::Effort::High),
+        };
+        let messages = vec![crate::ChatMessage::new(crate::ChatRole::User, "hi")];
+        let endpoint =
+            reqwest::Url::parse("https://api.example.test/v1beta/models/m:streamGenerateContent")
+                .unwrap();
+        let body_of = |profile: &crate::AssistantProfile| -> serde_json::Value {
+            let request =
+                super::build_request(profile, messages.clone(), None, endpoint.clone()).unwrap();
+            serde_json::from_slice(&request.body.unwrap()).unwrap()
+        };
+
+        let body = body_of(&profile);
+        assert_eq!(
+            body["generationConfig"]["thinkingConfig"]["thinkingBudget"],
+            24_576
+        );
+
+        profile.effort = None;
+        let body = body_of(&profile);
+        assert!(body.get("generationConfig").is_none());
     }
 }

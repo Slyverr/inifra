@@ -396,6 +396,7 @@ mod tests {
                     base_url: None,
                     api_key_env: None,
                     credential_source: CredentialSource::Environment,
+                    effort: None,
                 },
             )
             .unwrap();

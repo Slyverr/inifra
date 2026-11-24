@@ -116,6 +116,7 @@ mod tests {
             base_url: None,
             api_key_env: Some("OPENAI_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
+            effort: None,
         };
 
         let mut events = stream_with_transport(
@@ -149,6 +150,7 @@ mod tests {
             base_url: Some("https://api.example.test/custom/v1".to_owned()),
             api_key_env: None,
             credential_source: CredentialSource::Environment,
+            effort: None,
         };
 
         let mut events = stream_with_transport(
@@ -192,6 +194,7 @@ mod tests {
                 base_url: Some("https://api.example.test/gateway/v1".to_owned()),
                 api_key_env: None,
                 credential_source: CredentialSource::Environment,
+                effort: None,
             };
             let mut events = stream_with_transport(
                 transport,

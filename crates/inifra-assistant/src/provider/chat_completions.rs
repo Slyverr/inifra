@@ -57,6 +57,8 @@ struct ChatCompletionsBody<'a> {
     stream: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream_options: Option<StreamOptions>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<&'static str>,
 }
 
 #[derive(Serialize)]
@@ -78,6 +80,7 @@ fn build_request(
         stream_options: profile.stream_usage_enabled().then_some(StreamOptions {
             include_usage: true,
         }),
+        reasoning_effort: profile.effort.map(|effort| effort.as_str()),
     })
     .map_err(|_| "could not encode the chat request".to_owned())?;
     Ok(HttpRequest {
@@ -185,6 +188,7 @@ mod tests {
             base_url: base_url.map(str::to_owned),
             api_key_env: Some("EXAMPLE_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
+            effort: None,
         }
     }
 
@@ -386,5 +390,32 @@ mod tests {
         let error = events.next().await.unwrap().unwrap_err();
         assert!(error.to_string().contains("API key is missing"));
         assert!(captured.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn effort_maps_to_the_protocol_reasoning_setting_only_when_set() {
+        let mut profile = crate::AssistantProfile {
+            provider: crate::Provider::OpenRouter,
+            api: crate::ApiProtocol::OpenAiChatCompletions,
+            model: "model".to_owned(),
+            base_url: None,
+            api_key_env: None,
+            credential_source: crate::CredentialSource::Environment,
+            effort: Some(crate::Effort::High),
+        };
+        let messages = vec![crate::ChatMessage::new(crate::ChatRole::User, "hi")];
+        let endpoint = reqwest::Url::parse("https://api.example.test/v1/chat/completions").unwrap();
+        let body_of = |profile: &crate::AssistantProfile| -> serde_json::Value {
+            let request =
+                super::build_request(profile, messages.clone(), None, endpoint.clone()).unwrap();
+            serde_json::from_slice(&request.body.unwrap()).unwrap()
+        };
+
+        let body = body_of(&profile);
+        assert_eq!(body["reasoning_effort"], "high");
+
+        profile.effort = None;
+        let body = body_of(&profile);
+        assert!(body.get("reasoning_effort").is_none());
     }
 }

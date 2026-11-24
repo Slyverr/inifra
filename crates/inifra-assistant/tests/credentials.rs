@@ -11,6 +11,7 @@ fn profile(source: CredentialSource) -> AssistantProfile {
         base_url: None,
         api_key_env: Some("OPENAI_API_KEY".into()),
         credential_source: source,
+        effort: None,
     }
 }
 

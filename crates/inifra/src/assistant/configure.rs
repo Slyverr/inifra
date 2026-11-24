@@ -166,6 +166,7 @@ pub(super) fn configure_profile(
         base_url,
         api_key_env: api_key_env.clone(),
         credential_source,
+        effort: None,
     };
     profile.validate()?;
 
@@ -689,6 +690,7 @@ mod tests {
             base_url: None,
             api_key_env: Some("OPENAI_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
+            effort: None,
         };
         let template = selected_connection(
             ConnectionChoice {
@@ -715,6 +717,7 @@ mod tests {
             base_url: Some("https://api.example.test/v1".to_owned()),
             api_key_env: Some("TEST_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
+            effort: None,
         };
         let fields = profile_fields(
             template(Provider::CustomEndpoint, ApiProtocol::OpenAiChatCompletions),
@@ -756,6 +759,7 @@ mod tests {
             base_url: None,
             api_key_env: (provider != Provider::Ollama).then(|| "TEST_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
+            effort: None,
         }
     }
 

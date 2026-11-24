@@ -48,6 +48,13 @@ fn anthropic_endpoint(profile: &AssistantProfile) -> Result<Url, String> {
 }
 
 #[derive(Serialize)]
+struct Thinking {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    budget_tokens: u32,
+}
+
+#[derive(Serialize)]
 struct AnthropicBody<'a> {
     model: &'a str,
     max_tokens: u32,
@@ -55,6 +62,8 @@ struct AnthropicBody<'a> {
     system: Option<String>,
     messages: Vec<ChatMessage>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<Thinking>,
 }
 
 fn build_request(
@@ -81,12 +90,22 @@ fn build_request(
         header::HeaderName::from_static("anthropic-version"),
         ANTHROPIC_API_VERSION,
     )?;
+    let thinking = profile.effort.map(|effort| Thinking {
+        kind: "enabled",
+        budget_tokens: effort.thinking_budget(),
+    });
+    // The answer must fit after the reasoning budget, so extended thinking raises the limit.
+    let max_tokens = DEFAULT_MAX_OUTPUT_TOKENS
+        + thinking
+            .as_ref()
+            .map_or(0, |thinking| thinking.budget_tokens);
     let body = serde_json::to_vec(&AnthropicBody {
         model: &profile.model,
-        max_tokens: DEFAULT_MAX_OUTPUT_TOKENS,
+        max_tokens,
         system,
         messages,
         stream: true,
+        thinking,
     })
     .map_err(|_| "could not encode the Anthropic Messages request".to_owned())?;
     Ok(HttpRequest {
@@ -215,6 +234,7 @@ mod tests {
             base_url: None,
             api_key_env: Some("ANTHROPIC_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
+            effort: None,
         }
     }
 
@@ -284,5 +304,35 @@ mod tests {
         let error = events.next().await.unwrap().unwrap_err().to_string();
         assert!(error.contains("invalid [redacted]"));
         assert!(!error.contains("test-secret"));
+    }
+
+    #[test]
+    fn effort_maps_to_the_protocol_reasoning_setting_only_when_set() {
+        let mut profile = crate::AssistantProfile {
+            provider: crate::Provider::Anthropic,
+            api: crate::ApiProtocol::AnthropicMessages,
+            model: "model".to_owned(),
+            base_url: None,
+            api_key_env: None,
+            credential_source: crate::CredentialSource::Environment,
+            effort: Some(crate::Effort::High),
+        };
+        let messages = vec![crate::ChatMessage::new(crate::ChatRole::User, "hi")];
+        let endpoint = reqwest::Url::parse("https://api.example.test/v1/messages").unwrap();
+        let body_of = |profile: &crate::AssistantProfile| -> serde_json::Value {
+            let request =
+                super::build_request(profile, messages.clone(), None, endpoint.clone()).unwrap();
+            serde_json::from_slice(&request.body.unwrap()).unwrap()
+        };
+
+        let body = body_of(&profile);
+        assert_eq!(body["thinking"]["type"], "enabled");
+        assert_eq!(body["thinking"]["budget_tokens"], 24_576);
+        assert!(body["max_tokens"].as_u64().unwrap() > 24_576);
+
+        profile.effort = None;
+        let body = body_of(&profile);
+        assert!(body.get("thinking").is_none());
+        assert_eq!(body["max_tokens"], 4096);
     }
 }

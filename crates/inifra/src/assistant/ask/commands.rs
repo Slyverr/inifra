@@ -518,6 +518,7 @@ mod tests {
                 base_url: None,
                 api_key_env: Some("NVIDIA_API_KEY".to_owned()),
                 credential_source: CredentialSource::Environment,
+                effort: None,
             },
         )]);
 

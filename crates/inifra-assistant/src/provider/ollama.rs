@@ -48,6 +48,8 @@ struct OllamaBody<'a> {
     model: &'a str,
     messages: Vec<ChatMessage>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    think: Option<bool>,
 }
 
 fn build_request(
@@ -69,6 +71,7 @@ fn build_request(
         model: &profile.model,
         messages,
         stream: true,
+        think: profile.effort.map(|_| true),
     })
     .map_err(|_| "could not encode the Ollama Chat request".to_owned())?;
     Ok(HttpRequest {
@@ -166,6 +169,7 @@ mod tests {
             base_url: None,
             api_key_env: api_key_env.map(str::to_owned),
             credential_source: CredentialSource::Environment,
+            effort: None,
         }
     }
 
@@ -227,5 +231,32 @@ mod tests {
         assert!(!error.contains("test-secret"));
         let request = captured.lock().unwrap().take().unwrap();
         assert_eq!(request.header("authorization"), Some("Bearer test-secret"));
+    }
+
+    #[test]
+    fn effort_maps_to_the_protocol_reasoning_setting_only_when_set() {
+        let mut profile = crate::AssistantProfile {
+            provider: crate::Provider::Ollama,
+            api: crate::ApiProtocol::OllamaChat,
+            model: "model".to_owned(),
+            base_url: None,
+            api_key_env: None,
+            credential_source: crate::CredentialSource::Environment,
+            effort: Some(crate::Effort::High),
+        };
+        let messages = vec![crate::ChatMessage::new(crate::ChatRole::User, "hi")];
+        let endpoint = reqwest::Url::parse("http://localhost:11434/api/chat").unwrap();
+        let body_of = |profile: &crate::AssistantProfile| -> serde_json::Value {
+            let request =
+                super::build_request(profile, messages.clone(), None, endpoint.clone()).unwrap();
+            serde_json::from_slice(&request.body.unwrap()).unwrap()
+        };
+
+        let body = body_of(&profile);
+        assert_eq!(body["think"], true);
+
+        profile.effort = None;
+        let body = body_of(&profile);
+        assert!(body.get("think").is_none());
     }
 }
