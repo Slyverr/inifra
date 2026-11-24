@@ -23,6 +23,26 @@ pub enum ApiProtocol {
 }
 
 impl ApiProtocol {
+    /// Every API protocol implemented by the assistant adapters.
+    pub const ALL: [Self; 5] = [
+        Self::OpenAiResponses,
+        Self::OpenAiChatCompletions,
+        Self::AnthropicMessages,
+        Self::GeminiGenerateContent,
+        Self::OllamaChat,
+    ];
+
+    /// Short name used when the surrounding UI already identifies these as APIs.
+    pub fn short_name(self) -> &'static str {
+        match self {
+            Self::OpenAiResponses => "Responses",
+            Self::OpenAiChatCompletions => "Chat Completions",
+            Self::AnthropicMessages => "Messages",
+            Self::GeminiGenerateContent => "Generate Content",
+            Self::OllamaChat => "Ollama Chat",
+        }
+    }
+
     /// Human-readable API protocol name.
     pub fn display_name(self) -> &'static str {
         match self {
@@ -41,8 +61,10 @@ impl ApiProtocol {
 pub enum Provider {
     /// OpenAI hosted APIs.
     OpenAi,
-    /// A user-managed OpenAI-compatible service.
+    /// A user-managed OpenAI-compatible service using Chat Completions.
     OpenAiCompatible,
+    /// A user-managed endpoint that implements one of the supported API protocols.
+    CustomEndpoint,
     /// NVIDIA NIM.
     NvidiaNim,
     /// Anthropic hosted APIs.
@@ -60,7 +82,8 @@ impl Provider {
     pub fn display_name(self) -> &'static str {
         match self {
             Self::OpenAi => "OpenAI",
-            Self::OpenAiCompatible => "Custom endpoint",
+            Self::OpenAiCompatible => "OpenAI-compatible",
+            Self::CustomEndpoint => "Custom API",
             Self::NvidiaNim => "NVIDIA NIM",
             Self::Anthropic => "Anthropic",
             Self::Gemini => "Google Gemini",
@@ -81,7 +104,7 @@ pub enum CredentialSource {
     CredentialsFile,
 }
 
-/// Provider, protocol, model, endpoint, and credential reference for an assistant.
+/// Provider preset, API protocol, model, endpoint override, and credential reference.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct AssistantProfile {
@@ -103,6 +126,26 @@ pub struct AssistantProfile {
 }
 
 impl AssistantProfile {
+    /// Return the explicit endpoint override or the selected provider preset's default.
+    pub fn effective_base_url(&self) -> Option<&str> {
+        self.base_url.as_deref().or_else(|| {
+            crate::connection_template(self.provider, self.api)
+                .and_then(|template| template.base_url)
+        })
+    }
+
+    /// Whether the selected provider preset enables Chat Completions stream usage metadata.
+    pub fn stream_usage_enabled(&self) -> bool {
+        crate::connection_template(self.provider, self.api)
+            .is_some_and(|template| template.stream_usage)
+    }
+
+    /// Whether a profile using this provider and protocol requires an API-key variable.
+    pub fn api_key_required(&self) -> bool {
+        crate::connection_template(self.provider, self.api)
+            .is_some_and(|template| template.api_key_required)
+    }
+
     /// Validates that the service, API protocol, model, endpoint, and key reference agree.
     pub fn validate(&self) -> Result<()> {
         if self.model.trim().is_empty() || self.model.chars().any(char::is_control) {
@@ -111,25 +154,13 @@ impl AssistantProfile {
             ));
         }
 
-        let supported = match self.provider {
-            Provider::OpenAi => matches!(
-                self.api,
-                ApiProtocol::OpenAiResponses | ApiProtocol::OpenAiChatCompletions
-            ),
-            Provider::OpenAiCompatible | Provider::NvidiaNim | Provider::OpenRouter => {
-                self.api == ApiProtocol::OpenAiChatCompletions
-            }
-            Provider::Anthropic => self.api == ApiProtocol::AnthropicMessages,
-            Provider::Gemini => self.api == ApiProtocol::GeminiGenerateContent,
-            Provider::Ollama => self.api == ApiProtocol::OllamaChat,
-        };
-        if !supported {
+        let Some(template) = crate::connection_template(self.provider, self.api) else {
             return Err(error(format!(
                 "API protocol {:?} is not supported by provider {:?}",
                 self.api, self.provider
             )));
-        }
-        if self.provider != Provider::Ollama && self.api_key_env.is_none() {
+        };
+        if template.api_key_required && self.api_key_env.is_none() {
             return Err(error(
                 "this provider requires api_key_env to name its credential environment variable",
             ));
@@ -147,8 +178,8 @@ impl AssistantProfile {
                 "api_key_env must be an uppercase environment variable name",
             ));
         }
-        if self.provider == Provider::OpenAiCompatible && self.base_url.is_none() {
-            return Err(error("OpenAI-compatible services require a base_url"));
+        if template.base_url_required && self.base_url.is_none() {
+            return Err(error("custom API services require a base_url"));
         }
         if let Some(base_url) = &self.base_url {
             let url = Url::parse(base_url).map_err(|_| error("base_url must be a valid URL"))?;

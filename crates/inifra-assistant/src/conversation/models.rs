@@ -1,5 +1,5 @@
 use crate::{
-    ApiProtocol, AssistantProfile, Provider, ProviderError,
+    ApiProtocol, AssistantProfile, ProviderError,
     provider::adapter::{add_header, endpoint_url},
     transport::http::{HttpRequest, HttpTransport, ReqwestTransport, TransportError, safe_excerpt},
 };
@@ -56,7 +56,7 @@ async fn list_models_with_transport<T: HttpTransport>(
         )
     })?;
     let api_key = api_key.filter(|key| !key.trim().is_empty());
-    if profile.provider != Provider::Ollama && api_key.is_none() {
+    if profile.api_key_required() && api_key.is_none() {
         return Err(ProviderError::request(
             profile.provider,
             profile.api,
@@ -219,63 +219,20 @@ async fn list_models_with_transport<T: HttpTransport>(
 }
 
 fn models_endpoint(profile: &AssistantProfile) -> Result<Url, String> {
-    let (base, path) = match (profile.provider, profile.api) {
-        (Provider::OpenAi, ApiProtocol::OpenAiResponses | ApiProtocol::OpenAiChatCompletions) => (
-            profile
-                .base_url
-                .as_deref()
-                .unwrap_or("https://api.openai.com/v1"),
-            "/models",
-        ),
-        (Provider::NvidiaNim, ApiProtocol::OpenAiChatCompletions) => (
-            profile
-                .base_url
-                .as_deref()
-                .unwrap_or("https://integrate.api.nvidia.com/v1"),
-            "/models",
-        ),
-        (Provider::OpenRouter, ApiProtocol::OpenAiChatCompletions) => (
-            profile
-                .base_url
-                .as_deref()
-                .unwrap_or("https://openrouter.ai/api/v1"),
-            "/models",
-        ),
-        (Provider::OpenAiCompatible, ApiProtocol::OpenAiChatCompletions) => (
-            profile
-                .base_url
-                .as_deref()
-                .ok_or_else(|| "custom endpoint requires an API base URL".to_owned())?,
-            "/models",
-        ),
-        (Provider::Anthropic, ApiProtocol::AnthropicMessages) => (
-            profile
-                .base_url
-                .as_deref()
-                .unwrap_or("https://api.anthropic.com/v1"),
-            "/models",
-        ),
-        (Provider::Gemini, ApiProtocol::GeminiGenerateContent) => (
-            profile
-                .base_url
-                .as_deref()
-                .unwrap_or("https://generativelanguage.googleapis.com/v1beta"),
-            "/models",
-        ),
-        (Provider::Ollama, ApiProtocol::OllamaChat) => (
-            profile
-                .base_url
-                .as_deref()
-                .unwrap_or("http://localhost:11434"),
-            "/api/tags",
-        ),
-        _ => return Err("profile provider and API protocol do not match".to_owned()),
-    };
-
+    let base = profile
+        .effective_base_url()
+        .ok_or_else(|| "this API profile requires a base URL".to_owned())?;
     let base = if profile.api == ApiProtocol::OpenAiChatCompletions {
         without_chat_completion_route(base)?
     } else {
         base.to_owned()
+    };
+    let path = match profile.api {
+        ApiProtocol::OllamaChat => "/api/tags",
+        ApiProtocol::OpenAiResponses
+        | ApiProtocol::OpenAiChatCompletions
+        | ApiProtocol::AnthropicMessages
+        | ApiProtocol::GeminiGenerateContent => "/models",
     };
     endpoint_url(&base, path)
 }
@@ -389,8 +346,16 @@ mod tests {
             provider,
             api,
             model: "test-model".to_owned(),
-            base_url: base_url.map(str::to_owned),
-            api_key_env: (provider != Provider::Ollama).then(|| "TEST_API_KEY".to_owned()),
+            base_url: if matches!(
+                provider,
+                Provider::OpenAiCompatible | Provider::CustomEndpoint
+            ) {
+                Some(base_url.unwrap_or("https://api.example.test/v1").to_owned())
+            } else {
+                base_url.map(str::to_owned)
+            },
+            api_key_env: (!matches!(provider, Provider::Ollama | Provider::CustomEndpoint))
+                .then(|| "TEST_API_KEY".to_owned()),
             credential_source: CredentialSource::Environment,
         }
     }
@@ -455,14 +420,33 @@ mod tests {
     }
 
     #[test]
-    fn rejects_mismatched_provider_protocols() {
-        let error = models_endpoint(&profile(
-            Provider::Anthropic,
-            ApiProtocol::OpenAiResponses,
-            None,
-        ))
-        .unwrap_err();
-        assert!(error.contains("do not match"));
+    fn custom_api_model_endpoints_follow_each_selected_protocol() {
+        let cases = [
+            (ApiProtocol::OpenAiResponses, "/v1/models"),
+            (ApiProtocol::OpenAiChatCompletions, "/v1/models"),
+            (ApiProtocol::AnthropicMessages, "/v1/models"),
+            (ApiProtocol::GeminiGenerateContent, "/v1/models"),
+            (ApiProtocol::OllamaChat, "/v1/api/tags"),
+        ];
+
+        for (api, expected_path) in cases {
+            let endpoint = models_endpoint(&profile(
+                Provider::CustomEndpoint,
+                api,
+                Some("https://api.example.test/v1"),
+            ))
+            .unwrap();
+            assert_eq!(endpoint.path(), expected_path, "{api:?}");
+        }
+    }
+
+    #[test]
+    fn profile_validation_rejects_mismatched_provider_protocols() {
+        let error = profile(Provider::Anthropic, ApiProtocol::OpenAiResponses, None)
+            .validate()
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("not supported by provider"));
     }
 
     #[tokio::test]

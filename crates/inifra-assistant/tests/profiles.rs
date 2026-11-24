@@ -7,9 +7,13 @@ fn profile(provider: Provider, api: ApiProtocol) -> AssistantProfile {
         provider,
         api,
         model: "example-model".into(),
-        base_url: (provider == Provider::OpenAiCompatible)
-            .then(|| "https://llm.example/v1/".into()),
-        api_key_env: (provider != Provider::Ollama).then(|| "EXAMPLE_API_KEY".into()),
+        base_url: matches!(
+            provider,
+            Provider::OpenAiCompatible | Provider::CustomEndpoint
+        )
+        .then(|| "https://llm.example/v1/".into()),
+        api_key_env: (!matches!(provider, Provider::Ollama | Provider::CustomEndpoint))
+            .then(|| "EXAMPLE_API_KEY".into()),
         credential_source: CredentialSource::Environment,
     }
 }
@@ -98,6 +102,31 @@ fn rejects_unsupported_protocols_and_invalid_profile_values() {
             .unwrap_err()
             .to_string()
             .contains("credentials")
+    );
+}
+
+#[test]
+fn custom_api_profiles_accept_every_protocol_with_optional_credentials() {
+    for api in [
+        ApiProtocol::OpenAiResponses,
+        ApiProtocol::OpenAiChatCompletions,
+        ApiProtocol::AnthropicMessages,
+        ApiProtocol::GeminiGenerateContent,
+        ApiProtocol::OllamaChat,
+    ] {
+        let mut profile = profile(Provider::CustomEndpoint, api);
+        profile.api_key_env = None;
+        assert!(profile.validate().is_ok(), "{api:?}");
+    }
+
+    let mut profile = profile(Provider::CustomEndpoint, ApiProtocol::OpenAiResponses);
+    profile.base_url = None;
+    assert!(
+        profile
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("base_url")
     );
 }
 

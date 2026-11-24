@@ -1,6 +1,6 @@
 use crate::{
-    ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatRole, ChatStream, Provider,
-    ProviderError, TokenUsage,
+    ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatRole, ChatStream, ProviderError,
+    TokenUsage,
     provider::adapter::{AdapterSpec, add_header, json_headers, start_stream},
     transport::http::{HttpRequest, HttpTransport, safe_excerpt},
     transport::sse::SseParser,
@@ -35,14 +35,13 @@ pub(crate) fn stream<T: HttpTransport + 'static>(
 }
 
 fn gemini_endpoint(profile: &AssistantProfile) -> Result<Url, String> {
-    if profile.provider != Provider::Gemini || profile.api != ApiProtocol::GeminiGenerateContent {
-        return Err("Generate Content API requires a Google Gemini profile".to_owned());
+    if profile.api != ApiProtocol::GeminiGenerateContent {
+        return Err("Generate Content API requires a Generate Content profile".to_owned());
     }
 
     let base = profile
-        .base_url
-        .as_deref()
-        .unwrap_or("https://generativelanguage.googleapis.com/v1beta");
+        .effective_base_url()
+        .ok_or_else(|| "this API profile requires a base URL".to_owned())?;
     let mut url = Url::parse(base).map_err(|_| "API base URL is invalid".to_owned())?;
     let model = profile
         .model
@@ -92,18 +91,19 @@ fn build_request(
     api_key: Option<&str>,
     endpoint: Url,
 ) -> Result<HttpRequest, String> {
-    let api_key = api_key.ok_or_else(|| "Google Gemini API key is missing".to_owned())?;
     let (system_instruction, contents) = gemini_messages(messages);
     if contents.is_empty() {
         return Err("Gemini chat requires at least one user or assistant message".to_owned());
     }
 
     let mut headers = json_headers("text/event-stream");
-    add_header(
-        &mut headers,
-        header::HeaderName::from_static("x-goog-api-key"),
-        api_key,
-    )?;
+    if let Some(api_key) = api_key {
+        add_header(
+            &mut headers,
+            header::HeaderName::from_static("x-goog-api-key"),
+            api_key,
+        )?;
+    }
     let body = serde_json::to_vec(&GeminiBody {
         system_instruction,
         contents,

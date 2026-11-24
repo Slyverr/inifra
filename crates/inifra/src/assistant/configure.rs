@@ -238,7 +238,9 @@ fn profile_fields(provider: Provider, existing: Option<&AssistantProfile>) -> Ve
 
 fn default_key_name(provider: Provider) -> &'static str {
     match provider {
-        Provider::OpenAi | Provider::OpenAiCompatible => "OPENAI_API_KEY",
+        Provider::OpenAi | Provider::OpenAiCompatible | Provider::CustomEndpoint => {
+            "OPENAI_API_KEY"
+        }
         Provider::NvidiaNim => "NVIDIA_API_KEY",
         Provider::Anthropic => "ANTHROPIC_API_KEY",
         Provider::Gemini => "GEMINI_API_KEY",

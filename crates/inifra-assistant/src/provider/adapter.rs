@@ -61,7 +61,7 @@ where
     }
 
     let api_key = api_key.filter(|key| !key.trim().is_empty());
-    if profile.provider != crate::Provider::Ollama && api_key.is_none() {
+    if profile.api_key_required() && api_key.is_none() {
         return one_error(ProviderError::request(
             profile.provider,
             profile.api,

@@ -15,6 +15,9 @@ pub use settings::config::{
     ApiProtocol, AssistantConfig, AssistantProfile, CredentialSource, Provider,
 };
 pub use settings::credentials::{read_credential, resolve_credential, write_credential};
+pub use settings::presets::{
+    ConnectionTemplate, PROVIDER_PRESETS, ProviderPreset, connection_template,
+};
 /// Cancellation signal used to stop a provider request and response stream.
 pub use tokio_util::sync::CancellationToken;
 pub use transport::http::ProviderError;
