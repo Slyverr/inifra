@@ -1,3 +1,4 @@
+use crate::controls::chrome::{essential, footer, hint};
 use crate::init::{App, Screen};
 use crate::presentation::{Tone, terminal_text, tui_style};
 use crate::{GenerationReview, ReviewAction};
@@ -286,16 +287,16 @@ fn draw_review(
             tui_style(Tone::Error, false),
         ))
     } else {
-        Line::from(vec![
-            key("↑/↓ j/k"),
-            muted(" choose  ·  "),
-            key("PgUp/PgDn"),
-            muted(" files  ·  "),
-            key("Enter"),
-            muted(" confirm  ·  "),
-            key("q/Esc"),
-            muted(" cancel"),
-        ])
+        crate::controls::chrome::footer(
+            &[
+                essential("↑/↓ j/k", "choose"),
+                hint("PgUp/PgDn", "files"),
+                essential("Enter", "confirm"),
+                essential("Esc", "back"),
+                essential("q/Ctrl+C", "quit"),
+            ],
+            footer.width,
+        )
     };
     frame.render_widget(Paragraph::new(footer_line), footer);
 }
@@ -357,7 +358,9 @@ fn search_footer(width: u16) -> Line<'static> {
         key("Backspace"),
         normal(" delete · "),
         key("Esc"),
-        normal(" clear"),
+        normal(" clear · "),
+        key("Ctrl+C"),
+        normal(" quit"),
     ]);
     if full.width() <= usize::from(width) {
         return full;
@@ -369,12 +372,20 @@ fn search_footer(width: u16) -> Line<'static> {
         key("Enter"),
         normal(" done · "),
         key("Esc"),
-        normal(" clear"),
+        normal(" clear · "),
+        key("Ctrl+C"),
+        normal(" quit"),
     ]);
     if compact.width() <= usize::from(width) {
         compact
     } else {
-        let minimal = Line::from(vec![key("Enter"), normal(" · "), key("Esc")]);
+        let minimal = Line::from(vec![
+            key("Enter"),
+            normal(" · "),
+            key("Esc"),
+            normal(" · "),
+            key("Ctrl+C"),
+        ]);
         if minimal.width() <= usize::from(width) {
             minimal
         } else {
@@ -407,13 +418,18 @@ fn picker_footer(alternatives: bool, filter_active: bool, width: u16) -> Line<'s
     ]);
     if filter_active {
         spans.extend([
-            key("q"),
-            normal(" quit · "),
             key("Esc"),
-            normal(" clear filter"),
+            normal(" clear filter · "),
+            key("q/Ctrl+C"),
+            normal(" quit"),
         ]);
     } else {
-        spans.extend([key("q/Esc"), normal(" quit")]);
+        spans.extend([
+            key("Esc"),
+            normal(" back · "),
+            key("q/Ctrl+C"),
+            normal(" quit"),
+        ]);
     }
 
     let full = Line::from(spans);
@@ -434,13 +450,18 @@ fn picker_footer(alternatives: bool, filter_active: bool, width: u16) -> Line<'s
     let mut ending = vec![key("Enter"), normal(" next · ")];
     if filter_active {
         ending.extend([
-            key("q"),
-            normal(" quit · "),
             key("Esc"),
-            normal(" clear filter"),
+            normal(" clear filter · "),
+            key("q/Ctrl+C"),
+            normal(" quit"),
         ]);
     } else {
-        ending.extend([key("q/Esc"), normal(" quit")]);
+        ending.extend([
+            key("Esc"),
+            normal(" back · "),
+            key("q/Ctrl+C"),
+            normal(" quit"),
+        ]);
     }
 
     let ending_width = Line::from(ending.clone()).width() + " · ".len();
@@ -474,13 +495,18 @@ fn picker_footer(alternatives: bool, filter_active: bool, width: u16) -> Line<'s
     ];
     if filter_active {
         essential_spans.extend([
-            key("q"),
-            normal(" quit · "),
             key("Esc"),
-            normal(" clear filter"),
+            normal(" clear filter · "),
+            key("q/Ctrl+C"),
+            normal(" quit"),
         ]);
     } else {
-        essential_spans.extend([key("q/Esc"), normal(" quit")]);
+        essential_spans.extend([
+            key("Esc"),
+            normal(" back · "),
+            key("q/Ctrl+C"),
+            normal(" quit"),
+        ]);
     }
 
     let essential = Line::from(essential_spans);
@@ -495,18 +521,23 @@ fn picker_footer(alternatives: bool, filter_active: bool, width: u16) -> Line<'s
             key("Enter"),
             normal(" · "),
             key("Esc"),
+            normal(" · "),
+            key("q/Ctrl+C"),
         ])
     }
 }
 
 fn draw_input_footer(frame: &mut Frame<'_>, area: Rect) {
     frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            key("Enter"),
-            muted(" continue  ·  "),
-            key("Esc"),
-            muted(" cancel"),
-        ])),
+        Paragraph::new(footer(
+            &[
+                essential("Enter", "next"),
+                hint("Shift+Tab", "previous"),
+                essential("Esc", "back"),
+                essential("Ctrl+C", "quit"),
+            ],
+            area.width,
+        )),
         area,
     );
 }
@@ -665,7 +696,7 @@ mod tests {
 
     #[test]
     fn picker_footer_is_one_flat_row_with_the_reference_hints() {
-        let mut terminal = Terminal::new(TestBackend::new(140, 1)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(180, 1)).unwrap();
         terminal
             .draw(|frame| draw_picker_footer(frame, frame.area(), None, true, false, false))
             .unwrap();
@@ -675,7 +706,8 @@ mod tests {
         assert!(text.contains("PgUp/Dn preview"));
         assert!(text.contains("/ search"));
         assert!(text.contains("Enter next"));
-        assert!(text.contains("q/Esc quit"));
+        assert!(text.contains("Esc back"));
+        assert!(text.contains("q/Ctrl+C quit"));
         assert!(!text.contains("Enter review"));
     }
 
@@ -702,8 +734,9 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect::<String>();
 
-        assert!(text.contains("q quit"));
+        assert!(text.contains("q/Ctrl+C quit"));
         assert!(text.contains("Esc clear filter"));
+        assert!(!text.contains("q quit"));
         assert!(!text.contains("Esc cancel"));
     }
 

@@ -11,14 +11,6 @@ impl Drop for Restore {
     }
 }
 
-pub(crate) fn inline(height: u16) -> io::Result<(Restore, DefaultTerminal)> {
-    let restore = Restore;
-    let terminal = ratatui::try_init_with_options(TerminalOptions {
-        viewport: Viewport::Inline(height),
-    })?;
-    Ok((restore, terminal))
-}
-
 pub(crate) struct InlineTerminal {
     terminal: Option<DefaultTerminal>,
     restore: Option<Restore>,
@@ -59,6 +51,21 @@ impl InlineTerminal {
             .as_mut()
             .ok_or_else(|| io::Error::other("inline terminal is closed"))?
             .autoresize()?;
+        Ok(())
+    }
+
+    pub(crate) fn set_height(&mut self, height: u16) -> io::Result<()> {
+        if self.height == height {
+            return Ok(());
+        }
+
+        self.clear_from_top()?;
+        self.terminal.take();
+        self.terminal = Some(ratatui::try_init_with_options(TerminalOptions {
+            viewport: Viewport::Inline(height),
+        })?);
+        self.height = height;
+        self.top = 0;
         Ok(())
     }
 

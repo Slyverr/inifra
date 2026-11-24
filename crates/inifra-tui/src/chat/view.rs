@@ -3,7 +3,7 @@ use crate::presentation::{Tone, terminal_text, tui_style};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
-    style::{Color, Style},
+    style::Style,
     text::{Line, Span, Text},
     widgets::{Paragraph, Wrap},
 };
@@ -27,19 +27,34 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &ChatApp) {
 
     if app.confirmation.is_none() && !app.streaming && app.working.is_none() && chunks[2].height > 0
     {
-        let (row, column) = cursor_position(app, chunks[2].width.saturating_sub(2));
-        let visible_start =
-            wrapped_input_lines(&app.input, chunks[2].width.saturating_sub(2) as usize)
-                .len()
-                .saturating_sub(INPUT_ROWS) as u16;
-        if row >= visible_start && row - visible_start < chunks[2].height {
-            frame
-                .set_cursor_position((chunks[2].x + 2 + column, chunks[2].y + row - visible_start));
+        let input_width = chunks[2].width.saturating_sub(2);
+        let (row, column) = cursor_position(app, input_width);
+        let input_line_count = wrapped_input_lines(&app.input, input_width as usize).len();
+        let visible_start = input_line_count.saturating_sub(INPUT_ROWS) as u16;
+        let visible_lines = input_line_count.min(INPUT_ROWS) as u16;
+        let vertical_padding = chunks[2].height.saturating_sub(visible_lines) / 2;
+        if row >= visible_start && row - visible_start + vertical_padding < chunks[2].height {
+            frame.set_cursor_position((
+                chunks[2].x + 2 + column,
+                chunks[2].y + row - visible_start + vertical_padding,
+            ));
         }
     }
 }
 
 fn draw_messages(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Rect) {
+    if app.messages.is_empty() {
+        let welcome = ratatui::layout::Rect::new(area.x, area.y + area.height / 2, area.width, 1);
+        frame.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                "Ask about your project or browse templates.",
+                tui_style(Tone::Secondary, false),
+            ))),
+            welcome,
+        );
+        return;
+    }
+
     let mut lines = Vec::new();
     for message in &app.messages {
         match message.role {
@@ -48,7 +63,7 @@ fn draw_messages(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Re
                 if let Some(first) = text_lines.next() {
                     lines.push(Line::from(vec![
                         Span::styled("› ", tui_style(Tone::Accent, true)),
-                        Span::styled(terminal_text(first), Style::default().fg(Color::White)),
+                        Span::styled(terminal_text(first), Style::default()),
                     ]));
                 }
                 lines.extend(
@@ -56,12 +71,11 @@ fn draw_messages(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Re
                 );
             }
             Role::Assistant => {
-                let label = if message.incomplete {
-                    "Inifra › · incomplete"
-                } else {
-                    "Inifra ›"
-                };
-                lines.push(Line::styled(label, tui_style(Tone::Accent, true)));
+                let mut label = vec![Span::styled("Inifra ›", tui_style(Tone::Accent, true))];
+                if message.incomplete {
+                    label.push(Span::styled("  interrupted", tui_style(Tone::Muted, false)));
+                }
+                lines.push(Line::from(label));
                 lines.extend(markdown::render(&message.text));
             }
             Role::Notice => lines.push(Line::styled(
@@ -110,14 +124,19 @@ fn draw_input(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Rect)
         return;
     }
 
-    let mut visual = wrapped_input_lines(&app.input, area.width.saturating_sub(2) as usize);
-    if visual.is_empty() {
-        visual.push(Vec::new());
-    }
-
+    let visual = wrapped_input_lines(&app.input, area.width.saturating_sub(2) as usize);
     let ghost = ghost_completion(app);
-    if app.input.is_empty() && ghost.is_none() && visual.len() == 1 {
-        let mut spans = vec![Span::styled("› ", tui_style(Tone::Accent, true))];
+    let visible_start = visual.len().saturating_sub(INPUT_ROWS);
+    let visible = visual
+        .iter()
+        .skip(visible_start)
+        .take(INPUT_ROWS)
+        .collect::<Vec<_>>();
+    let vertical_padding = area.height.saturating_sub(visible.len() as u16) / 2;
+    let mut lines = vec![Line::from(""); vertical_padding as usize];
+
+    if app.input.is_empty() && ghost.is_none() {
+        let mut spans = vec![Span::styled("›  ", tui_style(Tone::Accent, true))];
         spans.push(Span::styled(
             if app.streaming || app.working.is_some() {
                 app.working.as_deref().unwrap_or("Waiting for response…")
@@ -126,23 +145,23 @@ fn draw_input(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Rect)
             },
             tui_style(Tone::Muted, false),
         ));
-        frame.render_widget(
-            Paragraph::new(Line::from(spans)).wrap(Wrap { trim: false }),
-            area,
-        );
+        lines.push(Line::from(spans));
+        lines.resize(area.height as usize, Line::from(""));
+        frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
         return;
     }
 
-    let visible_start = visual.len().saturating_sub(INPUT_ROWS);
-    visual = visual.into_iter().skip(visible_start).collect();
     let input_chars = &app.input;
     let command_end = input_chars
         .iter()
         .position(|character| character.is_whitespace())
         .unwrap_or(input_chars.len());
-    let mut lines = Vec::new();
-    let mut consumed = 0usize;
-    for (row, chars) in visual.iter().enumerate() {
+    let mut consumed = visual
+        .iter()
+        .take(visible_start)
+        .map(|line| line.len())
+        .sum::<usize>();
+    for (row, chars) in visible.iter().enumerate() {
         let mut spans = Vec::new();
         if row == 0 {
             spans.push(Span::styled("› ", tui_style(Tone::Accent, true)));
@@ -150,11 +169,11 @@ fn draw_input(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Rect)
             spans.push(Span::raw("  "));
         }
 
-        for character in chars {
+        for character in *chars {
             let style = if input_chars.first() == Some(&'/') && consumed < command_end {
                 tui_style(Tone::Accent, true)
             } else {
-                Style::default().fg(Color::White)
+                Style::default()
             };
             spans.push(Span::styled(terminal_text(&character.to_string()), style));
             consumed += 1;
@@ -170,6 +189,7 @@ fn draw_input(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Rect)
         }
         lines.push(Line::from(spans));
     }
+    lines.resize(area.height as usize, Line::from(""));
     frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), area);
 }
 
@@ -235,7 +255,7 @@ fn draw_footer(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Rect
         }
         details.push(Span::styled(
             terminal_text(&app.model),
-            Style::default().fg(Color::White),
+            tui_style(Tone::Accent, false),
         ));
     }
 

@@ -21,7 +21,8 @@ const ERROR_DISPLAY_DURATION: Duration = Duration::from_secs(2);
 /// Run the inline initialization flow in the current terminal.
 ///
 /// The backend prepares a plan before review and applies it only after explicit
-/// approval. Esc or Ctrl-C cancels without applying. A terminal is required.
+/// approval. Esc returns to the previous screen; q or Ctrl-C quits without applying. A terminal
+/// is required.
 ///
 /// # Errors
 /// Returns an error if the terminal cannot be initialized, drawn, or read.

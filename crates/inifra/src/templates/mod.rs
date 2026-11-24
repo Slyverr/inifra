@@ -1,6 +1,6 @@
 use clap::Args;
 use inifra_core::{catalog::Catalog, presets, sources, user_templates};
-use inifra_tui::{FormOutcome, TextField, presentation};
+use inifra_tui::{FormOutcome, Heading, InteractionOutcome, TextField, presentation};
 use std::{
     error::Error,
     io::{self, IsTerminal},
@@ -71,37 +71,30 @@ pub(crate) fn edit(
         .into());
     }
 
-    if inifra_tui::run_confirmation("Create template", &format!("Create {id:?}?"), false)?
-        != Some(true)
+    if inifra_tui::run_confirmation(
+        &Heading::new("create template"),
+        &format!("Create {id:?}?"),
+        false,
+    )? != InteractionOutcome::Selected(true)
     {
         return Ok(());
     }
 
     let values = match inifra_tui::run_form(
-        "New template",
+        &Heading::new("new template").context(id),
         vec![
-            TextField {
-                name: "category".into(),
-                label: "Category ID".into(),
-                required: true,
-                default: Some("personal".into()),
-            },
-            TextField {
-                name: "description".into(),
-                label: "Short description".into(),
-                required: true,
-                default: None,
-            },
-            TextField {
-                name: "source".into(),
-                label: "First source file".into(),
-                required: true,
-                default: Some(format!("{id}.md.j2")),
-            },
+            TextField::new("category", "Category ID")
+                .required()
+                .default_value(Some("personal".into())),
+            TextField::new("description", "Short description").required(),
+            TextField::new("source", "First source file")
+                .required()
+                .default_value(Some(format!("{id}.md.j2"))),
         ],
     )? {
         FormOutcome::Submitted(values) => values,
-        FormOutcome::Cancelled => return Ok(()),
+        FormOutcome::Back => return Ok(()),
+        FormOutcome::Quit => return Ok(()),
     };
 
     let category = values

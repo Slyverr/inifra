@@ -374,14 +374,19 @@ fn schema_version() -> u32 {
     SCHEMA_VERSION
 }
 
-fn validate_profile_id(id: &str) -> Result<()> {
-    let valid = !id.is_empty()
+/// Returns whether `id` is a valid profile ID: 1–64 lowercase ASCII letters, digits, or hyphens,
+/// starting with a letter.
+pub fn is_valid_profile_id(id: &str) -> bool {
+    !id.is_empty()
         && id.len() <= 64
         && id
             .bytes()
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-        && id.as_bytes()[0].is_ascii_lowercase();
-    if valid {
+        && id.as_bytes()[0].is_ascii_lowercase()
+}
+
+fn validate_profile_id(id: &str) -> Result<()> {
+    if is_valid_profile_id(id) {
         Ok(())
     } else {
         Err(error(format!("invalid assistant profile ID {id:?}")))

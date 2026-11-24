@@ -11,7 +11,8 @@ use std::{
     time::Duration,
 };
 
-const VIEWPORT_HEIGHT: u16 = 18;
+const EMPTY_VIEWPORT_HEIGHT: u16 = 7;
+const VIEWPORT_HEIGHT: u16 = 14;
 const INPUT_ROWS: usize = 3;
 
 /// Initial provider and model labels shown in the chat footer.
@@ -30,7 +31,8 @@ pub enum ChatAction {
     Submit(String),
     /// Cancel the active request. Sent when Esc is pressed during a response.
     Cancel,
-    /// Exit the chat. Sent when Esc is pressed while idle.
+    /// Exit the chat. Sent when Esc is pressed while idle or Ctrl+C is pressed; q also exits
+    /// while the composer is unavailable.
     Quit,
     /// Request completion candidates for the current input.
     Complete(String),
@@ -100,7 +102,7 @@ pub struct ChatUsage {
 /// How the user left the chat interface.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ChatExit {
-    /// The user pressed Esc while no request was active.
+    /// The user left the chat while no request was active.
     Quit,
 }
 
@@ -109,7 +111,8 @@ pub enum ChatExit {
 /// The application owns all provider and command behavior. It sends normalized events through
 /// `events` and receives user actions through `actions`; this crate has no provider or core
 /// dependency. While a response streams, the event loop continues to redraw the conversation,
-/// keep the editor and footer visible, and accepts Esc cancellation.
+/// keep the editor and footer visible, and accepts Esc cancellation. Ctrl+C quits; q quits while
+/// a non-chat operation is active and remains available as message text while the composer is active.
 ///
 /// # Errors
 /// Returns an error when the terminal cannot be initialized, drawn, or read.
@@ -119,10 +122,20 @@ pub fn run_chat(
     events: Receiver<ChatEvent>,
 ) -> io::Result<ChatExit> {
     let mut app = ChatApp::new(config);
-    let (_restore, mut terminal) = terminal::inline(VIEWPORT_HEIGHT)?;
+    let mut terminal = terminal::InlineTerminal::new(EMPTY_VIEWPORT_HEIGHT)?;
 
     loop {
         drain_events(&events, &mut app);
+
+        let next_viewport_height = if app.messages.is_empty() {
+            EMPTY_VIEWPORT_HEIGHT
+        } else {
+            VIEWPORT_HEIGHT
+        };
+        if terminal.height() != next_viewport_height {
+            terminal.set_height(next_viewport_height)?;
+        }
+
         terminal.draw(|frame| view::draw(frame, &app))?;
         if event::poll(Duration::from_millis(40))? {
             match event::read()? {
@@ -131,7 +144,6 @@ pub fn run_chat(
                     if key.kind != KeyEventKind::Release
                         && handle_key(key, &mut app, &actions)? =>
                 {
-                    let _ = terminal.clear();
                     return Ok(ChatExit::Quit);
                 }
                 _ => {}
@@ -291,6 +303,28 @@ fn drain_events(events: &Receiver<ChatEvent>, app: &mut ChatApp) {
 
 fn handle_key(key: KeyEvent, app: &mut ChatApp, actions: &Sender<ChatAction>) -> io::Result<bool> {
     let control = key.modifiers.contains(KeyModifiers::CONTROL);
+    let quit = (key.code == KeyCode::Char('c') && control)
+        || (key.code == KeyCode::Char('q')
+            && key.modifiers.is_empty()
+            && (app.streaming || app.working.is_some()));
+    if quit {
+        if let Some(confirmation) = app.confirmation.take() {
+            let _ = actions.send(ChatAction::Confirm {
+                request_id: confirmation.request_id,
+                approved: false,
+            });
+        }
+        if app.streaming || app.working.is_some() {
+            if app.streaming {
+                app.finish_assistant(true);
+            }
+            app.working = None;
+            let _ = actions.send(ChatAction::Cancel);
+        }
+        let _ = actions.send(ChatAction::Quit);
+        return Ok(true);
+    }
+
     if let Some(confirmation) = &mut app.confirmation {
         match key.code {
             KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
@@ -300,6 +334,10 @@ fn handle_key(key: KeyEvent, app: &mut ChatApp, actions: &Sender<ChatAction>) ->
                     request_id,
                     approved: false,
                 });
+            }
+            KeyCode::Char('q') if key.modifiers.is_empty() => {
+                let _ = actions.send(ChatAction::Quit);
+                return Ok(true);
             }
             KeyCode::Char('y') | KeyCode::Char('Y') => confirmation.approved = true,
             KeyCode::Left | KeyCode::Char('h') => confirmation.approved = false,
@@ -319,7 +357,7 @@ fn handle_key(key: KeyEvent, app: &mut ChatApp, actions: &Sender<ChatAction>) ->
         return Ok(false);
     }
 
-    if key.code == KeyCode::Esc || (key.code == KeyCode::Char('c') && control) {
+    if key.code == KeyCode::Esc {
         if app.streaming || app.working.is_some() {
             if app.streaming {
                 app.finish_assistant(true);

@@ -45,6 +45,64 @@ fn escape_cancels_stream_and_quits_when_idle() {
 }
 
 #[test]
+fn ctrl_c_quits_after_cancelling_an_active_request() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    let (actions, received) = mpsc::channel();
+    app.streaming = true;
+
+    assert!(
+        handle_key(
+            key(KeyCode::Char('c'), KeyModifiers::CONTROL),
+            &mut app,
+            &actions
+        )
+        .unwrap()
+    );
+    assert_eq!(received.try_recv().unwrap(), ChatAction::Cancel);
+    assert_eq!(received.try_recv().unwrap(), ChatAction::Quit);
+}
+
+#[test]
+fn q_is_still_message_text_in_the_chat_composer() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    app.input = "hello ".chars().collect();
+    app.cursor = app.input.len();
+    let (actions, received) = mpsc::channel();
+
+    assert!(
+        !handle_key(
+            key(KeyCode::Char('q'), KeyModifiers::NONE),
+            &mut app,
+            &actions
+        )
+        .unwrap()
+    );
+    assert_eq!(app.input_text(), "hello q");
+    assert!(matches!(
+        received.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+}
+
+#[test]
+fn q_quits_while_the_chat_composer_is_unavailable() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    app.working = Some("fetching models".to_owned());
+    let (actions, received) = mpsc::channel();
+
+    assert!(
+        handle_key(
+            key(KeyCode::Char('q'), KeyModifiers::NONE),
+            &mut app,
+            &actions
+        )
+        .unwrap()
+    );
+    assert_eq!(received.try_recv().unwrap(), ChatAction::Cancel);
+    assert_eq!(received.try_recv().unwrap(), ChatAction::Quit);
+}
+
+#[test]
 fn tab_completes_a_candidate_and_updates_the_cursor() {
     let mut app = ChatApp::new(ChatConfig::default());
     app.input = "/mo".chars().collect();

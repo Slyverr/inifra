@@ -19,14 +19,26 @@ impl<P> App<P> {
         }
 
         if key.code == KeyCode::Esc {
-            if matches!(&self.screen, Screen::Select)
-                && (self.search_active || !self.search_query.is_empty())
-            {
-                self.clear_search();
-                return None;
+            match &self.screen {
+                Screen::Select if self.search_active || !self.search_query.is_empty() => {
+                    self.clear_search();
+                }
+                Screen::Select => return Some(InitOutcome::Cancelled),
+                Screen::Input { prompts, index } => {
+                    let current_prompt = prompts.get(*index).map(|prompt| prompt.name.clone());
+                    if let Some(name) = current_prompt {
+                        self.values.insert(name, self.input.clone());
+                    }
+                    self.screen = Screen::Select;
+                    self.clear_error();
+                }
+                Screen::Review { .. } => {
+                    self.screen = Screen::Select;
+                    self.clear_error();
+                }
             }
 
-            return Some(InitOutcome::Cancelled);
+            return None;
         }
 
         if matches!(&self.screen, Screen::Select) && self.search_active {

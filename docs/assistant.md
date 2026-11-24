@@ -2,9 +2,9 @@
 
 Run `inifra assistant` to open the inline profile manager. It lets you create or edit profiles, switch the default, remove a profile, or reset assistant data. Press Esc to return to the shell.
 
-The manager separates API selection from provider selection. For example, choose **Chat Completions API** and then **NVIDIA NIM** or **OpenRouter**. A profile stores the provider, API protocol, model ID, optional base URL, and the name of its API-key environment variable. It never stores a key in `assistant.toml`.
+Profile setup starts with two independent choices, before asking for a profile ID. The left pane lists ready-to-use providers; choosing one applies its preset protocol and endpoint, then asks for the model and credential details. OpenAI defaults to Responses. The right pane lists supported API protocols; choosing one configures a custom endpoint and asks for its base URL, model, and optional API-key environment variable. A custom endpoint must implement the chosen protocol's request and response schema; the protocol adapter already knows where to read the assistant's text. Both routes use the same connection-template model, profile form, and protocol adapters; provider presets supply defaults rather than a second setup implementation. A profile stores the provider, API protocol, model ID, optional base URL, and credential reference. It never stores a key in `assistant.toml`.
 
-For Chat Completions, enter the API base URL (for example, `https://integrate.api.nvidia.com/v1`). Inifra appends `/chat/completions` while preserving path prefixes; it does not append the route twice if the full endpoint URL is entered. Custom endpoints omit optional streaming usage settings because support varies between compatible servers.
+For a custom API, enter its base URL; Inifra adds the protocol's API path while preserving path prefixes. For example, Chat Completions adds `/chat/completions` and does not duplicate the route if it is already present. Custom Chat Completions requests omit optional streaming usage settings because support varies between compatible servers. The picker supports arrow keys or `j`/`k` to move, `h`/`l` to switch sides, `/` to filter, and Enter to choose. Esc clears an active filter first, then returns one step. Esc backs out of nested screens; Ctrl+C quits everywhere, and `q` quits non-text screens while remaining ordinary text in fields, filters, and chat input.
 
 ## Commands
 
@@ -34,7 +34,7 @@ inifra ask
 inifra ask --profile local
 ```
 
-The session shows the active provider and model. `/models` asks the configured API for model IDs when that API supports listing; pressing Tab after `/model ` fetches IDs on demand and completes matching models. Use `/model ID` to switch models for the current session. `/help` lists the available commands:
+The session shows the active provider and model. `/profile` lists saved connections and `/profile ID` switches to one; switching clears conversation and queued local context without changing the saved default. `/models` asks the active API for model IDs when it supports listing; pressing Tab after `/model ` fetches IDs on demand and completes matching models. Use `/model ID` to switch models for the current session. `/help` lists the available commands:
 
 - `/templates [query]` searches the loaded catalog.
 - `/inspect ID` shows one template's outputs and inputs.

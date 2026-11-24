@@ -1,3 +1,7 @@
+use super::{
+    InteractionOutcome,
+    chrome::{Heading, essential, footer, hint},
+};
 use crate::{
     presentation::{Tone, terminal_text, tui_style},
     terminal,
@@ -11,14 +15,20 @@ use ratatui::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
-    io,
+    fmt, io,
+    rc::Rc,
 };
+use unicode_width::UnicodeWidthStr;
 
-const FORM_HEIGHT: u16 = 7;
-const CONFIRM_HEIGHT: u16 = 6;
+/// Rows used by a form's heading, field label, hint, input, and footer.
+const FORM_FIXED_ROWS: u16 = 7;
+const CONFIRM_FIXED_ROWS: u16 = 5;
+
+/// Checks a field value before the form advances; the error is shown in place of the hint.
+pub type FieldCheck = Rc<dyn Fn(&str) -> Result<(), String>>;
 
 /// A single-line field in an inline Ratatui form.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 pub struct TextField {
     /// Stable key used to return the submitted value.
     pub name: String,
@@ -28,49 +38,104 @@ pub struct TextField {
     pub required: bool,
     /// Value shown initially and returned when left unchanged.
     pub default: Option<String>,
+    /// Short guidance shown after `Required`/`Optional`.
+    pub hint: Option<String>,
+    /// Validation applied to nonempty values before the form advances.
+    pub check: Option<FieldCheck>,
 }
 
-/// Result of completing or cancelling an inline form.
+impl TextField {
+    /// Creates an optional field with no default.
+    pub fn new(name: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            label: label.into(),
+            required: false,
+            default: None,
+            hint: None,
+            check: None,
+        }
+    }
+
+    /// Rejects empty values.
+    #[must_use]
+    pub fn required(mut self) -> Self {
+        self.required = true;
+        self
+    }
+
+    /// Sets the initial value.
+    #[must_use]
+    pub fn default_value(mut self, value: Option<String>) -> Self {
+        self.default = value;
+        self
+    }
+
+    /// Adds short guidance shown under the label.
+    #[must_use]
+    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+        self.hint = Some(hint.into());
+        self
+    }
+
+    /// Validates nonempty values before the form advances.
+    #[must_use]
+    pub fn check(mut self, check: impl Fn(&str) -> Result<(), String> + 'static) -> Self {
+        self.check = Some(Rc::new(check));
+        self
+    }
+}
+
+impl fmt::Debug for TextField {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TextField")
+            .field("name", &self.name)
+            .field("label", &self.label)
+            .field("required", &self.required)
+            .field("default", &self.default)
+            .field("hint", &self.hint)
+            .field("check", &self.check.is_some())
+            .finish()
+    }
+}
+
+/// Result of submitting, backing out of, or quitting an inline form.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FormOutcome {
     /// Submitted values indexed by each field's `name`.
     Submitted(BTreeMap<String, String>),
-    /// The user cancelled without submitting.
-    Cancelled,
+    /// The user pressed Esc to return to the previous screen without submitting.
+    Back,
+    /// The user requested to quit the interactive command.
+    Quit,
 }
 
 /// Collects values in a compact inline form using the shared terminal UI.
 ///
-/// Enter or Tab advances through fields. Shift+Tab returns to the previous field, and Esc cancels.
+/// Enter or Tab advances through fields. Shift+Tab returns to the previous field, Esc goes back,
+/// and Ctrl+C quits. Unmodified letters, including `q`, remain available as input. Multi-field
+/// forms show the step and the other fields below the active input.
 ///
 /// # Errors
 /// Returns an I/O error if the terminal cannot be initialized, drawn, or read. Duplicate field
 /// names are rejected before the terminal is initialized.
-pub fn run_form(title: &str, fields: Vec<TextField>) -> io::Result<FormOutcome> {
-    run_form_with_mode(title, fields, false)
+pub fn run_form(heading: &Heading, fields: Vec<TextField>) -> io::Result<FormOutcome> {
+    run_form_with_mode(heading, fields, false)
 }
 
 /// Collects one secret value without echoing its contents in the terminal.
 ///
-/// Enter submits the value and Esc cancels.
+/// Enter submits the value, Esc goes back, and Ctrl+C quits.
 ///
 /// # Errors
 /// Returns an I/O error if the terminal cannot be initialized, drawn, or read.
-pub fn run_secret_input(label: &str) -> io::Result<FormOutcome> {
-    run_form_with_mode(
-        "Credential",
-        vec![TextField {
-            name: "secret".to_owned(),
-            label: label.to_owned(),
-            required: true,
-            default: None,
-        }],
-        true,
-    )
+pub fn run_secret_input(heading: &Heading, field: TextField) -> io::Result<FormOutcome> {
+    run_form_with_mode(heading, vec![field.required()], true)
 }
 
 fn run_form_with_mode(
-    title: &str,
+    heading: &Heading,
     fields: Vec<TextField>,
     secret: bool,
 ) -> io::Result<FormOutcome> {
@@ -90,15 +155,15 @@ fn run_form_with_mode(
         return Ok(FormOutcome::Submitted(BTreeMap::new()));
     }
 
-    let (_restore, mut terminal) = terminal::inline(FORM_HEIGHT)?;
-    let mut app = FormApp::new_with_mode(title, fields, secret);
+    let mut terminal = terminal::InlineTerminal::new(form_height(heading, fields.len()))?;
+    let mut app = FormApp::new_with_mode(heading, fields, secret);
     loop {
         terminal.draw(|frame| draw_form(frame, &app))?;
         match event::read()? {
             Event::Resize(_, _) => terminal.autoresize()?,
             Event::Key(key) if key.kind != KeyEventKind::Release => {
                 if let Some(outcome) = app.handle(key) {
-                    let _ = terminal.clear();
+                    terminal.close()?;
                     return Ok(outcome);
                 }
             }
@@ -107,37 +172,45 @@ fn run_form_with_mode(
     }
 }
 
+fn form_height(heading: &Heading, fields: usize) -> u16 {
+    let overview = if fields > 1 {
+        u16::try_from(fields).unwrap_or(u16::MAX)
+    } else {
+        0
+    };
+    FORM_FIXED_ROWS - 2 * (1 - heading.height()) + overview
+}
+
 /// Asks a yes/no question in a compact inline Ratatui screen.
 ///
-/// Arrow keys or `h`/`l` switch the choice. Enter confirms and Esc cancels.
+/// Arrow keys or `h`/`l` switch the choice. Enter confirms, Esc goes back, and `q` or Ctrl+C quits.
 ///
 /// # Errors
 /// Returns an I/O error if the terminal cannot be initialized, drawn, or read.
 pub fn run_confirmation(
-    title: &str,
+    heading: &Heading,
     question: &str,
     default_yes: bool,
-) -> io::Result<Option<bool>> {
-    let height = if title.is_empty() {
-        CONFIRM_HEIGHT - 1
-    } else {
-        CONFIRM_HEIGHT
-    };
-
-    let (_restore, mut terminal) = terminal::inline(height)?;
+) -> io::Result<InteractionOutcome<bool>> {
+    let height = CONFIRM_FIXED_ROWS + 2 * heading.height();
+    let mut terminal = terminal::InlineTerminal::new(height)?;
     let mut yes = default_yes;
     loop {
-        terminal.draw(|frame| draw_confirmation(frame, title, question, yes))?;
+        terminal.draw(|frame| draw_confirmation(frame, heading, question, yes))?;
         match event::read()? {
             Event::Resize(_, _) => terminal.autoresize()?,
             Event::Key(key) if key.kind != KeyEventKind::Release => match key.code {
                 KeyCode::Esc => {
-                    let _ = terminal.clear();
-                    return Ok(None);
+                    terminal.close()?;
+                    return Ok(InteractionOutcome::Back);
                 }
                 KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                    let _ = terminal.clear();
-                    return Ok(None);
+                    terminal.close()?;
+                    return Ok(InteractionOutcome::Quit);
+                }
+                KeyCode::Char('q') if key.modifiers.is_empty() => {
+                    terminal.close()?;
+                    return Ok(InteractionOutcome::Quit);
                 }
                 KeyCode::Left | KeyCode::Up | KeyCode::Char('h') | KeyCode::Char('k') => {
                     yes = true;
@@ -148,8 +221,8 @@ pub fn run_confirmation(
                 KeyCode::Char('y') => yes = true,
                 KeyCode::Char('n') => yes = false,
                 KeyCode::Enter => {
-                    let _ = terminal.clear();
-                    return Ok(Some(yes));
+                    terminal.close()?;
+                    return Ok(InteractionOutcome::Selected(yes));
                 }
                 _ => {}
             },
@@ -158,8 +231,8 @@ pub fn run_confirmation(
     }
 }
 
-struct FormApp<'a> {
-    title: &'a str,
+struct FormApp {
+    heading: Heading,
     fields: Vec<TextField>,
     secret: bool,
     values: BTreeMap<String, String>,
@@ -169,17 +242,17 @@ struct FormApp<'a> {
     error: Option<String>,
 }
 
-impl<'a> FormApp<'a> {
+impl FormApp {
     #[cfg(test)]
-    fn new(title: &'a str, fields: Vec<TextField>) -> Self {
-        Self::new_with_mode(title, fields, false)
+    fn new(heading: &Heading, fields: Vec<TextField>) -> Self {
+        Self::new_with_mode(heading, fields, false)
     }
 
-    fn new_with_mode(title: &'a str, fields: Vec<TextField>, secret: bool) -> Self {
+    fn new_with_mode(heading: &Heading, fields: Vec<TextField>, secret: bool) -> Self {
         let input = fields[0].default.clone().unwrap_or_default();
         let cursor = input.chars().count();
         Self {
-            title,
+            heading: heading.clone(),
             fields,
             secret,
             values: BTreeMap::new(),
@@ -191,10 +264,11 @@ impl<'a> FormApp<'a> {
     }
 
     fn handle(&mut self, key: KeyEvent) -> Option<FormOutcome> {
-        if key.code == KeyCode::Esc
-            || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL))
-        {
-            return Some(FormOutcome::Cancelled);
+        if key.code == KeyCode::Esc {
+            return Some(FormOutcome::Back);
+        }
+        if key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL) {
+            return Some(FormOutcome::Quit);
         }
 
         match key.code {
@@ -256,6 +330,15 @@ impl<'a> FormApp<'a> {
             return None;
         }
 
+        if forward
+            && !value.trim().is_empty()
+            && let Some(check) = &field.check
+            && let Err(error) = check(value.trim())
+        {
+            self.error = Some(error);
+            return None;
+        }
+
         self.values.insert(field.name.clone(), value);
         self.error = None;
         let next = if forward {
@@ -310,36 +393,80 @@ impl<'a> FormApp<'a> {
     }
 }
 
-fn draw_form(frame: &mut Frame<'_>, app: &FormApp<'_>) {
-    let area = Layout::vertical([
+fn draw_form(frame: &mut Frame<'_>, app: &FormApp) {
+    let overview_height = if app.fields.len() > 1 {
+        u16::try_from(app.fields.len()).unwrap_or(u16::MAX)
+    } else {
+        0
+    };
+    let heading_height = app.heading.height();
+    let [
+        heading_area,
+        _heading_gap,
+        label_area,
+        hint_area,
+        input_area,
+        _input_gap,
+        overview_area,
+        _footer_gap,
+        footer_area,
+    ] = Layout::vertical([
+        Constraint::Length(heading_height),
+        Constraint::Length(heading_height),
         Constraint::Length(1),
-        Constraint::Min(1),
         Constraint::Length(1),
-        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Length(u16::from(overview_height > 0)),
+        Constraint::Length(overview_height.saturating_sub(1)),
+        Constraint::Length(1),
+        Constraint::Length(1),
     ])
-    .split(frame.area());
+    .areas(frame.area());
+
+    let step =
+        (app.fields.len() > 1).then(|| format!("step {} of {}", app.index + 1, app.fields.len()));
     frame.render_widget(
-        Paragraph::new(terminal_text(app.title)).style(tui_style(Tone::Accent, true)),
-        area[0],
+        Paragraph::new(app.heading.line(step.as_deref(), heading_area.width)),
+        heading_area,
     );
+
     let field = &app.fields[app.index];
-    let requirement = if field.required {
-        "required"
-    } else {
-        "optional"
-    };
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::styled(terminal_text(&field.label), tui_style(Tone::Accent, true)),
+        ])),
+        label_area,
+    );
 
-    let default = if app.secret {
-        String::new()
+    let hint_line = if let Some(error) = &app.error {
+        Line::from(vec![
+            Span::raw("  "),
+            Span::styled(terminal_text(error), tui_style(Tone::Error, false)),
+        ])
     } else {
-        field
-            .default
-            .as_ref()
-            .map(|value| format!(" · default: {}", terminal_text(value)))
-            .unwrap_or_default()
+        let mut spans = vec![
+            Span::raw("  "),
+            Span::styled(
+                if field.required {
+                    "Required"
+                } else {
+                    "Optional"
+                },
+                tui_style(Tone::Secondary, false),
+            ),
+        ];
+        if let Some(hint) = &field.hint {
+            spans.extend([
+                Span::styled(" · ", tui_style(Tone::Muted, false)),
+                Span::styled(terminal_text(hint), tui_style(Tone::Secondary, false)),
+            ]);
+        }
+        Line::from(spans)
     };
+    frame.render_widget(Paragraph::new(hint_line), hint_area);
 
-    let input_width = area[1].width.saturating_sub(2);
+    let input_width = input_area.width.saturating_sub(2);
     let (input, cursor_column) = if app.secret {
         let masked = "•".repeat(app.input.chars().count());
         visible_input(&masked, app.cursor, input_width)
@@ -347,34 +474,84 @@ fn draw_form(frame: &mut Frame<'_>, app: &FormApp<'_>) {
         visible_input(&app.input, app.cursor, input_width)
     };
 
-    let body = vec![
-        Line::from(format!(
-            "{} ({requirement}{default})",
-            terminal_text(&field.label)
-        )),
-        Line::from(""),
-        Line::from(vec![
-            Span::styled("› ", tui_style(Tone::Accent, false)),
-            Span::raw(input),
-        ]),
-    ];
-    frame.render_widget(Paragraph::new(body), area[1]);
-    let footer = if let Some(error) = &app.error {
-        vec![
-            Line::styled(terminal_text(error), tui_style(Tone::Error, false)),
-            Line::from("Enter/Tab next · Shift+Tab previous · Esc cancel"),
-        ]
+    let displayed_input = if app.input.is_empty() && !app.secret {
+        Span::styled("Type a value…", tui_style(Tone::Muted, false))
     } else {
-        vec![
-            Line::from("Enter/Tab next · Shift+Tab previous · Esc cancel"),
-            Line::from(""),
-        ]
+        Span::raw(input)
     };
-    frame.render_widget(Paragraph::new(footer), area[3]);
-    let x = area[1].x.saturating_add(2).saturating_add(cursor_column);
-    if x < area[1].right() && area[1].height > 2 {
-        frame.set_cursor_position((x, area[1].y + 2));
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled("› ", tui_style(Tone::Accent, true)),
+            displayed_input,
+        ])),
+        input_area,
+    );
+
+    if overview_height > 0 {
+        frame.render_widget(Paragraph::new(overview_lines(app)), overview_area);
     }
+
+    let last = app.index + 1 == app.fields.len();
+    let hints = [
+        essential("Enter", if last { "finish" } else { "next" }),
+        hint("Shift+Tab", "previous"),
+        essential("Esc", "back"),
+        essential("Ctrl+C", "quit"),
+    ];
+    let hints = if app.index == 0 {
+        vec![hints[0], hints[2], hints[3]]
+    } else {
+        hints.to_vec()
+    };
+    frame.render_widget(
+        Paragraph::new(footer(&hints, footer_area.width)),
+        footer_area,
+    );
+
+    let x = input_area.x.saturating_add(2).saturating_add(cursor_column);
+    if x < input_area.right() {
+        frame.set_cursor_position((x, input_area.y));
+    }
+}
+
+/// Lists every other field: completed ones with their value, upcoming ones muted.
+fn overview_lines(app: &FormApp) -> Vec<Line<'static>> {
+    let width = app
+        .fields
+        .iter()
+        .map(|field| UnicodeWidthStr::width(terminal_text(&field.label).as_str()))
+        .max()
+        .unwrap_or_default();
+    app.fields
+        .iter()
+        .enumerate()
+        .filter(|(index, _)| *index != app.index)
+        .map(|(_, field)| {
+            let label = terminal_text(&field.label);
+            let padding = width.saturating_sub(UnicodeWidthStr::width(label.as_str()));
+            match app.values.get(&field.name) {
+                Some(value) => {
+                    let value = if app.secret {
+                        "•".repeat(value.chars().count())
+                    } else if value.trim().is_empty() {
+                        "—".to_owned()
+                    } else {
+                        terminal_text(value)
+                    };
+                    Line::from(vec![
+                        Span::styled("  ✓ ", tui_style(Tone::Success, false)),
+                        Span::raw(label),
+                        Span::raw(" ".repeat(padding + 3)),
+                        Span::raw(value),
+                    ])
+                }
+                None => Line::from(vec![
+                    Span::styled("  · ", tui_style(Tone::Muted, false)),
+                    Span::styled(label, tui_style(Tone::Secondary, false)),
+                ]),
+            }
+        })
+        .collect()
 }
 
 fn visible_input(input: &str, cursor: usize, width: u16) -> (String, u16) {
@@ -424,43 +601,65 @@ fn visible_input(input: &str, cursor: usize, width: u16) -> (String, u16) {
     )
 }
 
-fn draw_confirmation(frame: &mut Frame<'_>, title: &str, question: &str, yes: bool) {
-    let title_height = u16::from(!title.is_empty());
-    let area = Layout::vertical([
-        Constraint::Length(title_height),
-        Constraint::Min(1),
+fn draw_confirmation(frame: &mut Frame<'_>, heading: &Heading, question: &str, yes: bool) {
+    let heading_height = heading.height();
+    let [
+        heading_area,
+        _heading_gap,
+        question_area,
+        _gap,
+        choice_area,
+        _footer_gap,
+        footer_area,
+    ] = Layout::vertical([
+        Constraint::Length(heading_height),
+        Constraint::Length(heading_height),
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
-    .split(frame.area());
+    .areas(frame.area());
     frame.render_widget(
-        Paragraph::new(terminal_text(title)).style(tui_style(Tone::Accent, true)),
-        area[0],
+        Paragraph::new(heading.line(None, heading_area.width)),
+        heading_area,
     );
-    let choice = if yes {
-        Line::from(vec![
-            Span::styled("[ Yes ]", tui_style(Tone::Accent, true)),
-            Span::raw("   "),
-            Span::styled("No", tui_style(Tone::Muted, false)),
-        ])
-    } else {
-        Line::from(vec![
-            Span::styled("Yes", tui_style(Tone::Muted, false)),
-            Span::raw("   "),
-            Span::styled("[ No ]", tui_style(Tone::Accent, true)),
-        ])
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            Span::raw(terminal_text(question)),
+        ])),
+        question_area,
+    );
+    let choice = |label: &'static str, active: bool| {
+        if active {
+            Span::styled(format!("[ {label} ]"), tui_style(Tone::Accent, true))
+        } else {
+            Span::styled(format!("  {label}  "), tui_style(Tone::Secondary, false))
+        }
     };
     frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(terminal_text(question)),
-            Line::from(""),
-            choice,
-        ]),
-        area[1],
+        Paragraph::new(Line::from(vec![
+            Span::raw("  "),
+            choice("Yes", yes),
+            Span::raw(" "),
+            choice("No", !yes),
+        ])),
+        choice_area,
     );
     frame.render_widget(
-        Paragraph::new("←/→ or h/l choose · Enter confirm · Esc cancel"),
-        area[3],
+        Paragraph::new(footer(
+            &[
+                essential("←/→", "choose"),
+                hint("y/n", "answer"),
+                essential("Enter", "confirm"),
+                essential("Esc", "back"),
+                essential("q/Ctrl+C", "quit"),
+            ],
+            footer_area.width,
+        )),
+        footer_area,
     );
 }
 
@@ -471,12 +670,24 @@ mod tests {
     use ratatui::{Terminal, backend::TestBackend};
 
     fn field(name: &str, required: bool, default: Option<&str>) -> TextField {
-        TextField {
-            name: name.to_owned(),
-            label: name.to_owned(),
-            required,
-            default: default.map(str::to_owned),
-        }
+        let field = TextField::new(name, name).default_value(default.map(str::to_owned));
+        if required { field.required() } else { field }
+    }
+
+    fn rows(terminal: &Terminal<TestBackend>) -> Vec<String> {
+        let buffer = terminal.backend().buffer();
+        let width = usize::from(buffer.area.width);
+        buffer
+            .content
+            .chunks(width)
+            .map(|row| {
+                row.iter()
+                    .map(|cell| cell.symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect()
     }
 
     fn key(code: KeyCode) -> KeyEvent {
@@ -486,7 +697,7 @@ mod tests {
     #[test]
     fn form_returns_submitted_values_by_field_name() {
         let mut app = FormApp::new(
-            "Create template",
+            &Heading::new("Create template"),
             vec![
                 field("category", true, Some("custom")),
                 field("description", true, None),
@@ -509,7 +720,7 @@ mod tests {
     #[test]
     fn tab_advances_fields_and_submits_the_last_value() {
         let mut app = FormApp::new(
-            "Create template",
+            &Heading::new("Create template"),
             vec![
                 field("category", true, Some("personal")),
                 field("description", true, None),
@@ -530,7 +741,10 @@ mod tests {
 
     #[test]
     fn form_supports_cursor_editing_in_multibyte_text() {
-        let mut app = FormApp::new("Create template", vec![field("name", true, Some("café"))]);
+        let mut app = FormApp::new(
+            &Heading::new("Create template"),
+            vec![field("name", true, Some("café"))],
+        );
         app.cursor = 3;
         app.handle(key(KeyCode::Backspace));
         app.handle(key(KeyCode::Char('o')));
@@ -551,10 +765,11 @@ mod tests {
     #[test]
     fn secret_form_masks_the_value_but_returns_it_unchanged() {
         let secret = "private-key";
-        let mut app = FormApp::new_with_mode("Credential", vec![field("secret", true, None)], true);
+        let heading = Heading::new("save API key");
+        let mut app = FormApp::new_with_mode(&heading, vec![field("secret", true, None)], true);
         app.input = secret.to_owned();
         app.cursor = secret.chars().count();
-        let backend = TestBackend::new(40, FORM_HEIGHT);
+        let backend = TestBackend::new(40, form_height(&heading, 1));
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|frame| draw_form(frame, &app)).unwrap();
         let displayed = terminal
@@ -577,18 +792,120 @@ mod tests {
 
     #[test]
     fn form_rejects_required_empty_values_and_cancels_without_submission() {
-        let mut app = FormApp::new("Create template", vec![field("description", true, None)]);
+        let mut app = FormApp::new(
+            &Heading::new("Create template"),
+            vec![field("description", true, None)],
+        );
         assert_eq!(app.handle(key(KeyCode::Enter)), None);
         assert_eq!(app.error.as_deref(), Some("A value is required."));
-        assert_eq!(app.handle(key(KeyCode::Esc)), Some(FormOutcome::Cancelled));
+        assert_eq!(app.handle(key(KeyCode::Esc)), Some(FormOutcome::Back));
+    }
+
+    #[test]
+    fn ctrl_c_quits_while_escape_returns_from_a_form() {
+        let mut app = FormApp::new(
+            &Heading::new("Profile"),
+            vec![field("Profile ID", true, None)],
+        );
+
+        assert_eq!(
+            app.handle(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL,)),
+            Some(FormOutcome::Quit)
+        );
+        assert_eq!(app.handle(key(KeyCode::Esc)), Some(FormOutcome::Back));
+    }
+
+    #[test]
+    fn form_shows_heading_step_field_and_overview_of_other_fields() {
+        let heading = Heading::new("new profile").context("OpenAI");
+        let mut app = FormApp::new(
+            &heading,
+            vec![
+                field("Profile ID", true, None),
+                field("Model ID", true, Some("gpt-5")),
+            ],
+        );
+        for character in "work".chars() {
+            app.handle(key(KeyCode::Char(character)));
+        }
+        app.handle(key(KeyCode::Enter));
+        let mut terminal = Terminal::new(TestBackend::new(72, form_height(&heading, 2))).unwrap();
+        terminal.draw(|frame| draw_form(frame, &app)).unwrap();
+        let rows = rows(&terminal);
+
+        assert!(rows[0].starts_with("Inifra · new profile · OpenAI"));
+        assert!(rows[0].ends_with("step 2 of 2"));
+        assert_eq!(rows[1], "");
+        assert_eq!(rows[2], "  Model ID");
+        assert_eq!(rows[3], "  Required");
+        assert_eq!(rows[4], "› gpt-5");
+        assert_eq!(rows[5], "");
+        assert_eq!(rows[6], "  ✓ Profile ID   work");
+        assert!(rows[8].contains("Enter finish"));
+        assert!(rows[8].contains("Shift+Tab previous"));
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(2, 2)].fg, tui_style(Tone::Accent, true).fg.unwrap());
+    }
+
+    #[test]
+    fn first_field_lists_upcoming_fields_and_omits_previous_hint() {
+        let heading = Heading::new("new profile");
+        let app = FormApp::new(
+            &heading,
+            vec![
+                field("Profile ID", true, None).hint("lowercase letters, numbers, hyphens"),
+                field("Model ID", true, None),
+            ],
+        );
+        let mut terminal = Terminal::new(TestBackend::new(72, form_height(&heading, 2))).unwrap();
+        terminal.draw(|frame| draw_form(frame, &app)).unwrap();
+        let rows = rows(&terminal);
+
+        assert_eq!(rows[3], "  Required · lowercase letters, numbers, hyphens");
+        assert_eq!(rows[4], "› Type a value…");
+        assert_eq!(rows[6], "  · Model ID");
+        assert!(!rows[8].contains("previous"));
+    }
+
+    #[test]
+    fn field_checks_reject_values_before_advancing() {
+        fn lowercase(value: &str) -> Result<(), String> {
+            if value
+                .chars()
+                .all(|character| character.is_ascii_lowercase())
+            {
+                Ok(())
+            } else {
+                Err("Use lowercase letters.".to_owned())
+            }
+        }
+
+        let heading = Heading::none();
+        let mut app = FormApp::new(
+            &heading,
+            vec![field("id", true, Some("Work")).check(lowercase)],
+        );
+        assert_eq!(app.handle(key(KeyCode::Enter)), None);
+        assert_eq!(app.error.as_deref(), Some("Use lowercase letters."));
+        app.handle(key(KeyCode::Home));
+        app.handle(key(KeyCode::Delete));
+        app.handle(key(KeyCode::Char('w')));
+        assert_eq!(
+            app.handle(key(KeyCode::Enter)),
+            Some(FormOutcome::Submitted(BTreeMap::from([(
+                "id".to_owned(),
+                "work".to_owned()
+            )])))
+        );
     }
 
     #[test]
     fn confirmation_draws_without_layout_overflow() {
-        let backend = TestBackend::new(80, CONFIRM_HEIGHT);
+        let heading = Heading::new("create template");
+        let backend = TestBackend::new(80, CONFIRM_FIXED_ROWS + 2);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal
-            .draw(|frame| draw_confirmation(frame, "Create template", "Create 'example'?", false))
+            .draw(|frame| draw_confirmation(frame, &heading, "Create 'example'?", false))
             .unwrap();
         let buffer = terminal.backend().buffer();
         let text = buffer

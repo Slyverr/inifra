@@ -9,6 +9,7 @@ use inifra_assistant::{
 use inifra_core::{apply, catalog::Catalog, plan::GenerationPlan};
 use inifra_tui::{ChatAction, ChatConfig, ChatEvent, ChatExit, ChatUsage, run_chat};
 use std::{
+    collections::BTreeMap,
     error::Error,
     io::IsTerminal,
     path::{Path, PathBuf},
@@ -53,17 +54,24 @@ pub(crate) fn run(
     profile.validate()?;
     let credential =
         resolve_credential(&profile, &credentials_path, |name| std::env::var(name).ok())?;
+    let profiles = config.profiles().clone();
+    let session_profile_id = selected_id.to_owned();
     let (catalog, bundled_catalog_dir) =
         user::load_project_catalog(explicit_catalog, Some(&config_dir), &project_dir)?;
 
     let (actions_tx, actions_rx) = mpsc::channel();
     let (events_tx, events_rx) = mpsc::channel();
-    let session_profile = profile.clone();
+    let connection = ActiveConnection {
+        id: session_profile_id,
+        profile: profile.clone(),
+        credential,
+    };
     let orchestrator = thread::spawn(move || {
         worker::run_session(
             Session::new(
-                session_profile,
-                credential,
+                connection,
+                profiles,
+                credentials_path,
                 catalog,
                 project_dir,
                 bundled_catalog_dir,
@@ -99,9 +107,16 @@ fn require_terminal() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-struct Session {
+struct ActiveConnection {
+    id: String,
     profile: AssistantProfile,
     credential: Option<String>,
+}
+
+struct Session {
+    connection: ActiveConnection,
+    profiles: BTreeMap<String, AssistantProfile>,
+    credentials_path: PathBuf,
     catalog: Catalog,
     project_dir: PathBuf,
     _bundled_catalog_dir: Option<tempfile::TempDir>,
@@ -119,15 +134,17 @@ struct Session {
 
 impl Session {
     fn new(
-        profile: AssistantProfile,
-        credential: Option<String>,
+        connection: ActiveConnection,
+        profiles: BTreeMap<String, AssistantProfile>,
+        credentials_path: PathBuf,
         catalog: Catalog,
         project_dir: PathBuf,
         bundled_catalog_dir: Option<tempfile::TempDir>,
     ) -> Self {
         Self {
-            profile,
-            credential,
+            connection,
+            profiles,
+            credentials_path,
             catalog,
             project_dir,
             _bundled_catalog_dir: bundled_catalog_dir,
@@ -146,15 +163,16 @@ impl Session {
 
     fn send_session(&self, events: &Sender<ChatEvent>) {
         let _ = events.send(ChatEvent::Session {
-            provider: self.profile.provider.display_name().to_owned(),
-            model: self.profile.model.clone(),
+            provider: self.connection.profile.provider.display_name().to_owned(),
+            model: self.connection.profile.model.clone(),
             turns: self.turns,
             usage: self.usage,
         });
     }
 
     fn send_completions(&self, input: &str, events: &Sender<ChatEvent>) {
-        let completions = commands::completion_values(&self.catalog, input, &self.known_models);
+        let completions =
+            commands::completion_values(&self.catalog, input, &self.known_models, &self.profiles);
         let _ = events.send(ChatEvent::Completions(completions));
     }
 
@@ -252,6 +270,46 @@ fn handle_command(
             let _ = session.queue_local_context(&result, events);
             let _ = events.send(ChatEvent::AssistantMessage(result));
         }
+        commands::Command::Profiles => {
+            let result = commands::list_profiles(&session.profiles, &session.connection.id);
+            let _ = events.send(ChatEvent::AssistantMessage(result));
+        }
+        commands::Command::Profile(id) => {
+            if id == session.connection.id {
+                let _ = events.send(ChatEvent::Notice(format!("Already using profile {id}.")));
+                return;
+            }
+
+            let Some(profile) = session.profiles.get(&id).cloned() else {
+                let _ = events.send(ChatEvent::Error(format!(
+                    "unknown assistant profile {id:?}"
+                )));
+                return;
+            };
+            let credential = match resolve_credential(&profile, &session.credentials_path, |name| {
+                std::env::var(name).ok()
+            }) {
+                Ok(credential) => credential,
+                Err(error) => {
+                    let _ = events.send(ChatEvent::Error(error.to_string()));
+                    return;
+                }
+            };
+
+            session.clear_pending_plan(events);
+            session.clear_local_context();
+            session.history.truncate(1);
+            session.known_models.clear();
+            session.connection = ActiveConnection {
+                id: id.clone(),
+                profile,
+                credential,
+            };
+            session.send_session(events);
+            let _ = events.send(ChatEvent::Notice(format!(
+                "Switched to profile {id}; conversation context was cleared."
+            )));
+        }
         commands::Command::Models => {
             worker::start_models(session, events, worker_tx, active);
         }
@@ -263,8 +321,8 @@ fn handle_command(
                 return;
             }
 
-            if session.profile.model != model {
-                session.profile.model = model.clone();
+            if session.connection.profile.model != model {
+                session.connection.profile.model = model.clone();
                 session.history.truncate(1);
                 session.clear_local_context();
                 session.send_session(events);
@@ -405,7 +463,7 @@ fn history_size(history: &[ChatMessage]) -> usize {
 mod tests {
     use super::commands;
     use super::worker::{ActiveRequest, add_usage, merge_usage};
-    use super::{Session, apply_confirmation, handle_command, history_size};
+    use super::{ActiveConnection, Session, apply_confirmation, handle_command, history_size};
     use inifra_assistant::{
         ApiProtocol, AssistantProfile, ChatMessage, ChatRole, CredentialSource, Provider,
         TokenUsage,
@@ -421,16 +479,47 @@ mod tests {
     fn session(project_dir: PathBuf) -> Session {
         let catalog_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../templates");
         let catalog = Catalog::load(&catalog_dir).unwrap();
+        let profile = AssistantProfile {
+            provider: Provider::OpenAi,
+            api: ApiProtocol::OpenAiResponses,
+            model: "test-model".to_owned(),
+            base_url: None,
+            api_key_env: Some("OPENAI_API_KEY".to_owned()),
+            credential_source: CredentialSource::Environment,
+        };
+        let profiles = BTreeMap::from([
+            ("default".to_owned(), profile.clone()),
+            (
+                "local".to_owned(),
+                AssistantProfile {
+                    provider: Provider::Ollama,
+                    api: ApiProtocol::OllamaChat,
+                    model: "llama3.2".to_owned(),
+                    base_url: None,
+                    api_key_env: None,
+                    credential_source: CredentialSource::Environment,
+                },
+            ),
+            (
+                "secured".to_owned(),
+                AssistantProfile {
+                    provider: Provider::OpenAi,
+                    api: ApiProtocol::OpenAiResponses,
+                    model: "secure-model".to_owned(),
+                    base_url: None,
+                    api_key_env: Some("INIFRA_TEST_SWITCH_PROFILE_MISSING_KEY".to_owned()),
+                    credential_source: CredentialSource::Environment,
+                },
+            ),
+        ]);
         Session::new(
-            AssistantProfile {
-                provider: Provider::OpenAi,
-                api: ApiProtocol::OpenAiResponses,
-                model: "test-model".to_owned(),
-                base_url: None,
-                api_key_env: Some("OPENAI_API_KEY".to_owned()),
-                credential_source: CredentialSource::Environment,
+            ActiveConnection {
+                id: "default".to_owned(),
+                profile,
+                credential: None,
             },
-            None,
+            profiles,
+            PathBuf::new(),
             catalog,
             project_dir,
             None,
@@ -553,5 +642,65 @@ mod tests {
 
         assert!(session.local_context.is_empty());
         assert_eq!(session.local_context_bytes, 0);
+    }
+
+    #[test]
+    fn switching_profiles_uses_saved_connection_and_clears_local_session_context() {
+        let parent = tempfile::tempdir().unwrap();
+        let mut session = session(parent.path().to_path_buf());
+        let (events, received) = mpsc::channel::<ChatEvent>();
+        let (worker_tx, _) = mpsc::channel();
+        let mut active: Option<ActiveRequest> = None;
+        session
+            .history
+            .push(ChatMessage::new(ChatRole::User, "old context"));
+        session.turns = 2;
+        session.known_models.push("stale-model".to_owned());
+        let _ = session.queue_local_context("private local result", &events);
+
+        handle_command(
+            commands::Command::Profile("local".to_owned()),
+            &mut session,
+            &events,
+            &worker_tx,
+            &mut active,
+        );
+
+        assert_eq!(session.connection.id, "local");
+        assert_eq!(session.connection.profile.provider, Provider::Ollama);
+        assert_eq!(session.connection.profile.model, "llama3.2");
+        assert!(session.connection.credential.is_none());
+        assert_eq!(session.history.len(), 1);
+        assert!(session.local_context.is_empty());
+        assert!(session.known_models.is_empty());
+        assert_eq!(session.turns, 2);
+        assert!(
+            matches!(received.try_recv(), Ok(ChatEvent::Session { provider, model, .. }) if provider == "Ollama" && model == "llama3.2")
+        );
+        assert!(
+            matches!(received.try_recv(), Ok(ChatEvent::Notice(message)) if message.contains("context was cleared"))
+        );
+    }
+
+    #[test]
+    fn switching_profiles_keeps_the_current_connection_when_credentials_are_missing() {
+        let parent = tempfile::tempdir().unwrap();
+        let mut session = session(parent.path().to_path_buf());
+        let (events, received) = mpsc::channel::<ChatEvent>();
+        let (worker_tx, _) = mpsc::channel();
+        let mut active: Option<ActiveRequest> = None;
+
+        handle_command(
+            commands::Command::Profile("secured".to_owned()),
+            &mut session,
+            &events,
+            &worker_tx,
+            &mut active,
+        );
+
+        assert_eq!(session.connection.id, "default");
+        assert!(
+            matches!(received.try_recv(), Ok(ChatEvent::Error(message)) if message.contains("missing assistant credential"))
+        );
     }
 }

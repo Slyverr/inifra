@@ -145,13 +145,13 @@ fn start_chat(
         let _ = events.send(ChatEvent::Notice(format!(
             "Sending {} requested local result(s) with this message to {}.",
             session.local_context.len(),
-            session.profile.provider.display_name()
+            session.connection.profile.provider.display_name()
         )));
         messages.push(context_message);
     }
     messages.push(ChatMessage::new(ChatRole::User, user_message.clone()));
-    let profile = session.profile.clone();
-    let credential = session.credential.clone();
+    let profile = session.connection.profile.clone();
+    let credential = session.connection.credential.clone();
     let base_usage = session.usage;
     let turns = session.turns;
     let cancellation = CancellationToken::new();
@@ -187,10 +187,7 @@ fn stream_chat(
     base_usage: ChatUsage,
     turns: u64,
 ) -> (Result<String, String>, TokenUsage) {
-    let runtime = match tokio::runtime::Builder::new_current_thread()
-        .enable_time()
-        .build()
-    {
+    let runtime = match assistant_runtime() {
         Ok(runtime) => runtime,
         Err(error) => {
             return (
@@ -263,8 +260,8 @@ pub(super) fn start_models(
     worker_tx: &Sender<WorkerResult>,
     active: &mut Option<ActiveRequest>,
 ) {
-    let profile = session.profile.clone();
-    let credential = session.credential.clone();
+    let profile = session.connection.profile.clone();
+    let credential = session.connection.credential.clone();
     let cancellation = CancellationToken::new();
     let worker_cancellation = cancellation.clone();
     let result_tx = worker_tx.clone();
@@ -273,9 +270,7 @@ pub(super) fn start_models(
     ));
     let thread = thread::spawn(move || {
         let result = (|| {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_time()
-                .build()
+            let runtime = assistant_runtime()
                 .map_err(|error| format!("could not start the model-list runtime: {error}"))?;
             runtime.block_on(async {
                 let request = Box::pin(list_models(&profile, credential.as_deref()));
@@ -297,6 +292,12 @@ pub(super) fn start_models(
         kind: ActiveKind::Models,
         thread,
     });
+}
+
+fn assistant_runtime() -> std::io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
 }
 
 fn finish_worker(
@@ -411,4 +412,17 @@ pub(super) fn add_usage(mut total: ChatUsage, update: TokenUsage) -> ChatUsage {
     add(&mut total.output_tokens, update.output_tokens);
     add(&mut total.total_tokens, update.total_tokens);
     total
+}
+
+#[cfg(test)]
+mod tests {
+    use super::assistant_runtime;
+
+    #[test]
+    fn worker_runtime_enables_network_io() {
+        assistant_runtime().unwrap().block_on(async {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            assert_ne!(listener.local_addr().unwrap().port(), 0);
+        });
+    }
 }
