@@ -1,4 +1,5 @@
 mod commands;
+mod failure;
 mod worker;
 
 use crate::{assistant::cli, config::user};
@@ -61,6 +62,7 @@ pub(crate) fn run(
 
     let (actions_tx, actions_rx) = mpsc::channel();
     let (events_tx, events_rx) = mpsc::channel();
+    let session_profile_id_label = session_profile_id.clone();
     let connection = ActiveConnection {
         id: session_profile_id,
         profile: profile.clone(),
@@ -83,6 +85,7 @@ pub(crate) fn run(
 
     let outcome = run_chat(
         ChatConfig {
+            profile: session_profile_id_label,
             provider: profile.provider.display_name().to_owned(),
             model: profile.model.clone(),
         },
@@ -163,6 +166,7 @@ impl Session {
 
     fn send_session(&self, events: &Sender<ChatEvent>) {
         let _ = events.send(ChatEvent::Session {
+            profile: self.connection.id.clone(),
             provider: self.connection.profile.provider.display_name().to_owned(),
             model: self.connection.profile.model.clone(),
             turns: self.turns,
@@ -282,7 +286,7 @@ fn handle_command(
 
             let Some(profile) = session.profiles.get(&id).cloned() else {
                 let _ = events.send(ChatEvent::Error(format!(
-                    "unknown assistant profile {id:?}"
+                    "No profile named {id}.\nList profiles with `/profile`, or create one with `inifra assistant`."
                 )));
                 return;
             };
@@ -291,7 +295,12 @@ fn handle_command(
             }) {
                 Ok(credential) => credential,
                 Err(error) => {
-                    let _ = events.send(ChatEvent::Error(error.to_string()));
+                    let _ = events.send(ChatEvent::Error(failure::describe_switch_failure(
+                        &id,
+                        &profile,
+                        &session.connection.id,
+                        &error.to_string(),
+                    )));
                     return;
                 }
             };
@@ -306,8 +315,11 @@ fn handle_command(
                 credential,
             };
             session.send_session(events);
+            let profile = &session.connection.profile;
             let _ = events.send(ChatEvent::Notice(format!(
-                "Switched to profile {id}; conversation context was cleared."
+                "Switched to {id} · {} · {}. Conversation context was cleared; the saved default is unchanged.",
+                profile.provider.display_name(),
+                profile.model
             )));
         }
         commands::Command::Models => {

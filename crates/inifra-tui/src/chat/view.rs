@@ -1,4 +1,4 @@
-use super::{ChatApp, INPUT_ROWS, Role, markdown};
+use super::{ChatApp, Ending, INPUT_ROWS, Role, markdown};
 use crate::presentation::{Tone, terminal_text, tui_style};
 use ratatui::{
     Frame,
@@ -46,10 +46,14 @@ fn draw_messages(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Re
     if app.messages.is_empty() {
         let welcome = ratatui::layout::Rect::new(area.x, area.y + area.height / 2, area.width, 1);
         frame.render_widget(
-            Paragraph::new(Line::from(Span::styled(
-                "Ask about your project or browse templates.",
-                tui_style(Tone::Secondary, false),
-            ))),
+            Paragraph::new(Line::from(vec![
+                Span::styled(
+                    "Ask about your project or browse templates. ",
+                    tui_style(Tone::Secondary, false),
+                ),
+                Span::styled("/help", tui_style(Tone::Accent, false)),
+                Span::styled(" lists commands.", tui_style(Tone::Secondary, false)),
+            ])),
             welcome,
         );
         return;
@@ -72,20 +76,28 @@ fn draw_messages(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Re
             }
             Role::Assistant => {
                 let mut label = vec![Span::styled("Inifra ›", tui_style(Tone::Accent, true))];
-                if message.incomplete {
-                    label.push(Span::styled("  interrupted", tui_style(Tone::Muted, false)));
+                match message.ending {
+                    Ending::Open => {}
+                    Ending::Interrupted => {
+                        label.push(Span::styled("  interrupted", tui_style(Tone::Muted, false)));
+                    }
+                    Ending::Failed => {
+                        label.push(Span::styled(
+                            "  request failed",
+                            tui_style(Tone::Error, true),
+                        ));
+                    }
                 }
                 lines.push(Line::from(label));
-                lines.extend(markdown::render(&message.text));
+                if !message.text.is_empty() {
+                    lines.extend(markdown::render(&message.text));
+                }
             }
             Role::Notice => lines.push(Line::styled(
                 terminal_text(&message.text),
                 tui_style(Tone::Muted, false),
             )),
-            Role::Error => lines.push(Line::styled(
-                terminal_text(&message.text),
-                tui_style(Tone::Error, true),
-            )),
+            Role::Error => lines.extend(error_lines(&message.text)),
         }
         lines.push(Line::from(""));
     }
@@ -241,56 +253,110 @@ fn cursor_position(app: &ChatApp, width: u16) -> (u16, u16) {
 }
 
 fn draw_footer(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Rect) {
+    let separator = || Span::styled(" · ", tui_style(Tone::Muted, false));
     let mut details = Vec::<Span<'_>>::new();
-    if !app.provider.is_empty() {
-        details.push(Span::styled(
-            terminal_text(&app.provider),
-            tui_style(Tone::Muted, false),
-        ));
+    for (text, style) in [
+        (&app.profile, tui_style(Tone::Accent, true)),
+        (&app.provider, tui_style(Tone::Secondary, false)),
+        (&app.model, Style::default()),
+    ] {
+        if text.is_empty() {
+            continue;
+        }
+        if !details.is_empty() {
+            details.push(separator());
+        }
+        details.push(Span::styled(terminal_text(text), style));
     }
 
-    if !app.model.is_empty() {
+    if let Some(usage) = usage_label(app) {
         if !details.is_empty() {
-            details.push(Span::styled(" · ", tui_style(Tone::Muted, false)));
+            details.push(separator());
         }
-        details.push(Span::styled(
-            terminal_text(&app.model),
-            tui_style(Tone::Accent, false),
-        ));
-    }
-
-    if app.turns > 0 {
-        if !details.is_empty() {
-            details.push(Span::styled(" · ", tui_style(Tone::Muted, false)));
-        }
-        details.push(Span::styled(
-            format!("{} turns", app.turns),
-            tui_style(Tone::Muted, false),
-        ));
-    }
-
-    let usage = app
-        .usage
-        .total_tokens
-        .or_else(|| Some(app.usage.input_tokens? + app.usage.output_tokens?));
-    if let Some(tokens) = usage {
-        if !details.is_empty() {
-            details.push(Span::styled(" · ", tui_style(Tone::Muted, false)));
-        }
-        details.push(Span::styled(
-            format!("{tokens} tokens"),
-            tui_style(Tone::Muted, false),
-        ));
+        details.push(Span::styled(usage, tui_style(Tone::Muted, false)));
     }
 
     if app.streaming || app.working.is_some() {
         if !details.is_empty() {
-            details.push(Span::styled(" · ", tui_style(Tone::Muted, false)));
+            details.push(separator());
         }
-        details.push(Span::styled(
-            app.working.as_deref().unwrap_or("streaming · Esc cancels"),
-            tui_style(Tone::Accent, false),
-        ));
+        if let Some(working) = &app.working {
+            details.push(Span::styled(
+                terminal_text(working),
+                tui_style(Tone::Secondary, false),
+            ));
+            details.push(separator());
+        }
+        details.push(Span::styled("Esc", tui_style(Tone::Accent, true)));
+        details.push(Span::raw(" cancel"));
     }
     frame.render_widget(Paragraph::new(Line::from(details)), area);
+}
+
+/// Compact token usage: `1.2k in · 340 out`, or a total when the split is unknown.
+fn usage_label(app: &ChatApp) -> Option<String> {
+    match (app.usage.input_tokens, app.usage.output_tokens) {
+        (Some(input), Some(output)) => Some(format!(
+            "{} in · {} out",
+            compact_count(input),
+            compact_count(output)
+        )),
+        _ => app
+            .usage
+            .total_tokens
+            .map(|total| format!("{} tokens", compact_count(total))),
+    }
+}
+
+pub(super) fn compact_count(count: u64) -> String {
+    match count {
+        0..=999 => count.to_string(),
+        1_000..=999_999 => format_scaled(count, 1_000, "k"),
+        _ => format_scaled(count, 1_000_000, "M"),
+    }
+}
+
+fn format_scaled(count: u64, unit: u64, suffix: &str) -> String {
+    let tenths = (count * 10 + unit / 2) / unit;
+    if tenths.is_multiple_of(10) || tenths >= 1_000 {
+        format!("{}{suffix}", tenths / 10)
+    } else {
+        format!("{}.{}{suffix}", tenths / 10, tenths % 10)
+    }
+}
+
+/// Renders an error: a red summary, then guidance with `commands` highlighted and a muted
+/// `details:` line.
+pub(super) fn error_lines(text: &str) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if index == 0 {
+            lines.push(Line::styled(
+                terminal_text(line),
+                tui_style(Tone::Error, true),
+            ));
+        } else if let Some(details) = line.strip_prefix("details: ") {
+            lines.push(Line::from(vec![
+                Span::styled("  details: ", tui_style(Tone::Muted, false)),
+                Span::styled(terminal_text(details), tui_style(Tone::Muted, false)),
+            ]));
+        } else {
+            let mut spans = vec![Span::raw("  ")];
+            for (part_index, part) in line.split('`').enumerate() {
+                if part.is_empty() {
+                    continue;
+                }
+                spans.push(Span::styled(
+                    terminal_text(part),
+                    if part_index % 2 == 1 {
+                        tui_style(Tone::Accent, false)
+                    } else {
+                        tui_style(Tone::Secondary, false)
+                    },
+                ));
+            }
+            lines.push(Line::from(spans));
+        }
+    }
+    lines
 }
