@@ -15,9 +15,11 @@ const EMPTY_VIEWPORT_HEIGHT: u16 = 7;
 const VIEWPORT_HEIGHT: u16 = 14;
 const INPUT_ROWS: usize = 3;
 
-/// Initial provider and model labels shown in the chat footer.
+/// Initial profile, provider, and model labels shown in the chat footer.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ChatConfig {
+    /// Active profile ID.
+    pub profile: String,
     /// Configured provider or service name.
     pub provider: String,
     /// Configured model identifier.
@@ -58,6 +60,8 @@ pub enum ChatEvent {
     AssistantCancelled,
     /// Replace the current session footer details.
     Session {
+        /// Active profile ID.
+        profile: String,
         /// Provider or service label.
         provider: String,
         /// Active model identifier.
@@ -77,7 +81,9 @@ pub enum ChatEvent {
     WorkingStarted(String),
     /// Resume input after a non-chat operation completes.
     WorkingFinished,
-    /// Add a visible error to the conversation.
+    /// Add a visible error to the conversation. The first line is the summary; later lines are
+    /// guidance, where `backticked` text is shown as a command and a line starting with
+    /// `details: ` is shown muted. An error during a response marks that response as failed.
     Error(String),
     /// Pause chat input and ask for an explicit Yes/No decision.
     ConfirmationRequested {
@@ -160,11 +166,22 @@ enum Role {
     Error,
 }
 
+/// How an assistant response ended.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Ending {
+    /// Still streaming, or completed normally.
+    Open,
+    /// The user cancelled it.
+    Interrupted,
+    /// The request failed; an error message follows.
+    Failed,
+}
+
 #[derive(Clone, Debug)]
 struct Message {
     role: Role,
     text: String,
-    incomplete: bool,
+    ending: Ending,
 }
 
 struct Confirmation {
@@ -174,9 +191,9 @@ struct Confirmation {
 }
 
 struct ChatApp {
+    profile: String,
     provider: String,
     model: String,
-    turns: u64,
     usage: ChatUsage,
     messages: Vec<Message>,
     input: Vec<char>,
@@ -193,9 +210,9 @@ struct ChatApp {
 impl ChatApp {
     fn new(config: ChatConfig) -> Self {
         Self {
+            profile: config.profile,
             provider: config.provider,
             model: config.model,
-            turns: 0,
             usage: ChatUsage::default(),
             messages: Vec::new(),
             input: Vec::new(),
@@ -218,7 +235,7 @@ impl ChatApp {
         self.messages.push(Message {
             role,
             text,
-            incomplete: false,
+            ending: Ending::Open,
         });
         self.scroll_from_bottom = 0;
     }
@@ -226,9 +243,6 @@ impl ChatApp {
     fn start_assistant(&mut self) {
         self.streaming = true;
         self.push_message(Role::Assistant, String::new());
-        if let Some(message) = self.messages.last_mut() {
-            message.incomplete = true;
-        }
     }
 
     fn append_delta(&mut self, text: &str) {
@@ -244,7 +258,7 @@ impl ChatApp {
         self.scroll_from_bottom = 0;
     }
 
-    fn finish_assistant(&mut self, incomplete: bool) {
+    fn finish_assistant(&mut self, ending: Ending) {
         self.streaming = false;
         if let Some(message) = self
             .messages
@@ -252,7 +266,7 @@ impl ChatApp {
             .rev()
             .find(|message| message.role == Role::Assistant)
         {
-            message.incomplete = incomplete;
+            message.ending = ending;
         }
     }
 }
@@ -262,17 +276,18 @@ fn drain_events(events: &Receiver<ChatEvent>, app: &mut ChatApp) {
         match event {
             ChatEvent::AssistantStarted => app.start_assistant(),
             ChatEvent::TextDelta(text) => app.append_delta(&text),
-            ChatEvent::AssistantFinished => app.finish_assistant(false),
-            ChatEvent::AssistantCancelled => app.finish_assistant(true),
+            ChatEvent::AssistantFinished => app.finish_assistant(Ending::Open),
+            ChatEvent::AssistantCancelled => app.finish_assistant(Ending::Interrupted),
             ChatEvent::Session {
+                profile,
                 provider,
                 model,
-                turns,
+                turns: _,
                 usage,
             } => {
+                app.profile = profile;
                 app.provider = provider;
                 app.model = model;
-                app.turns = turns;
                 app.usage = usage;
             }
             ChatEvent::Completions(completions) => {
@@ -285,7 +300,7 @@ fn drain_events(events: &Receiver<ChatEvent>, app: &mut ChatApp) {
             ChatEvent::WorkingFinished => app.working = None,
             ChatEvent::Error(text) => {
                 if app.streaming {
-                    app.finish_assistant(true);
+                    app.finish_assistant(Ending::Failed);
                 }
                 app.working = None;
                 app.push_message(Role::Error, text);
@@ -316,7 +331,7 @@ fn handle_key(key: KeyEvent, app: &mut ChatApp, actions: &Sender<ChatAction>) ->
         }
         if app.streaming || app.working.is_some() {
             if app.streaming {
-                app.finish_assistant(true);
+                app.finish_assistant(Ending::Interrupted);
             }
             app.working = None;
             let _ = actions.send(ChatAction::Cancel);
@@ -360,7 +375,7 @@ fn handle_key(key: KeyEvent, app: &mut ChatApp, actions: &Sender<ChatAction>) ->
     if key.code == KeyCode::Esc {
         if app.streaming || app.working.is_some() {
             if app.streaming {
-                app.finish_assistant(true);
+                app.finish_assistant(Ending::Interrupted);
             }
             app.working = None;
             let _ = actions.send(ChatAction::Cancel);

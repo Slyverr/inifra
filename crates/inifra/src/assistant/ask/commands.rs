@@ -172,16 +172,29 @@ pub(super) fn list_profiles(
     profiles: &BTreeMap<String, AssistantProfile>,
     active_id: &str,
 ) -> String {
-    let mut lines = vec!["Assistant profiles".to_owned()];
+    let width = profiles
+        .keys()
+        .map(|id| id.chars().count())
+        .max()
+        .unwrap_or_default();
+    let mut lines = vec!["### Assistant profiles".to_owned()];
     for (id, profile) in profiles {
-        let active = if id == active_id { "* " } else { "  " };
+        let padding = " ".repeat(width - id.chars().count() + 3);
+        let (label, tag) = if id == active_id {
+            (format!("**{id}**"), "   *active*")
+        } else {
+            (id.clone(), "")
+        };
         lines.push(format!(
-            "{active}{id} · {} · {} · {}",
+            "- {label}{padding}{} · {} · {}{tag}",
             profile.provider.display_name(),
             profile.api.short_name(),
             profile.model
         ));
     }
+    lines.push(
+        "Switch for this session with `/profile ID`; the saved default stays the same.".to_owned(),
+    );
     lines.join("\n")
 }
 
@@ -513,7 +526,12 @@ mod tests {
             ["/profile nvidia"]
         );
         let listed = list_profiles(&profiles, "nvidia");
-        assert!(listed.contains("* nvidia · NVIDIA NIM · Chat Completions · nemotron-test"));
+        assert!(
+            listed.contains(
+                "- **nvidia**   NVIDIA NIM · Chat Completions · nemotron-test   *active*"
+            )
+        );
+        assert!(listed.contains("`/profile ID`"));
         assert!(!listed.contains("NVIDIA_API_KEY"));
     }
 

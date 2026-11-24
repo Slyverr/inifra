@@ -1,7 +1,7 @@
 use super::{
     AssistantProfile, MAX_HISTORY_BYTES, MAX_HISTORY_MESSAGES, MAX_RESPONSE_BYTES,
-    MAX_USER_MESSAGE_BYTES, Session, apply_confirmation, commands, handle_command, history_size,
-    local_context_message,
+    MAX_USER_MESSAGE_BYTES, Session, apply_confirmation, commands, failure::RequestFailure,
+    handle_command, history_size, local_context_message,
 };
 use futures_util::StreamExt;
 use inifra_assistant::{
@@ -30,10 +30,10 @@ pub(super) struct ActiveRequest {
 
 pub(super) enum WorkerResult {
     Chat {
-        response: Result<String, String>,
+        response: Result<String, RequestFailure>,
         usage: TokenUsage,
     },
-    Models(Result<Vec<String>, String>),
+    Models(Result<Vec<String>, RequestFailure>),
 }
 
 pub(super) fn run_session(
@@ -152,8 +152,11 @@ fn start_chat(
     messages.push(ChatMessage::new(ChatRole::User, user_message.clone()));
     let profile = session.connection.profile.clone();
     let credential = session.connection.credential.clone();
-    let base_usage = session.usage;
-    let turns = session.turns;
+    let footer = FooterContext {
+        profile_id: session.connection.id.clone(),
+        base_usage: session.usage,
+        turns: session.turns,
+    };
     let cancellation = CancellationToken::new();
     let worker_cancellation = cancellation.clone();
     let event_tx = events.clone();
@@ -166,8 +169,7 @@ fn start_chat(
             messages,
             worker_cancellation,
             &event_tx,
-            base_usage,
-            turns,
+            footer,
         );
         let _ = result_tx.send(WorkerResult::Chat { response, usage });
     });
@@ -178,20 +180,28 @@ fn start_chat(
     });
 }
 
+/// Session details repeated in footer updates while a response streams.
+struct FooterContext {
+    profile_id: String,
+    base_usage: ChatUsage,
+    turns: u64,
+}
+
 fn stream_chat(
     profile: AssistantProfile,
     credential: Option<String>,
     messages: Vec<ChatMessage>,
     cancellation: CancellationToken,
     events: &Sender<ChatEvent>,
-    base_usage: ChatUsage,
-    turns: u64,
-) -> (Result<String, String>, TokenUsage) {
+    footer: FooterContext,
+) -> (Result<String, RequestFailure>, TokenUsage) {
     let runtime = match assistant_runtime() {
         Ok(runtime) => runtime,
         Err(error) => {
             return (
-                Err(format!("could not start the assistant runtime: {error}")),
+                Err(RequestFailure::Other(format!(
+                    "Could not start the assistant runtime: {error}"
+                ))),
                 TokenUsage::default(),
             );
         }
@@ -199,7 +209,12 @@ fn stream_chat(
 
     let client = match ProviderClient::new() {
         Ok(client) => client,
-        Err(error) => return (Err(error.to_string()), TokenUsage::default()),
+        Err(error) => {
+            return (
+                Err(RequestFailure::Other(error.to_string())),
+                TokenUsage::default(),
+            );
+        }
     };
 
     let mut usage = TokenUsage::default();
@@ -217,36 +232,42 @@ fn stream_chat(
                             .saturating_add(delta.len())
                             > MAX_HISTORY_BYTES
                     {
-                        return Err(format!(
-                            "provider response exceeded the {} KiB conversation limit",
+                        return Err(RequestFailure::Other(format!(
+                            "The response exceeded the {} KiB conversation limit.\nStart a new session, or ask for a shorter answer.",
                             MAX_RESPONSE_BYTES.min(MAX_HISTORY_BYTES) / 1024
-                        ));
+                        )));
                     }
                     response.push_str(&delta);
                     if events.send(ChatEvent::TextDelta(delta)).is_err() {
-                        return Err("assistant interface closed".to_owned());
+                        return Err(RequestFailure::Other(
+                            "The assistant interface closed.".to_owned(),
+                        ));
                     }
                 }
                 Ok(ProviderEvent::Usage(update)) => {
                     merge_usage(&mut usage, update);
                     let _ = events.send(ChatEvent::Session {
+                        profile: footer.profile_id.clone(),
                         provider: profile.provider.display_name().to_owned(),
                         model: profile.model.clone(),
-                        turns,
-                        usage: add_usage(base_usage, usage),
+                        turns: footer.turns,
+                        usage: add_usage(footer.base_usage, usage),
                     });
                 }
-                Ok(ProviderEvent::Cancelled) => return Err("request cancelled".to_owned()),
-                Err(error) => return Err(error.to_string()),
+                Ok(ProviderEvent::Cancelled) => return Err(RequestFailure::Cancelled),
+                Err(error) => return Err(RequestFailure::Provider(error)),
             }
         }
 
         if cancellation.is_cancelled() {
-            return Err("request cancelled".to_owned());
+            return Err(RequestFailure::Cancelled);
         }
 
         if response.trim().is_empty() {
-            return Err("provider returned an empty response".to_owned());
+            return Err(RequestFailure::Other(format!(
+                "{} returned an empty response.\nTry again, or switch models with `/model ID`.",
+                profile.provider.display_name()
+            )));
         }
 
         Ok(response)
@@ -270,18 +291,17 @@ pub(super) fn start_models(
     ));
     let thread = thread::spawn(move || {
         let result = (|| {
-            let runtime = assistant_runtime()
-                .map_err(|error| format!("could not start the model-list runtime: {error}"))?;
+            let runtime = assistant_runtime().map_err(|error| {
+                RequestFailure::Other(format!("Could not start the model-list runtime: {error}"))
+            })?;
             runtime.block_on(async {
                 let request = Box::pin(list_models(&profile, credential.as_deref()));
                 let cancelled = Box::pin(worker_cancellation.cancelled());
                 match futures_util::future::select(request, cancelled).await {
                     futures_util::future::Either::Left((result, _)) => {
-                        result.map_err(|error| error.to_string())
+                        result.map_err(RequestFailure::Provider)
                     }
-                    futures_util::future::Either::Right(((), _)) => {
-                        Err("model listing cancelled".to_owned())
-                    }
+                    futures_util::future::Either::Right(((), _)) => Err(RequestFailure::Cancelled),
                 }
             })
         })();
@@ -332,11 +352,16 @@ fn finish_worker(
                     session.turns = session.turns.saturating_add(1);
                     let _ = events.send(ChatEvent::AssistantFinished);
                 }
-                Err(error) if was_cancelled || error == "request cancelled" => {
+                Err(RequestFailure::Cancelled) => {
                     let _ = events.send(ChatEvent::AssistantCancelled);
                 }
-                Err(error) => {
-                    let _ = events.send(ChatEvent::Error(error));
+                Err(_) if was_cancelled => {
+                    let _ = events.send(ChatEvent::AssistantCancelled);
+                }
+                Err(failure) => {
+                    let _ = events.send(ChatEvent::Error(
+                        failure.describe(&session.connection.id, &session.connection.profile),
+                    ));
                 }
             }
             session.send_session(events);
@@ -374,11 +399,16 @@ fn finish_worker(
                     let _ = events.send(ChatEvent::AssistantMessage(result));
                     session.send_completions("/model ", events);
                 }
-                Err(error) if was_cancelled || error == "model listing cancelled" => {
+                Err(RequestFailure::Cancelled) => {
                     let _ = events.send(ChatEvent::Notice("Model listing cancelled.".to_owned()));
                 }
-                Err(error) => {
-                    let _ = events.send(ChatEvent::Error(error));
+                Err(_) if was_cancelled => {
+                    let _ = events.send(ChatEvent::Notice("Model listing cancelled.".to_owned()));
+                }
+                Err(failure) => {
+                    let _ = events.send(ChatEvent::Error(
+                        failure.describe(&session.connection.id, &session.connection.profile),
+                    ));
                 }
             }
         }

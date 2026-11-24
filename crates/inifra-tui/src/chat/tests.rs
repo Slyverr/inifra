@@ -137,6 +137,7 @@ fn tab_cycles_through_candidates_sharing_the_same_prefix() {
 #[test]
 fn streamed_events_keep_editor_and_session_footer_visible() {
     let mut app = ChatApp::new(ChatConfig {
+        profile: "nim".to_owned(),
         provider: "NVIDIA NIM".to_owned(),
         model: "nemotron".to_owned(),
     });
@@ -148,6 +149,7 @@ fn streamed_events_keep_editor_and_session_footer_visible() {
         .unwrap();
     sender
         .send(ChatEvent::Session {
+            profile: "nim".to_owned(),
             provider: "NVIDIA NIM".to_owned(),
             model: "nemotron".to_owned(),
             turns: 1,
@@ -172,7 +174,7 @@ fn streamed_events_keep_editor_and_session_footer_visible() {
     assert!(rendered.contains("Inifra ›"));
     assert!(rendered.contains("Waiting for response…"));
     assert!(rendered.contains("NVIDIA NIM"));
-    assert!(rendered.contains("42 tokens"));
+    assert!(rendered.contains("nim · NVIDIA NIM · nemotron · 42 tokens · Esc cancel"));
 }
 
 #[test]
@@ -228,18 +230,116 @@ fn commands_get_ghost_text_and_headings_are_rendered_without_markers() {
 fn empty_input_keeps_the_message_placeholder_without_a_command_suggestion() {
     let mut app = ChatApp::new(ChatConfig::default());
     app.completions = vec!["/help".to_owned()];
-    let backend = TestBackend::new(80, VIEWPORT_HEIGHT);
-    let mut terminal = Terminal::new(backend).unwrap();
+    let rows = render(&app, 80);
+    let composer = rows
+        .iter()
+        .find(|row| row.contains("Type a message…"))
+        .unwrap();
+    assert!(!composer.contains("/help"));
+}
 
-    terminal.draw(|frame| view::draw(frame, &app)).unwrap();
-
-    let rendered = terminal
+fn render(app: &ChatApp, width: u16) -> Vec<String> {
+    let mut terminal = Terminal::new(TestBackend::new(width, VIEWPORT_HEIGHT)).unwrap();
+    terminal.draw(|frame| view::draw(frame, app)).unwrap();
+    terminal
         .backend()
         .buffer()
         .content()
+        .chunks(usize::from(width))
+        .map(|row| {
+            row.iter()
+                .map(|cell| cell.symbol())
+                .collect::<String>()
+                .trim_end()
+                .to_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn a_failed_response_is_labeled_failed_and_shows_guidance() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    let (sender, events) = mpsc::channel();
+    sender.send(ChatEvent::AssistantStarted).unwrap();
+    sender
+        .send(ChatEvent::Error(
+            "Could not reach Ollama at http://127.0.0.1:9.\nIs the server running? Check it with `inifra assistant configure local`.\ndetails: could not connect: Connection refused".to_owned(),
+        ))
+        .unwrap();
+    drain_events(&events, &mut app);
+    let rows = render(&app, 100);
+
+    assert!(rows.contains(&"Inifra ›  request failed".to_owned()));
+    assert!(!rows.iter().any(|row| row.contains("interrupted")));
+    assert!(rows.contains(&"Could not reach Ollama at http://127.0.0.1:9.".to_owned()));
+    assert!(rows.contains(
+        &"  Is the server running? Check it with inifra assistant configure local.".to_owned()
+    ));
+    assert!(rows.contains(&"  details: could not connect: Connection refused".to_owned()));
+}
+
+#[test]
+fn a_cancelled_response_is_labeled_interrupted() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    let (sender, events) = mpsc::channel();
+    sender.send(ChatEvent::AssistantStarted).unwrap();
+    sender
+        .send(ChatEvent::TextDelta("Partial".to_owned()))
+        .unwrap();
+    sender.send(ChatEvent::AssistantCancelled).unwrap();
+    drain_events(&events, &mut app);
+    let rows = render(&app, 80);
+    assert!(rows.contains(&"Inifra ›  interrupted".to_owned()));
+}
+
+#[test]
+fn error_guidance_highlights_commands_and_mutes_details() {
+    let lines = view::error_lines("Summary\nRun `inifra assistant` now.\ndetails: raw");
+    assert_eq!(
+        lines[0].style.fg,
+        crate::presentation::tui_style(crate::presentation::Tone::Error, true).fg
+    );
+    let command = lines[1]
+        .spans
         .iter()
-        .map(|cell| cell.symbol())
-        .collect::<String>();
-    assert!(rendered.contains("Type a message…"));
-    assert!(!rendered.contains("/help"));
+        .find(|span| span.content == "inifra assistant")
+        .unwrap();
+    assert_eq!(
+        command.style.fg,
+        crate::presentation::tui_style(crate::presentation::Tone::Accent, false).fg
+    );
+    assert_eq!(lines[2].spans[0].content, "  details: ");
+}
+
+#[test]
+fn footer_leads_with_the_profile_and_compacts_token_counts() {
+    let mut app = ChatApp::new(ChatConfig {
+        profile: "work".to_owned(),
+        provider: "OpenAI".to_owned(),
+        model: "gpt-5".to_owned(),
+    });
+    app.usage = ChatUsage {
+        input_tokens: Some(1_234),
+        output_tokens: Some(340),
+        total_tokens: Some(1_574),
+    };
+    let rows = render(&app, 80);
+    assert_eq!(
+        rows.last().unwrap(),
+        "work · OpenAI · gpt-5 · 1.2k in · 340 out"
+    );
+    assert_eq!(view::compact_count(999), "999");
+    assert_eq!(view::compact_count(1_000), "1k");
+    assert_eq!(view::compact_count(12_345), "12.3k");
+    assert_eq!(view::compact_count(2_500_000), "2.5M");
+}
+
+#[test]
+fn empty_chat_points_to_help() {
+    let app = ChatApp::new(ChatConfig::default());
+    let rows = render(&app, 80);
+    assert!(
+        rows.iter()
+            .any(|row| row == "Ask about your project or browse templates. /help lists commands.")
+    );
 }
