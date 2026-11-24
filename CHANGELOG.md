@@ -6,6 +6,31 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 ## [Unreleased]
 
+### Added
+
+- Choose a known provider or a custom endpoint during assistant setup, then pick the provider or API protocol from a short list.
+- Switch saved profiles in `inifra ask` with `/profile`.
+- Switch profile, model, and reasoning effort in `inifra ask` with the switcher, opened by Ctrl+O or `/model` without an ID, and save the selection as the default.
+- Set reasoning effort with `/effort` and a per-profile default effort. Profiles saved with an effort cannot be read by 0.8.0 or earlier.
+- Explain failed assistant requests with a summary, a suggested command, and details.
+
+### Changed
+
+- Show saved profiles on the `inifra assistant` home screen and separate creating a profile from editing one.
+- Ask for a profile name in the profile form, validate it inline, and treat `Work` and `work` as the same name by saving it in lowercase.
+- Start `inifra ask` replies with a `●` bullet and indent the rest, tint your messages, and show an animated "Thinking" indicator while the assistant works.
+- Show slash-command output in `inifra ask` as a styled card instead of plain text, and grow the chat viewport downward while a reply streams.
+- Show the "Type a message" placeholder in a muted color.
+- Lead the chat footer with the active profile.
+- Label failed responses "request failed" and reserve "interrupted" for a user cancel.
+- Return from input and review to the picker with Esc in `inifra init` instead of cancelling.
+- Mark the focused row with `›` on inline screens and share one footer style.
+
+### Fixed
+
+- Enable the I/O driver in the assistant runtime so requests can reach the network.
+- Report the cause of connection failures, such as a refused connection.
+
 ## [0.8.0] - 2026-11-21
 
 ### Added
