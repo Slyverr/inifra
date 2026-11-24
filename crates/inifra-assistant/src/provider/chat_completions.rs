@@ -1,6 +1,5 @@
 use crate::{
-    ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatStream, Provider, ProviderError,
-    TokenUsage,
+    ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatStream, ProviderError, TokenUsage,
     provider::adapter::{AdapterSpec, bearer_headers, endpoint_url, start_stream},
     transport::http::{HttpRequest, HttpTransport, safe_excerpt},
     transport::sse::SseParser,
@@ -10,6 +9,9 @@ use reqwest::Url;
 use serde::Serialize;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;
+
+#[cfg(test)]
+use crate::Provider;
 
 pub(crate) fn stream_with_transport<T: HttpTransport + 'static>(
     transport: T,
@@ -73,7 +75,7 @@ fn build_request(
         model: &profile.model,
         messages,
         stream: true,
-        stream_options: (profile.provider != Provider::OpenAiCompatible).then_some(StreamOptions {
+        stream_options: profile.stream_usage_enabled().then_some(StreamOptions {
             include_usage: true,
         }),
     })
@@ -94,28 +96,10 @@ fn chat_completions_endpoint(profile: &AssistantProfile) -> Result<Url, String> 
         ));
     }
 
-    let default_base = match profile.provider {
-        Provider::OpenAi => "https://api.openai.com/v1",
-        Provider::NvidiaNim => "https://integrate.api.nvidia.com/v1",
-        Provider::OpenRouter => "https://openrouter.ai/api/v1",
-        Provider::OpenAiCompatible => {
-            return profile
-                .base_url
-                .as_deref()
-                .ok_or_else(|| "custom endpoint requires an API base URL".to_owned())
-                .and_then(|base| endpoint_url(base, "/chat/completions"));
-        }
-        _ => {
-            return Err(format!(
-                "{} does not use the Chat Completions API",
-                profile.provider.display_name()
-            ));
-        }
-    };
-    endpoint_url(
-        profile.base_url.as_deref().unwrap_or(default_base),
-        "/chat/completions",
-    )
+    let base_url = profile
+        .effective_base_url()
+        .ok_or_else(|| "this API profile requires a base URL".to_owned())?;
+    endpoint_url(base_url, "/chat/completions")
 }
 
 fn parse_event(

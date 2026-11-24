@@ -1,6 +1,5 @@
 use crate::{
-    ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatStream, Provider, ProviderError,
-    TokenUsage,
+    ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatStream, ProviderError, TokenUsage,
     provider::adapter::{AdapterSpec, add_header, endpoint_url, json_headers, start_stream},
     transport::http::{HttpRequest, HttpTransport, safe_excerpt},
     transport::jsonl::JsonlParser,
@@ -35,16 +34,13 @@ pub(crate) fn stream<T: HttpTransport + 'static>(
 }
 
 fn ollama_endpoint(profile: &AssistantProfile) -> Result<Url, String> {
-    if profile.provider != Provider::Ollama || profile.api != ApiProtocol::OllamaChat {
-        return Err("the Ollama Chat API requires an Ollama profile".to_owned());
+    if profile.api != ApiProtocol::OllamaChat {
+        return Err("the Ollama Chat API requires an Ollama Chat profile".to_owned());
     }
-    endpoint_url(
-        profile
-            .base_url
-            .as_deref()
-            .unwrap_or("http://localhost:11434"),
-        "/api/chat",
-    )
+    let base_url = profile
+        .effective_base_url()
+        .ok_or_else(|| "this API profile requires a base URL".to_owned())?;
+    endpoint_url(base_url, "/api/chat")
 }
 
 #[derive(Serialize)]

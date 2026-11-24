@@ -132,4 +132,82 @@ mod tests {
         let request = captured.lock().unwrap().take().unwrap();
         assert_eq!(request.endpoint, "https://api.openai.com/v1/responses");
     }
+
+    #[tokio::test]
+    async fn dispatches_a_custom_endpoint_by_api_without_a_provider_key() {
+        let (transport, captured) = FakeTransport::new(
+            200,
+            &[
+                "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n",
+                "data: [DONE]\n\n",
+            ],
+        );
+        let profile = AssistantProfile {
+            provider: Provider::CustomEndpoint,
+            api: ApiProtocol::OpenAiChatCompletions,
+            model: "custom-model".to_owned(),
+            base_url: Some("https://api.example.test/custom/v1".to_owned()),
+            api_key_env: None,
+            credential_source: CredentialSource::Environment,
+        };
+
+        let mut events = stream_with_transport(
+            transport,
+            profile,
+            None,
+            vec![ChatMessage::new(ChatRole::User, "hello")],
+            CancellationToken::new(),
+        );
+        assert_eq!(
+            events.next().await.unwrap().unwrap(),
+            ChatEvent::TextDelta("ok".to_owned())
+        );
+        let request = captured.lock().unwrap().take().unwrap();
+        assert_eq!(
+            request.endpoint,
+            "https://api.example.test/custom/v1/chat/completions"
+        );
+        assert_eq!(request.header("authorization"), None);
+    }
+
+    #[tokio::test]
+    async fn custom_endpoints_route_each_supported_api_protocol() {
+        let cases = [
+            (ApiProtocol::OpenAiResponses, "/responses"),
+            (ApiProtocol::OpenAiChatCompletions, "/chat/completions"),
+            (ApiProtocol::AnthropicMessages, "/messages"),
+            (
+                ApiProtocol::GeminiGenerateContent,
+                "/models/custom-model:streamGenerateContent?alt=sse",
+            ),
+            (ApiProtocol::OllamaChat, "/api/chat"),
+        ];
+
+        for (api, suffix) in cases {
+            let (transport, captured) = FakeTransport::new(200, &[]);
+            let profile = AssistantProfile {
+                provider: Provider::CustomEndpoint,
+                api,
+                model: "custom-model".to_owned(),
+                base_url: Some("https://api.example.test/gateway/v1".to_owned()),
+                api_key_env: None,
+                credential_source: CredentialSource::Environment,
+            };
+            let mut events = stream_with_transport(
+                transport,
+                profile,
+                None,
+                vec![ChatMessage::new(ChatRole::User, "hello")],
+                CancellationToken::new(),
+            );
+            assert!(events.next().await.is_none(), "{api:?}");
+
+            let request = captured.lock().unwrap().take().unwrap();
+            assert!(
+                request.endpoint.ends_with(suffix),
+                "{api:?}: {}",
+                request.endpoint
+            );
+        }
+    }
 }

@@ -1,6 +1,6 @@
 use crate::{
-    ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatRole, ChatStream, Provider,
-    ProviderError, TokenUsage,
+    ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatRole, ChatStream, ProviderError,
+    TokenUsage,
     provider::adapter::{AdapterSpec, add_header, endpoint_url, json_headers, start_stream},
     transport::http::{HttpRequest, HttpTransport, safe_excerpt},
     transport::sse::SseParser,
@@ -38,16 +38,13 @@ pub(crate) fn stream<T: HttpTransport + 'static>(
 }
 
 fn anthropic_endpoint(profile: &AssistantProfile) -> Result<Url, String> {
-    if profile.provider != Provider::Anthropic || profile.api != ApiProtocol::AnthropicMessages {
-        return Err("the Messages API is currently supported for Anthropic profiles".to_owned());
+    if profile.api != ApiProtocol::AnthropicMessages {
+        return Err("the Messages API requires a Messages API profile".to_owned());
     }
-    endpoint_url(
-        profile
-            .base_url
-            .as_deref()
-            .unwrap_or("https://api.anthropic.com/v1"),
-        "/messages",
-    )
+    let base_url = profile
+        .effective_base_url()
+        .ok_or_else(|| "this API profile requires a base URL".to_owned())?;
+    endpoint_url(base_url, "/messages")
 }
 
 #[derive(Serialize)]
@@ -66,18 +63,19 @@ fn build_request(
     api_key: Option<&str>,
     endpoint: Url,
 ) -> Result<HttpRequest, String> {
-    let api_key = api_key.ok_or_else(|| "Anthropic API key is missing".to_owned())?;
     let (system, messages) = anthropic_messages(messages);
     if messages.is_empty() {
         return Err("Anthropic chat requires at least one user or assistant message".to_owned());
     }
 
     let mut headers = json_headers("text/event-stream");
-    add_header(
-        &mut headers,
-        header::HeaderName::from_static("x-api-key"),
-        api_key,
-    )?;
+    if let Some(api_key) = api_key {
+        add_header(
+            &mut headers,
+            header::HeaderName::from_static("x-api-key"),
+            api_key,
+        )?;
+    }
     add_header(
         &mut headers,
         header::HeaderName::from_static("anthropic-version"),

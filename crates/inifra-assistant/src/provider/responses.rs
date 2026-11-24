@@ -1,6 +1,5 @@
 use crate::{
-    ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatStream, Provider, ProviderError,
-    TokenUsage,
+    ApiProtocol, AssistantProfile, ChatEvent, ChatMessage, ChatStream, ProviderError, TokenUsage,
     provider::adapter::{AdapterSpec, bearer_headers, endpoint_url, start_stream},
     transport::http::{HttpRequest, HttpTransport, safe_excerpt},
     transport::sse::SseParser,
@@ -35,16 +34,13 @@ pub(crate) fn stream<T: HttpTransport + 'static>(
 }
 
 fn responses_endpoint(profile: &AssistantProfile) -> Result<Url, String> {
-    if profile.provider != Provider::OpenAi || profile.api != ApiProtocol::OpenAiResponses {
-        return Err("the Responses API is currently supported for OpenAI profiles".to_owned());
+    if profile.api != ApiProtocol::OpenAiResponses {
+        return Err("the Responses API requires a Responses API profile".to_owned());
     }
-    endpoint_url(
-        profile
-            .base_url
-            .as_deref()
-            .unwrap_or("https://api.openai.com/v1"),
-        "/responses",
-    )
+    let base_url = profile
+        .effective_base_url()
+        .ok_or_else(|| "this API profile requires a base URL".to_owned())?;
+    endpoint_url(base_url, "/responses")
 }
 
 #[derive(Serialize)]
