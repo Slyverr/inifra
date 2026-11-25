@@ -12,6 +12,7 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 - Switch saved profiles in `inifra ask` with `/profile`.
 - Switch profile, model, and reasoning effort in `inifra ask` with the switcher, opened by Ctrl+O or `/model` without an ID, and save the selection as the default.
 - Set reasoning effort with `/effort` and a per-profile default effort. Profiles saved with an effort cannot be read by 0.8.0 or earlier.
+- Start a new conversation in `inifra ask` with `/clear`.
 - Explain failed assistant requests with a summary, a suggested command, and details.
 
 ### Changed

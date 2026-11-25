@@ -13,6 +13,7 @@ const COMMANDS: &[&str] = &[
     "/effort",
     "/plan",
     "/apply",
+    "/clear",
 ];
 
 pub(super) enum Command {
@@ -32,6 +33,7 @@ pub(super) enum Command {
         overwrite: bool,
     },
     Apply,
+    Clear,
 }
 
 pub(super) fn parse(input: &str) -> Result<Option<Command>, String> {
@@ -60,7 +62,8 @@ pub(super) fn parse(input: &str) -> Result<Option<Command>, String> {
         "/effort" if arguments.len() == 1 => Command::Effort(Some(arguments[0].clone())),
         "/plan" => parse_plan(arguments)?,
         "/apply" if arguments.is_empty() => Command::Apply,
-        "/help" | "/inspect" | "/project" | "/profile" | "/models" | "/apply" => {
+        "/clear" if arguments.is_empty() => Command::Clear,
+        "/help" | "/inspect" | "/project" | "/profile" | "/models" | "/apply" | "/clear" => {
             return Err(unexpected());
         }
         "/model" | "/effort" => return Err(unexpected()),
@@ -178,6 +181,10 @@ pub(super) fn help() -> String {
             "Prepare a generation plan; no files are written",
         ),
         ("/apply", "Review and explicitly approve the pending plan"),
+        (
+            "/clear",
+            "Start a new conversation; keeps profile, model, and effort",
+        ),
         ("/help", "Show this help"),
     ];
     let width = commands
@@ -501,6 +508,8 @@ mod tests {
     #[test]
     fn parses_local_commands_and_plan_assignments() {
         assert!(matches!(parse("/help").unwrap(), Some(Command::Help)));
+        assert!(matches!(parse("/clear").unwrap(), Some(Command::Clear)));
+        assert!(parse("/clear now").is_err());
         assert!(matches!(
             parse("/profile").unwrap(),
             Some(Command::Profiles)

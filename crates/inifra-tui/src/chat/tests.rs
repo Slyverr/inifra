@@ -283,6 +283,29 @@ fn a_failed_response_is_labeled_failed_and_shows_guidance() {
 }
 
 #[test]
+fn clearing_the_conversation_removes_earlier_messages_but_keeps_the_notice() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    let (sender, events) = mpsc::channel();
+    sender.send(ChatEvent::AssistantStarted).unwrap();
+    sender
+        .send(ChatEvent::TextDelta("Old answer".to_owned()))
+        .unwrap();
+    sender.send(ChatEvent::AssistantFinished).unwrap();
+    sender.send(ChatEvent::ConversationCleared).unwrap();
+    sender
+        .send(ChatEvent::Notice("Started a new conversation.".to_owned()))
+        .unwrap();
+    drain_events(&events, &mut app);
+
+    let rows = render(&app, 80);
+    assert!(!rows.iter().any(|row| row.contains("Old answer")));
+    assert!(
+        rows.iter()
+            .any(|row| row.contains("Started a new conversation."))
+    );
+}
+
+#[test]
 fn a_cancelled_response_is_labeled_interrupted() {
     let mut app = ChatApp::new(ChatConfig::default());
     let (sender, events) = mpsc::channel();
