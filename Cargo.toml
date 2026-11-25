@@ -24,3 +24,7 @@ all = { level = "warn", priority = -1 }
 # Line tables keep backtraces readable while cutting debug-build and test-link time.
 [profile.dev]
 debug = "line-tables-only"
+
+# Dependencies are rarely stepped through, so skip their debug info to shorten cold builds.
+[profile.dev.package."*"]
+debug = false
