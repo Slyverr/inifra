@@ -17,4 +17,4 @@ pub enum InteractionOutcome<T> {
 
 pub use chrome::{Badge, Heading, OutlineRow, Row, StepState};
 pub use forms::{FieldCheck, FormOutcome, TextField, run_confirmation, run_form, run_secret_input};
-pub use select::{SelectScreen, run_select};
+pub use select::{SelectEvent, SelectScreen, run_select, run_select_marking};
