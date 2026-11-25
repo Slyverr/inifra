@@ -12,8 +12,8 @@ wait_for "Create a profile"
 expect "second"
 expect "Ollama · Ollama Chat"
 snap list
-send Enter
-# Focus starts on the default profile ("mock"), so its menu has no Make default.
+# Focus starts on Create; the default profile ("mock") is next, so its menu has no Make default.
+send Down Enter
 wait_for "Connection"
 expect "Model"
 expect "mock-1"

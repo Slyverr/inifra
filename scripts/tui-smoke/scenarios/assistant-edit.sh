@@ -1,7 +1,7 @@
 # Edit lists the parts of a profile with their values and changes only the one you pick.
 start assistant
 wait_for "Create a profile"
-send Enter
+send Down Enter
 wait_for "Edit"
 send Enter
 wait_for "Effort"
