@@ -1,6 +1,6 @@
 use super::{
     InteractionOutcome,
-    chrome::{Heading, Row, RowState, essential, footer, label_width, row_line},
+    chrome::{Heading, Row, RowState, essential, footer, hint, label_width, row_line},
 };
 use crate::{
     line_edit,
@@ -14,7 +14,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::Paragraph,
 };
-use std::io;
+use std::{collections::BTreeSet, io};
 use unicode_width::UnicodeWidthStr;
 
 const MAX_VISIBLE_CHOICES: usize = 8;
@@ -34,6 +34,24 @@ pub struct SelectScreen {
     pub initial: usize,
     /// Whether `/` starts filtering the choices by what the user types. Use it for long lists.
     pub filterable: bool,
+    /// Which choices Space can mark, parallel to `choices`; empty when nothing can be marked.
+    /// Marked choices are returned together by `d` as [`SelectEvent::Delete`].
+    pub markable: Vec<bool>,
+    /// Choices that have one blank row above them, to separate groups of rows.
+    pub gaps: Vec<usize>,
+}
+
+/// What a choice screen ended with, for screens whose rows can be marked and deleted.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SelectEvent {
+    /// Enter chose this row.
+    Selected(usize),
+    /// `d` asked to delete these marked rows, or the focused row when none were marked.
+    Delete(Vec<usize>),
+    /// Esc went back.
+    Back,
+    /// `q` or Ctrl+C quit.
+    Quit,
 }
 
 impl SelectScreen {
@@ -58,6 +76,10 @@ impl SelectScreen {
     fn heading_height(&self) -> u16 {
         self.heading.height() * 2
     }
+
+    fn can_mark(&self) -> bool {
+        self.markable.iter().any(|markable| *markable)
+    }
 }
 
 /// Shows a compact inline choice list and returns the selected row.
@@ -69,6 +91,21 @@ impl SelectScreen {
 /// Returns an I/O error if the terminal cannot be initialized, drawn, or read. Empty choice lists
 /// are rejected before the terminal is initialized.
 pub fn run_select(screen: &SelectScreen) -> io::Result<InteractionOutcome<usize>> {
+    Ok(match run_select_marking(screen)? {
+        SelectEvent::Selected(index) => InteractionOutcome::Selected(index),
+        SelectEvent::Back | SelectEvent::Delete(_) => InteractionOutcome::Back,
+        SelectEvent::Quit => InteractionOutcome::Quit,
+    })
+}
+
+/// Like [`run_select`], and also lets Space mark rows that `screen.markable` allows, `a` mark
+/// them all, and `d` delete the marked rows (or the focused row when none are marked). Esc clears
+/// marks before it goes back.
+///
+/// # Errors
+/// Returns an I/O error if the terminal cannot be initialized, drawn, or read. Empty choice lists
+/// are rejected before the terminal is initialized.
+pub fn run_select_marking(screen: &SelectScreen) -> io::Result<SelectEvent> {
     let choices = &screen.choices;
     if choices.is_empty() {
         return Err(io::Error::new(
@@ -77,11 +114,11 @@ pub fn run_select(screen: &SelectScreen) -> io::Result<InteractionOutcome<usize>
         ));
     }
 
-    let visible = choices.len().min(MAX_VISIBLE_CHOICES) as u16;
+    let visible = choices.len().min(MAX_VISIBLE_CHOICES) + screen.gaps.len();
     let height = screen.heading_height()
         + screen.heading.outline_height()
         + screen.context_height()
-        + visible
+        + u16::try_from(visible).unwrap_or(u16::MAX)
         + 2;
     let mut terminal = terminal::InlineTerminal::new(height)?;
     let mut app = SelectApp::new(screen);
@@ -90,9 +127,9 @@ pub fn run_select(screen: &SelectScreen) -> io::Result<InteractionOutcome<usize>
         match event::read()? {
             Event::Resize(_, _) => terminal.autoresize()?,
             Event::Key(key) if key.kind != KeyEventKind::Release => {
-                if let Some(outcome) = app.handle(key, choices) {
+                if let Some(event) = app.handle(key, choices) {
                     terminal.close()?;
-                    return Ok(outcome);
+                    return Ok(event);
                 }
             }
             _ => {}
@@ -109,6 +146,9 @@ struct SelectApp {
     typing: bool,
     filter: Vec<char>,
     filter_cursor: usize,
+    markable: Vec<bool>,
+    /// Marked choices, by index into the screen's choices.
+    marked: BTreeSet<usize>,
 }
 
 impl SelectApp {
@@ -121,6 +161,8 @@ impl SelectApp {
             typing: false,
             filter: Vec::new(),
             filter_cursor: 0,
+            markable: screen.markable.clone(),
+            marked: BTreeSet::new(),
         }
     }
 
@@ -134,26 +176,74 @@ impl SelectApp {
         self.visible.get(self.selected).copied()
     }
 
+    fn is_markable(&self, index: usize) -> bool {
+        self.markable.get(index).copied().unwrap_or(false)
+    }
+
+    fn can_mark(&self) -> bool {
+        self.markable.iter().any(|markable| *markable)
+    }
+
+    fn markable_indexes(&self) -> Vec<usize> {
+        self.markable
+            .iter()
+            .enumerate()
+            .filter(|(_, markable)| **markable)
+            .map(|(index, _)| index)
+            .collect()
+    }
+
     fn filter_text(&self) -> String {
         self.filter.iter().collect()
     }
 
-    fn handle(&mut self, key: KeyEvent, choices: &[Row]) -> Option<InteractionOutcome<usize>> {
+    fn handle(&mut self, key: KeyEvent, choices: &[Row]) -> Option<SelectEvent> {
         let control = key.modifiers.contains(KeyModifiers::CONTROL);
         if key.code == KeyCode::Char('c') && control {
-            return Some(InteractionOutcome::Quit);
+            return Some(SelectEvent::Quit);
         }
         if self.typing {
             return self.handle_filter(key, choices);
         }
         match key.code {
-            KeyCode::Esc => Some(InteractionOutcome::Back),
-            KeyCode::Char('q') if key.modifiers.is_empty() => Some(InteractionOutcome::Quit),
+            KeyCode::Esc if !self.marked.is_empty() => {
+                self.marked.clear();
+                None
+            }
+            KeyCode::Esc => Some(SelectEvent::Back),
+            KeyCode::Char('q') if key.modifiers.is_empty() => Some(SelectEvent::Quit),
             KeyCode::Char('/') if self.filterable && key.modifiers.is_empty() => {
                 self.typing = true;
                 None
             }
-            KeyCode::Enter => self.focused_choice().map(InteractionOutcome::Selected),
+            KeyCode::Char(' ') if key.modifiers.is_empty() => {
+                if let Some(index) = self.focused_choice()
+                    && self.is_markable(index)
+                    && !self.marked.remove(&index)
+                {
+                    self.marked.insert(index);
+                }
+                None
+            }
+            KeyCode::Char('a') if key.modifiers.is_empty() && self.can_mark() => {
+                let all = self.markable_indexes();
+                if all.iter().all(|index| self.marked.contains(index)) {
+                    self.marked.clear();
+                } else {
+                    self.marked.extend(all);
+                }
+                None
+            }
+            KeyCode::Char('d') if key.modifiers.is_empty() && self.can_mark() => {
+                if !self.marked.is_empty() {
+                    Some(SelectEvent::Delete(self.marked.iter().copied().collect()))
+                } else {
+                    self.focused_choice()
+                        .filter(|index| self.is_markable(*index))
+                        .map(|index| SelectEvent::Delete(vec![index]))
+                }
+            }
+            KeyCode::Enter => self.focused_choice().map(SelectEvent::Selected),
             KeyCode::Up | KeyCode::Char('k') | KeyCode::Left | KeyCode::Char('h') => {
                 self.move_by(-1);
                 None
@@ -183,11 +273,7 @@ impl SelectApp {
     }
 
     /// While filtering, letters edit the filter; arrows still move and Enter still selects.
-    fn handle_filter(
-        &mut self,
-        key: KeyEvent,
-        choices: &[Row],
-    ) -> Option<InteractionOutcome<usize>> {
+    fn handle_filter(&mut self, key: KeyEvent, choices: &[Row]) -> Option<SelectEvent> {
         match key.code {
             KeyCode::Esc => {
                 self.typing = false;
@@ -195,7 +281,7 @@ impl SelectApp {
                 self.filter_cursor = 0;
                 self.refilter(choices);
             }
-            KeyCode::Enter => return self.focused_choice().map(InteractionOutcome::Selected),
+            KeyCode::Enter => return self.focused_choice().map(SelectEvent::Selected),
             KeyCode::Up => self.move_by(-1),
             KeyCode::Down => self.move_by(1),
             KeyCode::PageUp => self.move_by(-(MAX_VISIBLE_CHOICES as isize)),
@@ -277,33 +363,56 @@ fn draw_select(frame: &mut Frame<'_>, screen: &SelectScreen, app: &SelectApp) {
         frame.render_widget(Paragraph::new(lines), context_area);
     }
 
-    let count = usize::from(choices_area.height).max(1);
-    let start = app
-        .selected()
-        .saturating_sub(count.saturating_sub(1))
-        .min(app.visible.len().saturating_sub(count));
+    let marking = !app.marked.is_empty();
     let width = label_width(&screen.choices);
-    let mut lines = app
-        .visible
+    // One entry per drawn row: a blank gap row has no position, a choice has its place in
+    // `app.visible`. Scrolling works on drawn rows so gaps never push the focus out of view.
+    let mut drawn: Vec<(Option<usize>, Line<'static>)> = Vec::new();
+    for (position, index) in app.visible.iter().enumerate() {
+        if screen.gaps.contains(index) && !drawn.is_empty() {
+            drawn.push((None, Line::default()));
+        }
+        let state = if position == app.selected() {
+            RowState::Focused
+        } else {
+            RowState::Idle
+        };
+        let mut line = row_line(&screen.choices[*index], state, width);
+        if marking {
+            let checkbox = if !app.is_markable(*index) {
+                Span::raw("  ")
+            } else if app.marked.contains(index) {
+                Span::styled("☑ ", tui_style(Tone::Warning, true))
+            } else {
+                Span::styled("☐ ", tui_style(Tone::Muted, false))
+            };
+            line.spans.insert(1, checkbox);
+        }
+        drawn.push((Some(position), line));
+    }
+    if drawn.is_empty() {
+        drawn.push((
+            None,
+            Line::from(vec![
+                Span::raw("  "),
+                Span::styled("No matches", tui_style(Tone::Secondary, false)),
+            ]),
+        ));
+    }
+    let count = usize::from(choices_area.height).max(1);
+    let focused_row = drawn
         .iter()
-        .enumerate()
+        .position(|(position, _)| *position == Some(app.selected()))
+        .unwrap_or_default();
+    let start = focused_row
+        .saturating_sub(count.saturating_sub(1))
+        .min(drawn.len().saturating_sub(count));
+    let lines = drawn
+        .into_iter()
         .skip(start)
         .take(count)
-        .map(|(position, index)| {
-            let state = if position == app.selected() {
-                RowState::Focused
-            } else {
-                RowState::Idle
-            };
-            row_line(&screen.choices[*index], state, width)
-        })
+        .map(|(_, line)| line)
         .collect::<Vec<_>>();
-    if lines.is_empty() {
-        lines.push(Line::from(vec![
-            Span::raw("  "),
-            Span::styled("No matches", tui_style(Tone::Secondary, false)),
-        ]));
-    }
     frame.render_widget(Paragraph::new(lines), choices_area);
 
     if app.typing {
@@ -336,12 +445,19 @@ fn draw_select(frame: &mut Frame<'_>, screen: &SelectScreen, app: &SelectApp) {
 
     let mut hints = vec![
         essential("↑/↓ j/k", "move"),
-        essential("Enter", "select"),
-        essential("Esc", "back"),
+        essential("Enter", if screen.can_mark() { "open" } else { "select" }),
+        essential("Esc", if marking { "clear" } else { "back" }),
         essential("q/Ctrl+C", "quit"),
     ];
     if screen.filterable {
         hints.insert(1, essential("/", "filter"));
+    }
+    if screen.can_mark() {
+        hints.insert(2, essential("Space", "mark"));
+        hints.insert(3, essential("d", "delete"));
+        if marking {
+            hints.insert(4, hint("a", "all"));
+        }
     }
     frame.render_widget(
         Paragraph::new(footer(&hints, footer_area.width)),
@@ -351,7 +467,7 @@ fn draw_select(frame: &mut Frame<'_>, screen: &SelectScreen, app: &SelectApp) {
 
 #[cfg(test)]
 mod tests {
-    use super::{InteractionOutcome, SelectApp, SelectScreen, draw_select};
+    use super::{SelectApp, SelectEvent, SelectScreen, draw_select};
     use crate::controls::chrome::{Badge, Heading, Row};
     use crate::presentation::Tone;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -395,11 +511,11 @@ mod tests {
 
         assert_eq!(
             app.handle(key(KeyCode::Enter), choices),
-            Some(InteractionOutcome::Selected(1))
+            Some(SelectEvent::Selected(1))
         );
         assert_eq!(
             app.handle(key(KeyCode::Esc), choices),
-            Some(InteractionOutcome::Back)
+            Some(SelectEvent::Back)
         );
     }
 
@@ -411,14 +527,14 @@ mod tests {
 
         assert_eq!(
             app.handle(key(KeyCode::Char('q')), choices),
-            Some(InteractionOutcome::Quit)
+            Some(SelectEvent::Quit)
         );
         assert_eq!(
             app.handle(
                 KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
                 choices
             ),
-            Some(InteractionOutcome::Quit)
+            Some(SelectEvent::Quit)
         );
     }
 
@@ -523,7 +639,7 @@ mod tests {
         app.handle(key(KeyCode::Down), &screen.choices);
         assert_eq!(
             app.handle(key(KeyCode::Enter), &screen.choices),
-            Some(InteractionOutcome::Selected(2))
+            Some(SelectEvent::Selected(2))
         );
     }
 
@@ -539,7 +655,7 @@ mod tests {
         assert_eq!(app.visible.len(), 4);
         assert_eq!(
             app.handle(key(KeyCode::Esc), &screen.choices),
-            Some(InteractionOutcome::Back)
+            Some(SelectEvent::Back)
         );
     }
 
@@ -564,5 +680,112 @@ mod tests {
         let idle = SelectApp::new(&screen);
         let rows = render(&screen, &idle, 90, 6);
         assert!(rows.last().unwrap().contains("/ filter"));
+    }
+
+    fn profiles_and_actions() -> SelectScreen {
+        SelectScreen {
+            heading: Heading::none(),
+            choices: [
+                Row::new("local").detail("Ollama"),
+                Row::new("work").detail("OpenAI"),
+                Row::new("Create a profile"),
+            ]
+            .into(),
+            markable: vec![true, true, false],
+            gaps: vec![2],
+            ..SelectScreen::default()
+        }
+    }
+
+    #[test]
+    fn space_marks_rows_and_d_deletes_the_marked_ones() {
+        let screen = profiles_and_actions();
+        let mut app = SelectApp::new(&screen);
+        app.handle(key(KeyCode::Char(' ')), &screen.choices);
+        app.handle(key(KeyCode::Down), &screen.choices);
+        app.handle(key(KeyCode::Down), &screen.choices);
+        // The action row cannot be marked.
+        app.handle(key(KeyCode::Char(' ')), &screen.choices);
+        assert_eq!(app.marked.iter().copied().collect::<Vec<_>>(), [0]);
+        assert_eq!(
+            app.handle(key(KeyCode::Char('d')), &screen.choices),
+            Some(SelectEvent::Delete(vec![0]))
+        );
+        app.handle(key(KeyCode::Up), &screen.choices);
+        app.handle(key(KeyCode::Char(' ')), &screen.choices);
+        assert_eq!(
+            app.handle(key(KeyCode::Char('d')), &screen.choices),
+            Some(SelectEvent::Delete(vec![0, 1]))
+        );
+        // Space on a marked row unmarks it.
+        app.handle(key(KeyCode::Char(' ')), &screen.choices);
+        assert_eq!(app.marked.len(), 1);
+    }
+
+    #[test]
+    fn d_without_marks_deletes_only_the_focused_markable_row() {
+        let screen = profiles_and_actions();
+        let mut app = SelectApp::new(&screen);
+        app.handle(key(KeyCode::Down), &screen.choices);
+        assert_eq!(
+            app.handle(key(KeyCode::Char('d')), &screen.choices),
+            Some(SelectEvent::Delete(vec![1]))
+        );
+        app.handle(key(KeyCode::Down), &screen.choices);
+        assert_eq!(app.handle(key(KeyCode::Char('d')), &screen.choices), None);
+    }
+
+    #[test]
+    fn a_marks_every_markable_row_then_clears_and_escape_clears_before_going_back() {
+        let screen = profiles_and_actions();
+        let mut app = SelectApp::new(&screen);
+        app.handle(key(KeyCode::Char('a')), &screen.choices);
+        assert_eq!(app.marked.len(), 2);
+        assert_eq!(app.handle(key(KeyCode::Esc), &screen.choices), None);
+        assert!(app.marked.is_empty());
+        assert_eq!(
+            app.handle(key(KeyCode::Esc), &screen.choices),
+            Some(SelectEvent::Back)
+        );
+        app.handle(key(KeyCode::Char('a')), &screen.choices);
+        app.handle(key(KeyCode::Char('a')), &screen.choices);
+        assert!(app.marked.is_empty());
+    }
+
+    #[test]
+    fn d_and_space_do_nothing_on_screens_without_markable_rows() {
+        let screen = screen_of(&["one", "two"], 0);
+        let mut app = SelectApp::new(&screen);
+        assert_eq!(app.handle(key(KeyCode::Char('d')), &screen.choices), None);
+        app.handle(key(KeyCode::Char(' ')), &screen.choices);
+        assert!(app.marked.is_empty());
+    }
+
+    #[test]
+    fn gaps_separate_groups_and_marked_rows_get_checkboxes() {
+        let screen = profiles_and_actions();
+        let mut app = SelectApp::new(&screen);
+        let plain = render(&screen, &app, 90, 7);
+        assert_eq!(plain[0], "› local   Ollama");
+        assert_eq!(plain[1], "  work    OpenAI");
+        assert_eq!(plain[2], "");
+        assert_eq!(plain[3], "  Create a profile");
+        assert!(plain[6].contains("Space mark"));
+
+        app.handle(key(KeyCode::Char(' ')), &screen.choices);
+        let marking = render(&screen, &app, 90, 7);
+        assert_eq!(marking[0], "› ☑ local   Ollama");
+        assert_eq!(marking[1], "  ☐ work    OpenAI");
+        assert_eq!(marking[3], "    Create a profile");
+        assert!(marking[6].contains("Esc clear"));
+    }
+
+    #[test]
+    fn a_gap_never_hides_the_focused_row_in_a_short_window() {
+        let mut screen = profiles_and_actions();
+        screen.initial = 2;
+        let app = SelectApp::new(&screen);
+        let rows = render(&screen, &app, 70, 4);
+        assert!(rows.iter().any(|row| row == "› Create a profile"));
     }
 }
