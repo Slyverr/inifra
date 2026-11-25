@@ -1,4 +1,5 @@
 use super::*;
+use crate::presentation::{Tone, tui_style};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{Terminal, backend::TestBackend};
 use std::sync::mpsc;
@@ -172,11 +173,12 @@ fn streamed_events_keep_editor_and_session_footer_visible() {
         .iter()
         .map(|cell| cell.symbol())
         .collect::<String>();
-    assert!(rendered.contains("› hello"));
-    assert!(rendered.contains("Inifra ›"));
+    assert!(rendered.contains("▎ hello"));
+    assert!(rendered.contains("● Hello there."));
     assert!(rendered.contains("Waiting for response…"));
     assert!(rendered.contains("NVIDIA NIM"));
-    assert!(rendered.contains("nim · NVIDIA NIM · nemotron · 42 tokens · Esc cancel"));
+    assert!(rendered.contains("nim · NVIDIA NIM · nemotron · 42 tokens"));
+    assert!(rendered.contains("Esc cancel"));
 }
 
 #[test]
@@ -271,7 +273,7 @@ fn a_failed_response_is_labeled_failed_and_shows_guidance() {
     drain_events(&events, &mut app);
     let rows = render(&app, 100);
 
-    assert!(rows.contains(&"Inifra ›  request failed".to_owned()));
+    assert!(rows.contains(&"● request failed".to_owned()));
     assert!(!rows.iter().any(|row| row.contains("interrupted")));
     assert!(rows.contains(&"Could not reach Ollama at http://127.0.0.1:9.".to_owned()));
     assert!(rows.contains(
@@ -291,7 +293,8 @@ fn a_cancelled_response_is_labeled_interrupted() {
     sender.send(ChatEvent::AssistantCancelled).unwrap();
     drain_events(&events, &mut app);
     let rows = render(&app, 80);
-    assert!(rows.contains(&"Inifra ›  interrupted".to_owned()));
+    assert!(rows.contains(&"● Partial".to_owned()));
+    assert!(rows.contains(&"  interrupted".to_owned()));
 }
 
 #[test]
@@ -327,14 +330,32 @@ fn footer_leads_with_the_profile_and_compacts_token_counts() {
         total_tokens: Some(1_574),
     };
     let rows = render(&app, 80);
-    assert_eq!(
-        rows.last().unwrap(),
-        "work · OpenAI · gpt-5 · high effort · 1.2k in · 340 out"
-    );
+    let footer = rows.last().unwrap();
+    assert!(footer.starts_with("work · OpenAI · gpt-5 · high effort · 1.2k in · 340 out"));
+    assert!(footer.ends_with("Ctrl+O switch"));
     assert_eq!(view::compact_count(999), "999");
     assert_eq!(view::compact_count(1_000), "1k");
     assert_eq!(view::compact_count(12_345), "12.3k");
     assert_eq!(view::compact_count(2_500_000), "2.5M");
+}
+
+#[test]
+fn footer_does_not_repeat_a_profile_named_after_its_model() {
+    let app = ChatApp::new(ChatConfig {
+        profile: "test".to_owned(),
+        provider: "OpenAI".to_owned(),
+        model: "test".to_owned(),
+        effort: None,
+    });
+    let footer = render(&app, 80).pop().unwrap();
+    assert!(footer.starts_with("OpenAI · test"));
+    assert_eq!(footer.matches("test").count(), 1);
+}
+
+#[test]
+fn composer_is_framed_by_rules() {
+    let rows = render(&ChatApp::new(ChatConfig::default()), 40);
+    assert_eq!(rows.iter().filter(|row| **row == "─".repeat(40)).count(), 2);
 }
 
 #[test]
@@ -500,4 +521,189 @@ fn escape_closes_the_switcher_without_changes() {
     handle_key(key(KeyCode::Esc, KeyModifiers::NONE), &mut app, &actions).unwrap();
     assert!(app.switcher.is_none());
     assert!(received.try_recv().is_err());
+}
+
+#[test]
+fn local_command_output_is_a_wrapped_card_with_a_gutter() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    let (sender, events) = mpsc::channel();
+    sender
+        .send(ChatEvent::AssistantMessage(
+            "Chat with the configured assistant, or use local commands:\n\n/effort [level]  Show or set reasoning effort: low, medium, high, default".to_owned(),
+        ))
+        .unwrap();
+    drain_events(&events, &mut app);
+    let rows = render(&app, 60);
+
+    assert!(rows.iter().any(|row| row == "◆ Local"), "{rows:#?}");
+    let start = rows.iter().position(|row| row.contains("/effort")).unwrap();
+    assert!(rows[start].starts_with("▏ /effort [level]  Show or set"));
+    // Wrapped description lines stay inside the card and align under the description.
+    assert!(rows[start + 1].starts_with("▏                 "));
+    assert!(
+        rows[start..start + 2]
+            .iter()
+            .all(|row| row.starts_with("▏ "))
+    );
+    assert!(rows.iter().all(|row| row.chars().count() <= 60));
+}
+
+#[test]
+fn local_output_colors_commands_actions_and_headings() {
+    let lines = local::render(
+        "Plan for the current project\ncreate · AGENTS.md\nalready exists · README.md\n\nFiles\n/help  Show this help",
+        80,
+    );
+    let style_of = |row: usize, text: &str| {
+        lines[row]
+            .spans
+            .iter()
+            .find(|span| {
+                let word = span.content.trim();
+                !word.is_empty() && text.starts_with(word)
+            })
+            .unwrap_or_else(|| panic!("{text:?} missing in row {row}"))
+            .style
+    };
+
+    assert_eq!(
+        style_of(0, "Plan for the current project"),
+        tui_style(Tone::Accent, true)
+    );
+    assert_eq!(style_of(1, "create"), tui_style(Tone::Success, false));
+    assert_eq!(style_of(2, "already exists"), tui_style(Tone::Muted, false));
+    assert_eq!(style_of(4, "Files"), tui_style(Tone::Secondary, true));
+    assert_eq!(style_of(5, "/help"), tui_style(Tone::Accent, false));
+    assert_eq!(
+        style_of(5, "Show this help"),
+        tui_style(Tone::Secondary, false)
+    );
+}
+
+#[test]
+fn viewport_grows_with_the_conversation_and_stops_at_the_terminal() {
+    // Short conversations keep the base height.
+    assert_eq!(grown_height(8, VIEWPORT_HEIGHT, 40), VIEWPORT_HEIGHT);
+    // Longer ones grow in steps of rows.
+    assert_eq!(grown_height(15, VIEWPORT_HEIGHT, 40), 16);
+    assert_eq!(grown_height(30, 16, 40), 32);
+    // It stops at the ceiling and the conversation scrolls inside from there.
+    assert_eq!(grown_height(200, 32, 40), 40);
+    // It never shrinks when content gets shorter.
+    assert_eq!(grown_height(10, 32, 40), 32);
+    // A terminal shorter than the base height still gets the base height.
+    assert_eq!(grown_height(10, VIEWPORT_HEIGHT, 6), VIEWPORT_HEIGHT);
+}
+
+#[test]
+fn conversation_rows_count_wrapped_lines() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    assert_eq!(view::conversation_rows(&app, 20), 0);
+    app.push_message(Role::Notice, "x".repeat(45));
+    // 45 characters wrap to three rows at width 20, plus the blank separator.
+    assert_eq!(view::conversation_rows(&app, 20), 4);
+}
+
+#[test]
+fn replies_lead_with_a_bullet_and_hang_their_other_lines_under_it() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    app.push_message(
+        Role::Assistant,
+        "First line of the reply wraps around.\n\nSecond paragraph.".to_owned(),
+    );
+    let rows = render(&app, 24);
+
+    assert!(!rows.iter().any(|row| row.contains("Inifra")));
+    let first = rows
+        .iter()
+        .position(|row| row.starts_with("● First"))
+        .unwrap();
+    assert_eq!(rows[first], "● First line of the");
+    assert_eq!(rows[first + 1], "  reply wraps around.");
+    assert!(rows.contains(&"  Second paragraph.".to_owned()));
+}
+
+#[test]
+fn user_messages_sit_on_a_tinted_block_that_fills_the_row() {
+    let lines = view::user_lines("hello", 20);
+    let tinted = crate::presentation::tui_surface_style();
+    if tinted == ratatui::style::Style::default() {
+        assert_eq!(lines.len(), 1);
+        return;
+    }
+
+    // One blank tinted row above and below, and every row is full width and tinted.
+    assert_eq!(lines.len(), 3);
+    for line in &lines {
+        assert_eq!(line.width(), 20);
+        assert!(line.spans.iter().all(|span| span.style.bg == tinted.bg));
+    }
+}
+
+#[test]
+fn waiting_shows_an_animated_indicator_until_text_arrives() {
+    let mut app = ChatApp::new(ChatConfig::default());
+    app.push_message(Role::User, "hi".to_owned());
+    app.start_assistant();
+    let waiting = render(&app, 60).join("\n");
+    assert!(waiting.contains("Thinking…"), "{waiting}");
+    assert!(!waiting.contains('●'));
+
+    app.append_delta("Hello");
+    let answered = render(&app, 60).join("\n");
+    assert!(answered.contains("● Hello"));
+    assert!(!answered.contains("Thinking"));
+}
+
+#[test]
+fn indicator_cycles_words_moves_the_spinner_and_counts_seconds() {
+    use std::time::Duration;
+    let text = |millis: u64, status: Option<&str>| {
+        thinking::indicator(Duration::from_millis(millis), status)
+            .spans
+            .iter()
+            .map(|span| span.content.to_string())
+            .collect::<String>()
+    };
+
+    assert_eq!(text(0, None), "⠋ Thinking…");
+    assert_eq!(text(80, None), "⠙ Thinking…");
+    assert!(text(3_000, None).contains("Reasoning…"));
+    assert!(text(2_500, None).ends_with("  2s"));
+    // A named task replaces the rotating words.
+    assert!(text(0, Some("Fetching models")).contains("Fetching models…"));
+}
+
+#[test]
+fn command_descriptions_stack_under_the_command_on_narrow_screens() {
+    let text = "Commands:\n\n/plan <id>... [--set name=value]  Prepare a generation plan; no files are written";
+    let narrow = super::local::render(text, 44)
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>();
+    assert!(narrow.contains(&"▏ /plan <id>... [--set name=value]".to_owned()));
+    assert!(
+        narrow
+            .iter()
+            .any(|row| row.starts_with("▏   Prepare a generation plan"))
+    );
+
+    let wide = super::local::render(text, 100)
+        .iter()
+        .map(|line| {
+            line.spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        wide.iter()
+            .any(|row| row.contains("/plan <id>... [--set name=value]  Prepare"))
+    );
 }

@@ -1,5 +1,5 @@
-use super::{ChatApp, Ending, INPUT_ROWS, Role, markdown};
-use crate::presentation::{Tone, terminal_text, tui_style};
+use super::{ChatApp, Ending, INPUT_ROWS, Role, local, markdown, thinking, wrap::wrap_spans};
+use crate::presentation::{Tone, terminal_text, tui_style, tui_surface_style};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout},
@@ -25,9 +25,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &ChatApp) {
     .split(area);
 
     draw_messages(frame, app, chunks[0]);
-    frame.render_widget(Paragraph::new(""), chunks[1]);
+    draw_rule(frame, chunks[1]);
     draw_input(frame, app, chunks[2]);
-    frame.render_widget(Paragraph::new(""), chunks[3]);
+    draw_rule(frame, chunks[3]);
     draw_footer(frame, app, chunks[4]);
 
     if app.confirmation.is_none() && !app.streaming && app.working.is_none() && chunks[2].height > 0
@@ -47,6 +47,159 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &ChatApp) {
     }
 }
 
+/// Builds every conversation line, wrapped by the caller; `width` sizes local command cards.
+fn message_lines(app: &ChatApp, width: u16) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    for message in &app.messages {
+        match message.role {
+            Role::User => lines.extend(user_lines(&message.text, width)),
+            Role::Assistant => lines.extend(assistant_lines(message, width)),
+            Role::Local => {
+                lines.push(Line::from(Span::styled(
+                    "◆ Local",
+                    tui_style(Tone::Template, true),
+                )));
+                lines.extend(local::render(&message.text, usize::from(width)));
+            }
+            Role::Notice => lines.push(Line::styled(
+                terminal_text(&message.text),
+                tui_style(Tone::Muted, false),
+            )),
+            Role::Error => lines.extend(error_lines(&message.text)),
+        }
+        if !(message.role == Role::Assistant && assistant_lines(message, width).is_empty()) {
+            lines.push(Line::from(""));
+        }
+    }
+    if let Some(indicator) = pending_indicator(app) {
+        lines.push(indicator);
+    }
+    lines
+}
+
+/// The waiting line, shown while the model has not produced text yet or a task is running.
+fn pending_indicator(app: &ChatApp) -> Option<Line<'static>> {
+    let waiting_for_text = app.streaming
+        && app
+            .messages
+            .last()
+            .is_some_and(|message| message.role == Role::Assistant && message.text.is_empty());
+    if !waiting_for_text && app.working.is_none() {
+        return None;
+    }
+
+    let elapsed = app
+        .busy_since
+        .map(|since| since.elapsed())
+        .unwrap_or_default();
+    Some(thinking::indicator(elapsed, app.working.as_deref()))
+}
+
+/// The user's message on a tinted block, one blank tinted row above and below.
+pub(super) fn user_lines(text: &str, width: u16) -> Vec<Line<'static>> {
+    let surface = tui_surface_style();
+    let width = usize::from(width.max(4));
+    let tinted = surface != Style::default();
+    let blank = Line::from(Span::styled(" ".repeat(width), surface));
+
+    let mut lines = Vec::new();
+    if tinted {
+        lines.push(blank.clone());
+    }
+    for raw in text.lines() {
+        let rows = wrap_spans(
+            vec![Span::styled("▎ ", tui_style(Tone::Accent, false))],
+            vec![Span::raw(terminal_text(raw))],
+            2,
+            width,
+        );
+        for mut spans in rows {
+            let used = spans.iter().map(Span::width).sum::<usize>();
+            spans.push(Span::raw(" ".repeat(width.saturating_sub(used))));
+            lines.push(Line::from(
+                spans
+                    .into_iter()
+                    .map(|span| {
+                        let style = span.style.patch(surface);
+                        Span::styled(span.content, style)
+                    })
+                    .collect::<Vec<_>>(),
+            ));
+        }
+    }
+    if tinted {
+        lines.push(blank);
+    }
+    lines
+}
+
+/// An assistant reply: the first line leads with `●` and the rest hang indented under it.
+fn assistant_lines(message: &super::Message, width: u16) -> Vec<Line<'static>> {
+    let bullet = || vec![Span::styled("● ", tui_style(Tone::Accent, true))];
+    let tag = match message.ending {
+        Ending::Open => None,
+        Ending::Interrupted => Some(Span::styled("interrupted", tui_style(Tone::Muted, false))),
+        Ending::Failed => Some(Span::styled("request failed", tui_style(Tone::Error, true))),
+    };
+    if message.text.is_empty() {
+        return tag
+            .map(|tag| {
+                let mut spans = bullet();
+                spans.push(tag);
+                vec![Line::from(spans)]
+            })
+            .unwrap_or_default();
+    }
+
+    let available = usize::from(width.max(8));
+    let mut lines = Vec::new();
+    for (index, line) in markdown::render(&message.text).into_iter().enumerate() {
+        let prefix = if index == 0 {
+            bullet()
+        } else {
+            vec![Span::raw("  ")]
+        };
+        let line_style = line.style;
+        let body = line
+            .spans
+            .into_iter()
+            .map(|span| Span::styled(span.content, line_style.patch(span.style)))
+            .collect();
+        lines.extend(
+            wrap_spans(prefix, body, 2, available)
+                .into_iter()
+                .map(Line::from),
+        );
+    }
+    if let Some(tag) = tag {
+        lines.push(Line::from(vec![Span::raw("  "), tag]));
+    }
+    lines
+}
+
+/// Screen rows the whole conversation needs at `width`, counting wrapped lines.
+pub(super) fn conversation_rows(app: &ChatApp, width: u16) -> usize {
+    let width = usize::from(width.max(1));
+    message_lines(app, width as u16)
+        .iter()
+        .map(|line| line.width().max(1).div_ceil(width))
+        .sum()
+}
+
+/// Rows taken by the rules, composer, and footer around the conversation.
+pub(super) const CHROME_ROWS: usize = INPUT_ROWS + 3;
+
+/// A thin dimmed rule that frames the composer.
+fn draw_rule(frame: &mut Frame<'_>, area: ratatui::layout::Rect) {
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            "─".repeat(usize::from(area.width)),
+            crate::presentation::tui_dimmed_style(),
+        )),
+        area,
+    );
+}
+
 fn draw_messages(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Rect) {
     if app.messages.is_empty() {
         let welcome = ratatui::layout::Rect::new(area.x, area.y + area.height / 2, area.width, 1);
@@ -64,50 +217,7 @@ fn draw_messages(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Re
         return;
     }
 
-    let mut lines = Vec::new();
-    for message in &app.messages {
-        match message.role {
-            Role::User => {
-                let mut text_lines = message.text.lines();
-                if let Some(first) = text_lines.next() {
-                    lines.push(Line::from(vec![
-                        Span::styled("› ", tui_style(Tone::Accent, true)),
-                        Span::styled(terminal_text(first), Style::default()),
-                    ]));
-                }
-                lines.extend(
-                    text_lines.map(|line| Line::from(format!("  {}", terminal_text(line)))),
-                );
-            }
-            Role::Assistant => {
-                let mut label = vec![Span::styled("Inifra ›", tui_style(Tone::Accent, true))];
-                match message.ending {
-                    Ending::Open => {}
-                    Ending::Interrupted => {
-                        label.push(Span::styled("  interrupted", tui_style(Tone::Muted, false)));
-                    }
-                    Ending::Failed => {
-                        label.push(Span::styled(
-                            "  request failed",
-                            tui_style(Tone::Error, true),
-                        ));
-                    }
-                }
-                lines.push(Line::from(label));
-                if !message.text.is_empty() {
-                    lines.extend(markdown::render(&message.text));
-                }
-            }
-            Role::Notice => lines.push(Line::styled(
-                terminal_text(&message.text),
-                tui_style(Tone::Muted, false),
-            )),
-            Role::Error => lines.extend(error_lines(&message.text)),
-        }
-        lines.push(Line::from(""));
-    }
-
-    let text = Text::from(lines);
+    let text = Text::from(message_lines(app, area.width));
     let width = usize::from(area.width.max(1));
     let total = text
         .lines
@@ -160,7 +270,7 @@ fn draw_input(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Rect)
             } else {
                 "Type a message…"
             },
-            tui_style(Tone::Muted, false),
+            tui_style(Tone::Secondary, false),
         ));
         lines.push(Line::from(spans));
         lines.resize(area.height as usize, Line::from(""));
@@ -260,10 +370,16 @@ fn cursor_position(app: &ChatApp, width: u16) -> (u16, u16) {
 fn draw_footer(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Rect) {
     let separator = || Span::styled(" · ", tui_style(Tone::Muted, false));
     let mut details = Vec::<Span<'_>>::new();
+    // A profile named after its model (`test · OpenAI · test`) would read as a repeat.
+    let profile = if app.profile == app.model {
+        ""
+    } else {
+        app.profile.as_str()
+    };
     for (text, style) in [
-        (&app.profile, tui_style(Tone::Accent, true)),
-        (&app.provider, tui_style(Tone::Secondary, false)),
-        (&app.model, Style::default()),
+        (profile, tui_style(Tone::Accent, true)),
+        (app.provider.as_str(), tui_style(Tone::Secondary, false)),
+        (app.model.as_str(), Style::default()),
     ] {
         if text.is_empty() {
             continue;
@@ -288,21 +404,35 @@ fn draw_footer(frame: &mut Frame<'_>, app: &ChatApp, area: ratatui::layout::Rect
         details.push(Span::styled(usage, tui_style(Tone::Muted, false)));
     }
 
-    if app.streaming || app.working.is_some() {
-        if !details.is_empty() {
-            details.push(separator());
-        }
+    let busy = app.streaming || app.working.is_some();
+    let mut hints = Vec::<Span<'_>>::new();
+    if busy {
         if let Some(working) = &app.working {
-            details.push(Span::styled(
+            hints.push(Span::styled(
                 terminal_text(working),
                 tui_style(Tone::Secondary, false),
             ));
-            details.push(separator());
+            hints.push(separator());
         }
-        details.push(Span::styled("Esc", tui_style(Tone::Accent, true)));
-        details.push(Span::raw(" cancel"));
+        hints.push(Span::styled("Esc", tui_style(Tone::Accent, true)));
+        hints.push(Span::styled(" cancel", tui_style(Tone::Muted, false)));
+    } else if app.confirmation.is_none() {
+        hints.push(Span::styled("Ctrl+O", tui_style(Tone::Accent, true)));
+        hints.push(Span::styled(" switch", tui_style(Tone::Muted, false)));
     }
-    frame.render_widget(Paragraph::new(Line::from(details)), area);
+
+    let left = Line::from(details);
+    let right = Line::from(hints);
+    let gap = 3;
+    if left.width() + gap + right.width() <= usize::from(area.width) {
+        frame.render_widget(Paragraph::new(left), area);
+        frame.render_widget(Paragraph::new(right).right_aligned(), area);
+    } else if busy {
+        // Keep the cancel hint reachable when the session details do not fit beside it.
+        frame.render_widget(Paragraph::new(right), area);
+    } else {
+        frame.render_widget(Paragraph::new(left), area);
+    }
 }
 
 /// Compact token usage: `1.2k in · 340 out`, or a total when the split is unknown.
