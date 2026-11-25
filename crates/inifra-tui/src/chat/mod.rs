@@ -7,7 +7,10 @@ mod thinking;
 mod view;
 mod wrap;
 
-use crate::terminal;
+use crate::{
+    line_edit::{self, line_end, line_start},
+    terminal,
+};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use std::{
     io,
@@ -554,6 +557,14 @@ fn handle_key(key: KeyEvent, app: &mut ChatApp, actions: &Sender<ChatAction>) ->
         return Ok(false);
     }
 
+    if !app.streaming
+        && app.working.is_none()
+        && line_edit::apply(&mut app.input, &mut app.cursor, key) != line_edit::Edit::Ignored
+    {
+        clear_completion(app);
+        return Ok(false);
+    }
+
     match key.code {
         KeyCode::Enter if key.modifiers.contains(KeyModifiers::SHIFT) => {
             app.input.insert(app.cursor, '\n');
@@ -573,56 +584,6 @@ fn handle_key(key: KeyEvent, app: &mut ChatApp, actions: &Sender<ChatAction>) ->
             }
         }
         KeyCode::Tab if !app.streaming && app.working.is_none() => complete_input(app, actions)?,
-        KeyCode::Backspace if !app.streaming && app.working.is_none() && app.cursor > 0 => {
-            app.input.remove(app.cursor - 1);
-            app.cursor -= 1;
-            clear_completion(app);
-        }
-        KeyCode::Delete
-            if !app.streaming && app.working.is_none() && app.cursor < app.input.len() =>
-        {
-            app.input.remove(app.cursor);
-            clear_completion(app);
-        }
-        KeyCode::Left if !app.streaming && app.working.is_none() => {
-            app.cursor = app.cursor.saturating_sub(1);
-            clear_completion(app);
-        }
-        KeyCode::Right if !app.streaming && app.working.is_none() => {
-            app.cursor = (app.cursor + 1).min(app.input.len());
-            clear_completion(app);
-        }
-        KeyCode::Home if !app.streaming && app.working.is_none() => {
-            app.cursor = line_start(&app.input, app.cursor);
-            clear_completion(app);
-        }
-        KeyCode::End if !app.streaming && app.working.is_none() => {
-            app.cursor = line_end(&app.input, app.cursor);
-            clear_completion(app);
-        }
-        KeyCode::Char('a') if control && !app.streaming && app.working.is_none() => {
-            app.cursor = line_start(&app.input, app.cursor);
-            clear_completion(app);
-        }
-        KeyCode::Char('e') if control && !app.streaming && app.working.is_none() => {
-            app.cursor = line_end(&app.input, app.cursor);
-            clear_completion(app);
-        }
-        KeyCode::Char('u') if control && !app.streaming && app.working.is_none() => {
-            let start = line_start(&app.input, app.cursor);
-            app.input.drain(start..app.cursor);
-            app.cursor = start;
-            clear_completion(app);
-        }
-        KeyCode::Char('w') if control && !app.streaming && app.working.is_none() => {
-            let start = app.input[..app.cursor]
-                .iter()
-                .rposition(|character| character.is_whitespace())
-                .map_or(0, |index| index + 1);
-            app.input.drain(start..app.cursor);
-            app.cursor = start;
-            clear_completion(app);
-        }
         KeyCode::Up if app.scroll_from_bottom > 0 => {
             app.scroll_from_bottom = app.scroll_from_bottom.saturating_add(1)
         }
@@ -639,17 +600,6 @@ fn handle_key(key: KeyEvent, app: &mut ChatApp, actions: &Sender<ChatAction>) ->
         }
         KeyCode::PageUp => app.scroll_from_bottom = app.scroll_from_bottom.saturating_add(5),
         KeyCode::PageDown => app.scroll_from_bottom = app.scroll_from_bottom.saturating_sub(5),
-        KeyCode::Char(character)
-            if !app.streaming
-                && app.working.is_none()
-                && !control
-                && !key.modifiers.contains(KeyModifiers::ALT)
-                && !character.is_control() =>
-        {
-            app.input.insert(app.cursor, character);
-            app.cursor += 1;
-            clear_completion(app);
-        }
         _ => {}
     }
 
@@ -696,21 +646,6 @@ fn complete_input(app: &mut ChatApp, actions: &Sender<ChatAction>) -> io::Result
     }
 
     Ok(())
-}
-
-fn line_start(input: &[char], cursor: usize) -> usize {
-    input[..cursor]
-        .iter()
-        .rposition(|character| *character == '\n')
-        .map_or(0, |index| index + 1)
-}
-
-fn line_end(input: &[char], cursor: usize) -> usize {
-    cursor
-        + input[cursor..]
-            .iter()
-            .position(|character| *character == '\n')
-            .unwrap_or(input.len() - cursor)
 }
 
 fn move_vertical(app: &mut ChatApp, direction: i32) {

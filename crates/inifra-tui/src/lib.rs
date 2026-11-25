@@ -4,6 +4,7 @@
 mod chat;
 mod controls;
 mod init;
+mod line_edit;
 mod model;
 pub mod presentation;
 mod terminal;
