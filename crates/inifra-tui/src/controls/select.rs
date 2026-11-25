@@ -447,7 +447,7 @@ fn draw_select(frame: &mut Frame<'_>, screen: &SelectScreen, app: &SelectApp) {
         essential("↑/↓ j/k", "move"),
         essential("Enter", if screen.can_mark() { "open" } else { "select" }),
         essential("Esc", if marking { "clear" } else { "back" }),
-        essential("q/Ctrl+C", "quit"),
+        essential("q", "quit"),
     ];
     if screen.filterable {
         hints.insert(1, essential("/", "filter"));

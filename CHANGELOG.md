@@ -17,7 +17,7 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 ### Changed
 
-- Make the saved profiles the rows of the `inifra assistant` home screen, with the default tag always visible. A profile opens its own menu to edit, make default, or remove it, and editing changes one part at a time (model, API key, effort, base URL, or connection).
+- Make the saved profiles a list of their own on the `inifra assistant` home screen, with the default tag always visible, below a first row that creates a profile and has the focus. A profile opens its own menu to edit, make default, or remove it, and editing changes one part at a time (model, API key, effort, base URL, or connection). Mark profiles with Space and delete them with `d`; marking all of several profiles resets assistant data, replacing the Reset row.
 - Ask for a profile name in the profile form, validate it inline, and treat `Work` and `work` as the same name by saving it in lowercase.
 - Start `inifra ask` replies with a `●` bullet and indent the rest, tint your messages, and show an animated "Thinking" indicator while the assistant works.
 - Show slash-command output in `inifra ask` as a styled card instead of plain text, and grow the chat viewport downward while a reply streams.

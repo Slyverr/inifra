@@ -385,10 +385,9 @@ fn draw_form(frame: &mut Frame<'_>, app: &FormApp) {
         essential("Enter", if last { "finish" } else { "next" }),
         hint("Shift+Tab", "previous"),
         essential("Esc", "back"),
-        essential("Ctrl+C", "quit"),
     ];
     let hints = if app.index == 0 {
-        vec![hints[0], hints[2], hints[3]]
+        vec![hints[0], hints[2]]
     } else {
         hints.to_vec()
     };
@@ -607,7 +606,7 @@ fn draw_confirmation(frame: &mut Frame<'_>, heading: &Heading, question: &str, y
                 hint("y/n", "answer"),
                 essential("Enter", "confirm"),
                 essential("Esc", "back"),
-                essential("q/Ctrl+C", "quit"),
+                essential("q", "quit"),
             ],
             footer_area.width,
         )),

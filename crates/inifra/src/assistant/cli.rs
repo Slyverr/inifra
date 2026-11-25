@@ -3,8 +3,8 @@ use crate::assistant::configure::{configure_profile, edit_profile, key_summary};
 use clap::Subcommand;
 use inifra_assistant::{AssistantConfig, AssistantProfile};
 use inifra_tui::{
-    Badge, Heading, InteractionOutcome, Row, SelectScreen, presentation, presentation::Tone,
-    run_confirmation, run_select,
+    Badge, Heading, InteractionOutcome, Row, SelectEvent, SelectScreen, presentation,
+    presentation::Tone, run_confirmation, run_select, run_select_marking,
 };
 use std::{
     error::Error,
@@ -69,12 +69,11 @@ pub(crate) fn run(
     }
 }
 
-/// A row in the manager's main list: a saved profile or one of the global actions.
+/// A row in the manager's main list: a saved profile, or the action to create one.
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum MainChoice {
     Profile(String),
     Create,
-    Reset,
 }
 
 /// What can be done to one saved profile.
@@ -85,38 +84,49 @@ enum ProfileAction {
     Remove,
 }
 
-/// The main list: every saved profile first, then Create, then Reset when there is data to reset.
-fn main_choices(config: &AssistantConfig, has_data: bool) -> Vec<(MainChoice, Row)> {
-    let mut choices = config
-        .profiles()
-        .iter()
-        .map(|(id, profile)| {
-            let row = Row::new(id.clone()).detail(format!(
-                "{} · {}",
-                profile.provider.display_name(),
-                profile.api.short_name()
-            ));
-            let row = if config.default_profile_id() == Some(id.as_str()) {
-                row.badge(Badge::new("default", Tone::Success))
-            } else {
-                row
-            };
-            (MainChoice::Profile(id.clone()), row)
-        })
-        .collect::<Vec<_>>();
-    choices.push((MainChoice::Create, Row::new("Create a profile")));
-    if has_data {
-        choices.push((MainChoice::Reset, Row::new("Reset assistant data")));
-    }
+/// The main list: Create first, then every saved profile.
+fn main_choices(config: &AssistantConfig) -> Vec<(MainChoice, Row)> {
+    let mut choices = vec![(MainChoice::Create, Row::new("+ Create a profile"))];
+    choices.extend(config.profiles().iter().map(|(id, profile)| {
+        let row = Row::new(id.clone()).detail(format!(
+            "{} · {}",
+            profile.provider.display_name(),
+            profile.api.short_name()
+        ));
+        let row = if config.default_profile_id() == Some(id.as_str()) {
+            row.badge(Badge::new("default", Tone::Success))
+        } else {
+            row
+        };
+        (MainChoice::Profile(id.clone()), row)
+    }));
     choices
 }
 
-fn manager_screen(config: &AssistantConfig, choices: &[(MainChoice, Row)]) -> SelectScreen {
+/// The manager screen. Create is the first row and the default focus; a blank row separates it
+/// from the profiles, which are the only rows that can be marked for deletion.
+fn manager_screen(
+    config: &AssistantConfig,
+    choices: &[(MainChoice, Row)],
+    has_data: bool,
+) -> SelectScreen {
     let mut screen = SelectScreen::new(
         Heading::new("assistant profiles"),
         choices.iter().map(|(_, row)| row.clone()),
     );
-    if config.profiles().is_empty() {
+    screen.markable = choices
+        .iter()
+        .map(|(choice, _)| matches!(choice, MainChoice::Profile(_)))
+        .collect();
+    let profiles = config.profiles().len();
+    if profiles > 0 {
+        screen.gaps = vec![1];
+    } else if has_data {
+        screen.note = Some(
+            "No profiles yet. Saved API keys remain; clear them with inifra assistant reset."
+                .to_owned(),
+        );
+    } else {
         screen.note = Some("No profiles yet. Create one to use inifra ask.".to_owned());
     }
     screen
@@ -162,33 +172,82 @@ fn manage(config_path: &Path, credentials_path: &Path) -> Result<(), Box<dyn Err
     let mut last: Option<MainChoice> = None;
     loop {
         let config = load_config(config_path)?;
-        let choices = main_choices(&config, config_path.exists() || credentials_path.exists());
-        let mut screen = manager_screen(&config, &choices);
+        let choices = main_choices(&config);
+        let mut screen = manager_screen(
+            &config,
+            &choices,
+            config_path.exists() || credentials_path.exists(),
+        );
         screen.initial = last
             .as_ref()
             .and_then(|last| choices.iter().position(|(choice, _)| choice == last))
-            .or_else(|| {
-                config.default_profile_id().and_then(|default| {
-                    choices
-                        .iter()
-                        .position(|(choice, _)| *choice == MainChoice::Profile(default.to_owned()))
-                })
-            })
             .unwrap_or_default();
 
-        let choice = match run_select(&screen)? {
-            InteractionOutcome::Selected(selected) => choices[selected].0.clone(),
-            InteractionOutcome::Back | InteractionOutcome::Quit => return Ok(()),
-        };
-        last = Some(choice.clone());
-
-        let exit = match choice {
-            MainChoice::Create => configure_profile(config_path, credentials_path, config, None)?,
-            MainChoice::Profile(id) => profile_menu(config_path, credentials_path, &id)?,
-            MainChoice::Reset => reset(config_path, credentials_path)?,
+        let exit = match run_select_marking(&screen)? {
+            SelectEvent::Selected(selected) => {
+                let choice = choices[selected].0.clone();
+                last = Some(choice.clone());
+                match choice {
+                    MainChoice::Create => {
+                        configure_profile(config_path, credentials_path, config, None)?
+                    }
+                    MainChoice::Profile(id) => profile_menu(config_path, credentials_path, &id)?,
+                }
+            }
+            SelectEvent::Delete(indexes) => {
+                let ids = indexes
+                    .into_iter()
+                    .filter_map(|index| match &choices[index].0 {
+                        MainChoice::Profile(id) => Some(id.clone()),
+                        MainChoice::Create => None,
+                    })
+                    .collect::<Vec<_>>();
+                delete_profiles(config_path, credentials_path, &config, &ids)?
+            }
+            SelectEvent::Back | SelectEvent::Quit => return Ok(()),
         };
         if exit == UiExit::Quit {
             return Ok(());
+        }
+    }
+}
+
+/// Deletes the marked profiles after a confirmation. Marking every one of several profiles is a
+/// reset: it also removes the saved API keys, which deleting profiles one by one keeps.
+fn delete_profiles(
+    config_path: &Path,
+    credentials_path: &Path,
+    config: &AssistantConfig,
+    ids: &[String],
+) -> Result<UiExit, Box<dyn Error>> {
+    match ids {
+        [] => Ok(UiExit::Continue),
+        [id] => remove_profile(config_path, id),
+        _ if ids.len() == config.profiles().len() => reset(config_path, credentials_path),
+        _ => {
+            let description = format!(
+                "Remove {} profiles ({})? Saved API keys are kept.",
+                ids.len(),
+                ids.join(", ")
+            );
+            match run_confirmation(&Heading::new("remove profiles"), &description, false)? {
+                InteractionOutcome::Selected(true) => {}
+                InteractionOutcome::Selected(false) | InteractionOutcome::Back => {
+                    return Ok(UiExit::Continue);
+                }
+                InteractionOutcome::Quit => return Ok(UiExit::Quit),
+            }
+            let mut config = load_config(config_path)?;
+            for id in ids {
+                config.remove_profile(id)?;
+            }
+            config.save(config_path)?;
+            println!(
+                "{} {}",
+                presentation::paint("Removed profiles", Tone::Success, false),
+                presentation::paint_emphasis(ids.join(", "), Tone::Accent)
+            );
+            Ok(UiExit::Continue)
         }
     }
 }
@@ -402,13 +461,11 @@ mod tests {
 
     #[test]
     fn manager_offers_only_create_until_profiles_exist() {
-        let choices = main_choices(&AssistantConfig::default(), false);
+        let choices = main_choices(&AssistantConfig::default());
         assert_eq!(
             choices.iter().map(|(choice, _)| choice).collect::<Vec<_>>(),
             [&MainChoice::Create]
         );
-        let with_data = main_choices(&AssistantConfig::default(), true);
-        assert_eq!(with_data.last().unwrap().0, MainChoice::Reset);
     }
 
     #[test]
@@ -421,7 +478,7 @@ mod tests {
                 profile("a-very-long-model-name-that-used-to-push-the-badge-away"),
             )
             .unwrap();
-        let choices = main_choices(&config, true);
+        let choices = main_choices(&config);
         let kinds = choices
             .iter()
             .map(|(choice, _)| choice.clone())
@@ -429,29 +486,47 @@ mod tests {
         assert_eq!(
             kinds,
             [
+                MainChoice::Create,
                 MainChoice::Profile("local".to_owned()),
                 MainChoice::Profile("work".to_owned()),
-                MainChoice::Create,
-                MainChoice::Reset
             ]
         );
-        let local = &choices[0].1;
+        let local = &choices[1].1;
         // The model is left to the profile menu, so no row can outgrow a narrow terminal.
         assert_eq!(local.detail.as_deref(), Some("Ollama · Ollama Chat"));
         assert_eq!(local.badge.as_ref().unwrap().text, "default");
-        assert!(choices[1].1.badge.is_none());
-        assert!(choices[1].1.detail.as_deref().unwrap().len() < 40);
-
-        let screen = manager_screen(&config, &choices);
-        assert!(screen.note.is_none());
-        assert_eq!(screen.choices.len(), 4);
+        assert!(choices[2].1.badge.is_none());
+        assert!(choices[2].1.detail.as_deref().unwrap().len() < 40);
     }
 
     #[test]
-    fn the_empty_state_explains_how_to_start() {
+    fn only_profiles_can_be_marked_and_create_sits_above_a_gap() {
+        let mut config = AssistantConfig::default();
+        config.insert_profile("a", profile("m")).unwrap();
+        config.insert_profile("b", profile("m")).unwrap();
+        let choices = main_choices(&config);
+        let screen = manager_screen(&config, &choices, true);
+        assert_eq!(screen.markable, [false, true, true]);
+        assert_eq!(screen.gaps, [1]);
+        assert!(screen.note.is_none());
+    }
+
+    #[test]
+    fn the_empty_state_explains_how_to_start_or_where_saved_keys_went() {
         let config = AssistantConfig::default();
-        let screen = manager_screen(&config, &main_choices(&config, false));
-        assert!(screen.note.as_deref().unwrap().contains("inifra ask"));
+        let choices = main_choices(&config);
+        let fresh = manager_screen(&config, &choices, false);
+        assert!(fresh.note.as_deref().unwrap().contains("inifra ask"));
+        assert!(fresh.gaps.is_empty());
+
+        let leftover = manager_screen(&config, &choices, true);
+        assert!(
+            leftover
+                .note
+                .as_deref()
+                .unwrap()
+                .contains("inifra assistant reset")
+        );
     }
 
     #[test]
