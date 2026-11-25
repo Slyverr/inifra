@@ -289,6 +289,8 @@ struct Draft {
     name: Option<String>,
     base_url: Option<String>,
     key: Option<KeySetup>,
+    /// The key option last picked, so stepping back to the key screen lands on it again.
+    key_choice: Option<KeyChoice>,
     model: Option<String>,
     effort: Option<String>,
 }
@@ -305,6 +307,7 @@ impl Draft {
                 source: profile.credential_source,
                 secret: None,
             }),
+            key_choice: None,
             model: Some(profile.model.clone()),
             effort: profile.effort.map(|effort| effort.as_str().to_owned()),
         }
@@ -558,7 +561,7 @@ impl Setup<'_> {
         }) && read_credential(self.credentials_path, &name)?
             .is_some_and(|secret| !secret.trim().is_empty());
         let options = key_options(template, &name, keep_stored);
-        let mut last_choice = None;
+        let mut last_choice = draft.key_choice;
         loop {
             let initial = last_choice
                 .or_else(|| existing_key_choice(self.existing.as_ref(), keep_stored))
@@ -582,6 +585,7 @@ impl Setup<'_> {
                 InteractionOutcome::Quit => return Ok(Flow::Quit),
             };
             last_choice = Some(selected);
+            draft.key_choice = Some(selected);
 
             let setup = match selected {
                 KeyChoice::None => KeySetup {
