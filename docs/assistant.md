@@ -38,6 +38,8 @@ inifra assistant remove ID       # Confirm and remove one profile
 inifra assistant reset           # Confirm and remove all assistant data
 ```
 
+In the interactive manager (`inifra assistant`), the saved profiles are the rows, focused on the default, with a `default` tag that always stays visible; Create a profile and Reset assistant data follow them. Choosing a profile opens its menu: a summary of its connection, model, effort, base URL, and key source, then Edit, Make default (hidden for the profile that already is the default), and Remove. Edit lists the parts of the profile with their current values (Model, API key, Effort, API base URL, Connection) and changes only the one you pick, saving it before returning to the list. Choosing Connection re-runs the full setup, because the other answers depend on it.
+
 Removing one profile leaves saved credential entries in place because profiles may share them. Reset removes only `assistant.toml` and `credentials.env` from the Inifra configuration directory; it does not remove template packs, presets, or other files.
 
 ## Credentials

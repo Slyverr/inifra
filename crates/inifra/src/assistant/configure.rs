@@ -29,6 +29,7 @@ pub(super) fn configure_profile(
         profile_id,
         existing,
         presets,
+        single_step: false,
     };
 
     let mut draft = Draft::default();
@@ -59,25 +60,54 @@ pub(super) fn configure_profile(
     }
 
     let id = setup.id(&draft)?;
+    let (profile, key) = build_profile(&mut draft)?;
+    save_profile(
+        config_path,
+        credentials_path,
+        &mut config,
+        &id,
+        profile,
+        &key,
+    )?;
+    let saved_profile = config
+        .profile(&id)
+        .ok_or("saved assistant profile is missing from the configuration")?;
+    println!("{}", saved_message(&id, saved_profile));
+    println!("{}", default_message(&config, &id));
+    Ok(UiExit::Continue)
+}
+
+/// Turns the answers into a validated profile and the key setup that goes with it.
+fn build_profile(draft: &mut Draft) -> Result<(AssistantProfile, KeySetup), Box<dyn Error>> {
     let template = draft.template.ok_or("no connection was chosen")?;
     let key = draft.key.take().ok_or("no API key choice was made")?;
-    let base_url = draft.base_url.clone().filter(|value| !value.is_empty());
     let profile = AssistantProfile {
         provider: template.provider,
         api: template.api,
         model: draft.model.take().ok_or("no model was chosen")?,
-        base_url,
+        base_url: draft.base_url.clone().filter(|value| !value.is_empty()),
         api_key_env: key.api_key_env.clone(),
         credential_source: key.source,
         effort: draft.effort.as_deref().and_then(Effort::parse),
     };
     profile.validate()?;
+    Ok((profile, key))
+}
 
+/// Writes the profile and any pasted key; a failed key write restores the previous config.
+fn save_profile(
+    config_path: &Path,
+    credentials_path: &Path,
+    config: &mut AssistantConfig,
+    id: &str,
+    profile: AssistantProfile,
+    key: &KeySetup,
+) -> Result<(), Box<dyn Error>> {
     let original = AssistantConfig::load(config_path)?;
-    if config.profile(&id).is_some() {
-        config.replace_profile(&id, profile)?;
+    if config.profile(id).is_some() {
+        config.replace_profile(id, profile)?;
     } else {
-        config.insert_profile(&id, profile)?;
+        config.insert_profile(id, profile)?;
     }
     config.save(config_path)?;
 
@@ -87,13 +117,152 @@ pub(super) fn configure_profile(
         restore_config(config_path, original)?;
         return Err(error.into());
     }
+    Ok(())
+}
 
-    let saved_profile = config
-        .profile(&id)
-        .ok_or("saved assistant profile is missing from the configuration")?;
-    println!("{}", saved_message(&id, saved_profile));
-    println!("{}", default_message(&config, &id));
-    Ok(UiExit::Continue)
+/// The parts of a saved profile that can be edited on their own.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Part {
+    Model,
+    Key,
+    Effort,
+    BaseUrl,
+    Connection,
+}
+
+/// Lists a profile's parts with their current values and edits only the one that is chosen.
+/// Choosing the connection re-runs the full setup, because everything else depends on it.
+pub(super) fn edit_profile(
+    config_path: &Path,
+    credentials_path: &Path,
+    id: &str,
+) -> Result<UiExit, Box<dyn Error>> {
+    let mut last = Part::Model;
+    loop {
+        let mut config = AssistantConfig::load(config_path)?.unwrap_or_default();
+        let Some(profile) = config.profile(id).cloned() else {
+            return Ok(UiExit::Continue);
+        };
+        let template = existing_template(&profile)?;
+        let parts = edit_parts(template, &profile);
+        let screen = SelectScreen {
+            heading: Heading::new("edit profile").context(id),
+            choices: parts.iter().map(|(_, row)| row.clone()).collect(),
+            initial: parts
+                .iter()
+                .position(|(part, _)| *part == last)
+                .unwrap_or_default(),
+            ..SelectScreen::default()
+        };
+        let part = match run_select(&screen)? {
+            InteractionOutcome::Selected(selected) => parts[selected].0,
+            InteractionOutcome::Back => return Ok(UiExit::Continue),
+            InteractionOutcome::Quit => return Ok(UiExit::Quit),
+        };
+        last = part;
+
+        if part == Part::Connection {
+            if configure_profile(config_path, credentials_path, config, Some(id))? == UiExit::Quit {
+                return Ok(UiExit::Quit);
+            }
+            continue;
+        }
+
+        let presets = PROVIDER_PRESETS
+            .iter()
+            .filter(|preset| preset.selectable)
+            .copied()
+            .collect::<Vec<_>>();
+        let mut setup = Setup {
+            choice: ConnectionChoice::initial(Some(&profile), &presets),
+            config: &config,
+            credentials_path,
+            profile_id: Some(id),
+            existing: Some(profile.clone()),
+            presets,
+            single_step: true,
+        };
+        let mut draft = Draft::from_profile(template, id, &profile);
+        let flow = match part {
+            Part::Model => setup.model(&mut draft)?,
+            Part::Key => setup.key(&mut draft)?,
+            Part::Effort => setup.effort(&mut draft)?,
+            Part::BaseUrl => setup.base_url(&mut draft)?,
+            Part::Connection => unreachable!("handled above"),
+        };
+        match flow {
+            Flow::Quit => return Ok(UiExit::Quit),
+            Flow::Back => {}
+            Flow::Next => {
+                let (updated, key) = build_profile(&mut draft)?;
+                save_profile(
+                    config_path,
+                    credentials_path,
+                    &mut config,
+                    id,
+                    updated,
+                    &key,
+                )?;
+                let saved = config
+                    .profile(id)
+                    .ok_or("saved assistant profile is missing from the configuration")?;
+                println!("{}", saved_message(id, saved));
+            }
+        }
+    }
+}
+
+/// The template a saved profile was made from; legacy OpenAI-compatible profiles count as
+/// custom endpoints.
+fn existing_template(profile: &AssistantProfile) -> Result<ConnectionTemplate, Box<dyn Error>> {
+    let provider = if profile.provider == Provider::OpenAiCompatible {
+        Provider::CustomEndpoint
+    } else {
+        profile.provider
+    };
+    connection_template(provider, profile.api)
+        .ok_or_else(|| "this profile uses a connection that is no longer supported".into())
+}
+
+/// The editable parts for a profile, in the order they are offered, with current values.
+fn edit_parts(template: ConnectionTemplate, profile: &AssistantProfile) -> Vec<(Part, Row)> {
+    let mut parts = vec![(Part::Model, Row::new("Model").detail(profile.model.clone()))];
+    if key_possible(template, Some(profile)) {
+        parts.push((Part::Key, Row::new("API key").detail(key_summary(profile))));
+    }
+    parts.push((
+        Part::Effort,
+        Row::new("Effort").detail(
+            profile
+                .effort
+                .map_or("provider default", |effort| effort.as_str())
+                .to_owned(),
+        ),
+    ));
+    if let Some(base_url) = &profile.base_url {
+        parts.push((
+            Part::BaseUrl,
+            Row::new("API base URL").detail(base_url.clone()),
+        ));
+    }
+    parts.push((
+        Part::Connection,
+        Row::new("Connection").detail(format!(
+            "{} · {}",
+            profile.provider.display_name(),
+            profile.api.short_name()
+        )),
+    ));
+    parts
+}
+
+/// How a saved profile gets its key, without ever including the key.
+pub(super) fn key_summary(profile: &AssistantProfile) -> String {
+    match (&profile.api_key_env, profile.credential_source) {
+        (None, _) => "no key".to_owned(),
+        (Some(name), CredentialSource::Environment) => format!("{name} (environment)"),
+        (Some(name), CredentialSource::CredentialsFile) => format!("{name} (stored)"),
+    }
 }
 
 /// The setup screens. Each can be revisited with Esc without losing earlier answers.
@@ -124,6 +293,24 @@ struct Draft {
     effort: Option<String>,
 }
 
+impl Draft {
+    /// Answers that match a saved profile, so one step can be redone and the rest kept.
+    fn from_profile(template: ConnectionTemplate, id: &str, profile: &AssistantProfile) -> Self {
+        Self {
+            template: Some(template),
+            name: Some(id.to_owned()),
+            base_url: profile.base_url.clone(),
+            key: Some(KeySetup {
+                api_key_env: profile.api_key_env.clone(),
+                source: profile.credential_source,
+                secret: None,
+            }),
+            model: Some(profile.model.clone()),
+            effort: profile.effort.map(|effort| effort.as_str().to_owned()),
+        }
+    }
+}
+
 struct KeySetup {
     api_key_env: Option<String>,
     source: CredentialSource,
@@ -151,6 +338,8 @@ struct Setup<'a> {
     profile_id: Option<&'a str>,
     existing: Option<AssistantProfile>,
     presets: Vec<ProviderPreset>,
+    /// Editing one part of a saved profile: screens show no outline of other steps.
+    single_step: bool,
 }
 
 impl Setup<'_> {
@@ -257,6 +446,23 @@ impl Setup<'_> {
         current: Step,
         branch: Option<(&str, Option<String>)>,
     ) -> Heading {
+        if self.single_step {
+            let part = match current {
+                Step::Connection => "connection",
+                Step::Name => "name",
+                Step::BaseUrl => "API base URL",
+                Step::Key => "API key",
+                Step::Model => "model",
+                Step::Effort => "effort",
+            };
+            let mut heading = Heading::new("edit profile")
+                .context(self.profile_id.unwrap_or_default())
+                .context(part);
+            if let Some((name, _)) = branch {
+                heading = heading.context(name);
+            }
+            return heading;
+        }
         Heading::new(if self.existing.is_some() {
             "edit profile"
         } else {
@@ -1316,6 +1522,7 @@ mod tests {
             profile_id,
             existing: None,
             presets: Vec::new(),
+            single_step: false,
         }
     }
 
@@ -1392,6 +1599,109 @@ mod tests {
         assert_eq!(rows[1].value.as_deref(), Some("work"));
         assert_eq!(rows[2].branch, Some(("Paste a key".to_owned(), None)));
         assert!(rows[3].branch.is_none());
+    }
+
+    fn saved(provider: Provider, api: ApiProtocol) -> AssistantProfile {
+        AssistantProfile {
+            provider,
+            api,
+            model: "gpt-5".to_owned(),
+            base_url: None,
+            api_key_env: Some("OPENAI_API_KEY".to_owned()),
+            credential_source: CredentialSource::Environment,
+            effort: Some(inifra_assistant::Effort::Low),
+        }
+    }
+
+    #[test]
+    fn edit_lists_each_part_of_a_profile_with_its_current_value() {
+        let profile = saved(Provider::OpenAi, ApiProtocol::OpenAiResponses);
+        let parts = super::edit_parts(super::existing_template(&profile).unwrap(), &profile);
+        let described = parts
+            .iter()
+            .map(|(part, row)| (*part, row.label.as_str(), row.detail.clone().unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            described,
+            [
+                (super::Part::Model, "Model", "gpt-5".to_owned()),
+                (
+                    super::Part::Key,
+                    "API key",
+                    "OPENAI_API_KEY (environment)".to_owned()
+                ),
+                (super::Part::Effort, "Effort", "low".to_owned()),
+                (
+                    super::Part::Connection,
+                    "Connection",
+                    "OpenAI · Responses".to_owned()
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn edit_offers_the_base_url_only_when_a_profile_has_one_and_no_key_for_keyless_ones() {
+        let mut custom = saved(Provider::CustomEndpoint, ApiProtocol::OpenAiChatCompletions);
+        custom.base_url = Some("https://host.example/v1".to_owned());
+        let parts = super::edit_parts(super::existing_template(&custom).unwrap(), &custom);
+        assert!(parts.iter().any(|(part, _)| *part == super::Part::BaseUrl));
+
+        let mut local = saved(Provider::Ollama, ApiProtocol::OllamaChat);
+        local.api_key_env = None;
+        local.effort = None;
+        let parts = super::edit_parts(super::existing_template(&local).unwrap(), &local);
+        assert!(!parts.iter().any(|(part, _)| *part == super::Part::Key));
+        assert_eq!(
+            parts
+                .iter()
+                .find(|(part, _)| *part == super::Part::Effort)
+                .unwrap()
+                .1
+                .detail
+                .as_deref(),
+            Some("provider default")
+        );
+    }
+
+    #[test]
+    fn legacy_openai_compatible_profiles_edit_as_custom_endpoints() {
+        let legacy = saved(
+            Provider::OpenAiCompatible,
+            ApiProtocol::OpenAiChatCompletions,
+        );
+        let template = super::existing_template(&legacy).unwrap();
+        assert_eq!(template.provider, Provider::CustomEndpoint);
+    }
+
+    #[test]
+    fn editing_one_part_keeps_every_other_answer() {
+        let mut profile = saved(Provider::OpenAi, ApiProtocol::OpenAiResponses);
+        profile.credential_source = CredentialSource::CredentialsFile;
+        let template = super::existing_template(&profile).unwrap();
+        let mut draft = Draft::from_profile(template, "work", &profile);
+        draft.model = Some("gpt-5-mini".to_owned());
+
+        let (updated, key) = super::build_profile(&mut draft).unwrap();
+        assert_eq!(updated.model, "gpt-5-mini");
+        assert_eq!(updated.effort, profile.effort);
+        assert_eq!(updated.api_key_env, profile.api_key_env);
+        assert_eq!(updated.credential_source, CredentialSource::CredentialsFile);
+        // Nothing new was pasted, so the stored key is left alone.
+        assert!(key.secret.is_none());
+    }
+
+    #[test]
+    fn single_step_headings_name_the_part_without_an_outline() {
+        let config = AssistantConfig::default();
+        let profile = saved(Provider::OpenAi, ApiProtocol::OpenAiResponses);
+        let template = super::existing_template(&profile).unwrap();
+        let mut single = setup(&config, Some("work"));
+        single.single_step = true;
+        let draft = Draft::from_profile(template, "work", &profile);
+        // The outline rows still describe every step; only the heading chooses not to show them.
+        assert_eq!(single.outline_rows(&draft, Step::Model, None).len(), 5);
+        let _ = single.heading(&draft, Step::Model, None);
     }
 
     #[test]
