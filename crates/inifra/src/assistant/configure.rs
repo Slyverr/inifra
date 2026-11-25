@@ -2,13 +2,13 @@ use super::UiExit;
 use inifra_assistant::{
     ApiProtocol, AssistantConfig, AssistantProfile, ConnectionTemplate, CredentialSource, Effort,
     PROVIDER_PRESETS, Provider, ProviderPreset, connection_template, is_valid_profile_id,
-    read_credential, write_credential,
+    list_models, read_credential, write_credential,
 };
 use inifra_tui::{
     Badge, FormOutcome, Heading, InteractionOutcome, Row, SelectScreen, TextField, presentation,
     presentation::Tone, run_form, run_secret_input, run_select,
 };
-use std::{collections::BTreeMap, error::Error, fs, path::Path};
+use std::{collections::BTreeMap, error::Error, fs, io::Write, path::Path};
 
 pub(super) fn configure_profile(
     config_path: &Path,
@@ -22,157 +22,42 @@ pub(super) fn configure_profile(
         .copied()
         .collect::<Vec<_>>();
     let existing = profile_id.and_then(|id| config.profile(id)).cloned();
-    let task = if existing.is_some() {
-        "edit profile"
-    } else {
-        "new profile"
-    };
-    let heading = |id: Option<&str>| {
-        let heading = Heading::new(task);
-        match id {
-            Some(id) => heading.context(id),
-            None => heading,
-        }
+    let mut setup = Setup {
+        choice: ConnectionChoice::initial(existing.as_ref(), &presets),
+        config: &config,
+        credentials_path,
+        profile_id,
+        existing,
+        presets,
     };
 
-    let mut choice = ConnectionChoice::initial(existing.as_ref(), &presets);
-
-    let (id, template, values, api_key_env, credential_source, secret) = 'selection: loop {
-        let template = match select_connection(
-            &heading(profile_id),
-            &mut choice,
-            &presets,
-            existing.as_ref(),
-        )? {
-            Selected::Template(template) => template,
-            Selected::Back => return Ok(UiExit::Continue),
-            Selected::Quit => return Ok(UiExit::Quit),
+    let mut draft = Draft::default();
+    let mut step = Step::Connection;
+    loop {
+        let flow = match step {
+            Step::Connection => setup.connection(&mut draft)?,
+            Step::Basics => setup.basics(&mut draft)?,
+            Step::Key => setup.key(&mut draft)?,
+            Step::Model => setup.model(&mut draft)?,
+            Step::Effort => setup.effort(&mut draft)?,
         };
-        let form_heading = heading(profile_id)
-            .context(template.provider.display_name())
-            .context(template.api.short_name());
-        let mut fields = Vec::new();
-        if profile_id.is_none() {
-            fields.push(profile_id_field(&config));
-        }
-        fields.extend(profile_fields(template, existing.as_ref()));
-
-        let mut values = match run_form(&form_heading, fields.clone())? {
-            FormOutcome::Submitted(values) => values,
-            FormOutcome::Back => {
-                choice.resume_at_list = true;
-                continue 'selection;
-            }
-            FormOutcome::Quit => return Ok(UiExit::Quit),
+        step = match (step, flow) {
+            (_, Flow::Quit) => return Ok(UiExit::Quit),
+            (Step::Connection, Flow::Back) => return Ok(UiExit::Continue),
+            (Step::Connection, Flow::Next) => Step::Basics,
+            (Step::Basics, Flow::Next) => Step::Key,
+            (Step::Key, Flow::Next) => Step::Model,
+            (Step::Model, Flow::Next) => Step::Effort,
+            (Step::Effort, Flow::Next) => break,
+            (step, Flow::Back) => setup.previous(step, &draft),
         };
-        let key_possible = key_possible(template, existing.as_ref());
-        let mut last_choice: Option<KeyChoice> = None;
+    }
 
-        let (id, api_key_env, credential_source, secret) = 'credentials: loop {
-            let id = match profile_id {
-                Some(id) => id.to_owned(),
-                None => normalize_profile_name(&required_value(&values, "id")?),
-            };
-            if !key_possible {
-                break (id, None, CredentialSource::Environment, None);
-            }
-
-            let name = key_variable_name(template, &id, existing.as_ref());
-            let keep_stored = existing.as_ref().is_some_and(|profile| {
-                profile.credential_source == CredentialSource::CredentialsFile
-                    && profile.api_key_env.as_deref() == Some(&name)
-            }) && read_credential(credentials_path, &name)?
-                .is_some_and(|secret| !secret.trim().is_empty());
-            let options = key_options(template, &name, keep_stored);
-            let initial = last_choice
-                .or_else(|| existing_key_choice(existing.as_ref(), keep_stored))
-                .or(Some(if template.api_key_required {
-                    KeyChoice::Paste
-                } else {
-                    KeyChoice::None
-                }))
-                .and_then(|choice| options.iter().position(|(kind, _)| *kind == choice))
-                .unwrap_or_default();
-            let screen = SelectScreen {
-                heading: heading(Some(&id)).context("API key"),
-                choices: options.iter().map(|(_, row)| row.clone()).collect(),
-                initial,
-                ..SelectScreen::default()
-            };
-            let selected = match run_select(&screen)? {
-                InteractionOutcome::Selected(selected) => options[selected].0,
-                InteractionOutcome::Back => {
-                    match run_form(&form_heading, with_form_values(fields.clone(), &values))? {
-                        FormOutcome::Submitted(next_values) => {
-                            values = next_values;
-                            continue 'credentials;
-                        }
-                        FormOutcome::Back => {
-                            choice.resume_at_list = true;
-                            continue 'selection;
-                        }
-                        FormOutcome::Quit => return Ok(UiExit::Quit),
-                    }
-                }
-                InteractionOutcome::Quit => return Ok(UiExit::Quit),
-            };
-            last_choice = Some(selected);
-
-            match selected {
-                KeyChoice::None => break (id, None, CredentialSource::Environment, None),
-                KeyChoice::Variable => {
-                    break (id, Some(name), CredentialSource::Environment, None);
-                }
-                KeyChoice::Keep => {
-                    break (id, Some(name), CredentialSource::CredentialsFile, None);
-                }
-                KeyChoice::OtherVariable => {
-                    let field = TextField::new("name", "Variable name")
-                        .required()
-                        .hint("the environment variable's name, such as WORK_API_KEY")
-                        .default_value(Some(name))
-                        .check(|value| {
-                            if is_variable_name(value) {
-                                Ok(())
-                            } else {
-                                Err("Use uppercase letters, digits, and underscores.".to_owned())
-                            }
-                        });
-                    match run_form(&heading(Some(&id)).context("API key variable"), vec![field])? {
-                        FormOutcome::Submitted(values) => {
-                            let name = required_value(&values, "name")?;
-                            break (id, Some(name), CredentialSource::Environment, None);
-                        }
-                        FormOutcome::Back => continue 'credentials,
-                        FormOutcome::Quit => return Ok(UiExit::Quit),
-                    }
-                }
-                KeyChoice::Paste => {
-                    let field = TextField::new("secret", "API key").hint(format!(
-                        "saved as {name} in credentials.env, never in assistant.toml"
-                    ));
-                    match run_secret_input(&heading(Some(&id)).context("save API key"), field)? {
-                        FormOutcome::Submitted(values) => {
-                            let secret = required_value(&values, "secret")?;
-                            break (
-                                id,
-                                Some(name),
-                                CredentialSource::CredentialsFile,
-                                Some(secret),
-                            );
-                        }
-                        FormOutcome::Back => continue 'credentials,
-                        FormOutcome::Quit => return Ok(UiExit::Quit),
-                    }
-                }
-            }
-        };
-
-        break 'selection (id, template, values, api_key_env, credential_source, secret);
-    };
-
-    let model = required_value(&values, "model")?;
-    let base_url = values
+    let id = setup.id(&draft)?;
+    let template = draft.template.ok_or("no connection was chosen")?;
+    let key = draft.key.take().ok_or("no API key choice was made")?;
+    let base_url = draft
+        .basics
         .get("base_url")
         .map(|value| value.trim())
         .filter(|value| !value.is_empty())
@@ -180,11 +65,11 @@ pub(super) fn configure_profile(
     let profile = AssistantProfile {
         provider: template.provider,
         api: template.api,
-        model,
+        model: draft.model.take().ok_or("no model was chosen")?,
         base_url,
-        api_key_env: api_key_env.clone(),
-        credential_source,
-        effort: values.get("effort").and_then(|value| Effort::parse(value)),
+        api_key_env: key.api_key_env.clone(),
+        credential_source: key.source,
+        effort: draft.effort.as_deref().and_then(Effort::parse),
     };
     profile.validate()?;
 
@@ -196,7 +81,7 @@ pub(super) fn configure_profile(
     }
     config.save(config_path)?;
 
-    if let (Some(name), Some(secret)) = (api_key_env.as_deref(), secret.as_deref())
+    if let (Some(name), Some(secret)) = (key.api_key_env.as_deref(), key.secret.as_deref())
         && let Err(error) = write_credential(credentials_path, name, secret)
     {
         restore_config(config_path, original)?;
@@ -209,6 +94,409 @@ pub(super) fn configure_profile(
     println!("{}", saved_message(&id, saved_profile));
     println!("{}", default_message(&config, &id));
     Ok(UiExit::Continue)
+}
+
+/// The setup screens, in order. Each can be revisited with Esc without losing earlier answers.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Step {
+    Connection,
+    Basics,
+    Key,
+    Model,
+    Effort,
+}
+
+enum Flow {
+    Next,
+    Back,
+    Quit,
+}
+
+/// What the user has chosen so far.
+#[derive(Default)]
+struct Draft {
+    template: Option<ConnectionTemplate>,
+    basics: BTreeMap<String, String>,
+    key: Option<KeySetup>,
+    model: Option<String>,
+    effort: Option<String>,
+}
+
+struct KeySetup {
+    api_key_env: Option<String>,
+    source: CredentialSource,
+    secret: Option<String>,
+}
+
+struct Setup<'a> {
+    choice: ConnectionChoice,
+    config: &'a AssistantConfig,
+    credentials_path: &'a Path,
+    profile_id: Option<&'a str>,
+    existing: Option<AssistantProfile>,
+    presets: Vec<ProviderPreset>,
+}
+
+impl Setup<'_> {
+    fn heading(&self, id: Option<&str>) -> Heading {
+        let heading = Heading::new(if self.existing.is_some() {
+            "edit profile"
+        } else {
+            "new profile"
+        });
+        match id {
+            Some(id) => heading.context(id),
+            None => heading,
+        }
+    }
+
+    fn connection_heading(&self, template: ConnectionTemplate) -> Heading {
+        self.heading(self.profile_id)
+            .context(template.provider.display_name())
+            .context(template.api.short_name())
+    }
+
+    fn id(&self, draft: &Draft) -> Result<String, Box<dyn Error>> {
+        Ok(match self.profile_id {
+            Some(id) => id.to_owned(),
+            None => normalize_profile_name(&required_value(&draft.basics, "id")?),
+        })
+    }
+
+    fn template(draft: &Draft) -> Result<ConnectionTemplate, Box<dyn Error>> {
+        draft
+            .template
+            .ok_or_else(|| "no connection was chosen".into())
+    }
+
+    fn basics_fields(&self, template: ConnectionTemplate) -> Vec<TextField> {
+        let mut fields = Vec::new();
+        if self.profile_id.is_none() {
+            fields.push(profile_id_field(self.config));
+        }
+        fields.extend(endpoint_fields(template, self.existing.as_ref()));
+        fields
+    }
+
+    /// Steps with nothing to ask are passed over, in both directions.
+    fn skipped(&self, step: Step, draft: &Draft) -> bool {
+        let Some(template) = draft.template else {
+            return false;
+        };
+        match step {
+            Step::Basics => self.basics_fields(template).is_empty(),
+            Step::Key => !key_possible(template, self.existing.as_ref()),
+            _ => false,
+        }
+    }
+
+    fn previous(&mut self, from: Step, draft: &Draft) -> Step {
+        let mut step = from;
+        loop {
+            step = match step {
+                Step::Connection | Step::Basics => Step::Connection,
+                Step::Key => Step::Basics,
+                Step::Model => Step::Key,
+                Step::Effort => Step::Model,
+            };
+            if !self.skipped(step, draft) {
+                break;
+            }
+        }
+        if step == Step::Connection {
+            self.choice.resume_at_list = true;
+        }
+        step
+    }
+
+    fn connection(&mut self, draft: &mut Draft) -> Result<Flow, Box<dyn Error>> {
+        let template = match select_connection(
+            &self.heading(self.profile_id),
+            &mut self.choice,
+            &self.presets,
+            self.existing.as_ref(),
+        )? {
+            Selected::Template(template) => template,
+            Selected::Back => return Ok(Flow::Back),
+            Selected::Quit => return Ok(Flow::Quit),
+        };
+        if draft.template != Some(template) {
+            *draft = Draft {
+                template: Some(template),
+                ..Draft::default()
+            };
+        }
+        Ok(Flow::Next)
+    }
+
+    fn basics(&mut self, draft: &mut Draft) -> Result<Flow, Box<dyn Error>> {
+        let template = Self::template(draft)?;
+        let fields = self.basics_fields(template);
+        if fields.is_empty() {
+            return Ok(Flow::Next);
+        }
+        match run_form(
+            &self.connection_heading(template),
+            with_form_values(fields, &draft.basics),
+        )? {
+            FormOutcome::Submitted(values) => {
+                draft.basics = values;
+                Ok(Flow::Next)
+            }
+            FormOutcome::Back => Ok(Flow::Back),
+            FormOutcome::Quit => Ok(Flow::Quit),
+        }
+    }
+
+    fn key(&mut self, draft: &mut Draft) -> Result<Flow, Box<dyn Error>> {
+        let template = Self::template(draft)?;
+        let id = self.id(draft)?;
+        if !key_possible(template, self.existing.as_ref()) {
+            draft.key = Some(KeySetup {
+                api_key_env: None,
+                source: CredentialSource::Environment,
+                secret: None,
+            });
+            return Ok(Flow::Next);
+        }
+
+        let name = key_variable_name(template, &id, self.existing.as_ref());
+        let keep_stored = self.existing.as_ref().is_some_and(|profile| {
+            profile.credential_source == CredentialSource::CredentialsFile
+                && profile.api_key_env.as_deref() == Some(&name)
+        }) && read_credential(self.credentials_path, &name)?
+            .is_some_and(|secret| !secret.trim().is_empty());
+        let options = key_options(template, &name, keep_stored);
+        let mut last_choice = None;
+        loop {
+            let initial = last_choice
+                .or_else(|| existing_key_choice(self.existing.as_ref(), keep_stored))
+                .unwrap_or(if template.provider == Provider::Ollama {
+                    KeyChoice::None
+                } else {
+                    KeyChoice::Paste
+                });
+            let screen = SelectScreen {
+                heading: self.heading(Some(&id)).context("API key"),
+                choices: options.iter().map(|(_, row)| row.clone()).collect(),
+                initial: options
+                    .iter()
+                    .position(|(kind, _)| *kind == initial)
+                    .unwrap_or_default(),
+                ..SelectScreen::default()
+            };
+            let selected = match run_select(&screen)? {
+                InteractionOutcome::Selected(selected) => options[selected].0,
+                InteractionOutcome::Back => return Ok(Flow::Back),
+                InteractionOutcome::Quit => return Ok(Flow::Quit),
+            };
+            last_choice = Some(selected);
+
+            let setup = match selected {
+                KeyChoice::None => KeySetup {
+                    api_key_env: None,
+                    source: CredentialSource::Environment,
+                    secret: None,
+                },
+                KeyChoice::Variable => KeySetup {
+                    api_key_env: Some(name.clone()),
+                    source: CredentialSource::Environment,
+                    secret: None,
+                },
+                KeyChoice::Keep => KeySetup {
+                    api_key_env: Some(name.clone()),
+                    source: CredentialSource::CredentialsFile,
+                    secret: None,
+                },
+                KeyChoice::OtherVariable => {
+                    let field = TextField::new("name", "Variable name")
+                        .required()
+                        .hint("the environment variable's name, such as WORK_API_KEY")
+                        .default_value(Some(name.clone()))
+                        .check(|value| {
+                            if is_variable_name(value) {
+                                Ok(())
+                            } else {
+                                Err("Use uppercase letters, digits, and underscores.".to_owned())
+                            }
+                        });
+                    match run_form(
+                        &self.heading(Some(&id)).context("API key variable"),
+                        vec![field],
+                    )? {
+                        FormOutcome::Submitted(values) => KeySetup {
+                            api_key_env: Some(required_value(&values, "name")?),
+                            source: CredentialSource::Environment,
+                            secret: None,
+                        },
+                        FormOutcome::Back => continue,
+                        FormOutcome::Quit => return Ok(Flow::Quit),
+                    }
+                }
+                KeyChoice::Paste => {
+                    let field = TextField::new("secret", "API key").hint(format!(
+                        "saved as {name} in credentials.env, never in assistant.toml"
+                    ));
+                    match run_secret_input(&self.heading(Some(&id)).context("save API key"), field)?
+                    {
+                        FormOutcome::Submitted(values) => KeySetup {
+                            api_key_env: Some(name.clone()),
+                            source: CredentialSource::CredentialsFile,
+                            secret: Some(required_value(&values, "secret")?),
+                        },
+                        FormOutcome::Back => continue,
+                        FormOutcome::Quit => return Ok(Flow::Quit),
+                    }
+                }
+            };
+            draft.key = Some(setup);
+            return Ok(Flow::Next);
+        }
+    }
+
+    /// Offers the provider's own model list when it can be fetched, and a typed ID otherwise.
+    fn model(&mut self, draft: &mut Draft) -> Result<Flow, Box<dyn Error>> {
+        let template = Self::template(draft)?;
+        let id = self.id(draft)?;
+        let heading = self.heading(Some(&id)).context("model");
+        let previous = draft
+            .model
+            .clone()
+            .or_else(|| self.existing.as_ref().map(|profile| profile.model.clone()));
+
+        let (models, note) = match self.fetch_models(template, draft, previous.as_deref()) {
+            Ok(models) if !models.is_empty() => (models, None),
+            Ok(_) => (Vec::new(), Some("the provider listed no models".to_owned())),
+            Err(reason) => (Vec::new(), Some(reason)),
+        };
+
+        loop {
+            if !models.is_empty() {
+                let mut choices = vec![Row::new("Enter a model ID").detail("type one yourself")];
+                choices.extend(models.iter().map(Row::new));
+                let initial = previous
+                    .as_deref()
+                    .and_then(|model| models.iter().position(|candidate| candidate == model))
+                    .map_or(1, |position| position + 1);
+                let screen = SelectScreen {
+                    heading: heading.clone(),
+                    choices,
+                    initial,
+                    filterable: true,
+                    ..SelectScreen::default()
+                };
+                match run_select(&screen)? {
+                    InteractionOutcome::Selected(0) => {}
+                    InteractionOutcome::Selected(selected) => {
+                        draft.model = Some(models[selected - 1].clone());
+                        return Ok(Flow::Next);
+                    }
+                    InteractionOutcome::Back => return Ok(Flow::Back),
+                    InteractionOutcome::Quit => return Ok(Flow::Quit),
+                }
+            }
+
+            let hint = match &note {
+                Some(reason) => {
+                    format!("{reason} · switch for one session with /model in inifra ask")
+                }
+                None => "switch for one session with /model in inifra ask".to_owned(),
+            };
+            let field = TextField::new("model", "Default model")
+                .required()
+                .hint(hint)
+                .default_value(previous.clone());
+            match run_form(&heading, vec![field])? {
+                FormOutcome::Submitted(values) => {
+                    draft.model = Some(required_value(&values, "model")?);
+                    return Ok(Flow::Next);
+                }
+                FormOutcome::Back if models.is_empty() => return Ok(Flow::Back),
+                FormOutcome::Back => {}
+                FormOutcome::Quit => return Ok(Flow::Quit),
+            }
+        }
+    }
+
+    fn effort(&mut self, draft: &mut Draft) -> Result<Flow, Box<dyn Error>> {
+        let id = self.id(draft)?;
+        let default = draft.effort.clone().or_else(|| {
+            self.existing
+                .as_ref()
+                .and_then(|profile| profile.effort)
+                .map(|effort| effort.as_str().to_owned())
+        });
+        let heading = self.heading(Some(&id)).context("effort");
+        match run_form(&heading, vec![effort_field(default)])? {
+            FormOutcome::Submitted(values) => {
+                draft.effort = values.get("effort").cloned();
+                Ok(Flow::Next)
+            }
+            FormOutcome::Back => Ok(Flow::Back),
+            FormOutcome::Quit => Ok(Flow::Quit),
+        }
+    }
+
+    /// Asks the provider for its model IDs with the key just chosen. Any failure is returned as
+    /// a short reason so the caller can fall back to typing a model ID.
+    fn fetch_models(
+        &self,
+        template: ConnectionTemplate,
+        draft: &Draft,
+        model: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        let key = draft.key.as_ref().ok_or("no API key choice was made")?;
+        let credential = match (&key.secret, &key.api_key_env, key.source) {
+            (Some(secret), _, _) => Some(secret.clone()),
+            (None, Some(name), CredentialSource::Environment) => std::env::var(name).ok(),
+            (None, Some(name), CredentialSource::CredentialsFile) => {
+                read_credential(self.credentials_path, name).ok().flatten()
+            }
+            (None, None, _) => None,
+        };
+        let profile = AssistantProfile {
+            provider: template.provider,
+            api: template.api,
+            model: model.unwrap_or("model").to_owned(),
+            base_url: draft
+                .basics
+                .get("base_url")
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty()),
+            api_key_env: key.api_key_env.clone(),
+            credential_source: key.source,
+            effort: None,
+        };
+
+        let mut stderr = std::io::stderr();
+        let _ = write!(stderr, "Looking up available models…");
+        let _ = stderr.flush();
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| format!("could not start the model lookup: {error}"))
+            .and_then(|runtime| {
+                runtime
+                    .block_on(list_models(&profile, credential.as_deref()))
+                    .map_err(|error| short_reason(&error.to_string()))
+            });
+        let _ = write!(stderr, "\r\x1b[2K");
+        let _ = stderr.flush();
+        result
+    }
+}
+
+/// A short reason shown when the model list cannot be fetched. The provider's own error text is
+/// long and rarely actionable here, so only the cases a user can fix are named.
+fn short_reason(message: &str) -> String {
+    let lower = message.to_lowercase();
+    if lower.contains("api key is missing") {
+        "the model list needs an API key".to_owned()
+    } else if lower.contains("401") || lower.contains("403") || lower.contains("unauthorized") {
+        "the provider rejected the API key".to_owned()
+    } else {
+        "could not fetch the model list".to_owned()
+    }
 }
 
 /// Profile names are stored in lowercase, so `Work` and `work` are the same name.
@@ -334,7 +622,8 @@ fn restore_config(path: &Path, original: Option<AssistantConfig>) -> Result<(), 
     Ok(())
 }
 
-fn profile_fields(
+/// The base URL field, asked only when the connection needs one or the profile already has one.
+fn endpoint_fields(
     template: ConnectionTemplate,
     existing: Option<&AssistantProfile>,
 ) -> Vec<TextField> {
@@ -345,35 +634,28 @@ fn profile_fields(
                     && profile.provider == Provider::OpenAiCompatible
                     && template.api == ApiProtocol::OpenAiChatCompletions))
     });
-    let mut fields = vec![
-        TextField::new("model", "Default model")
-            .required()
-            .hint("switch for one session with /model in inifra ask")
-            .default_value(existing.map(|profile| profile.model.clone())),
-        TextField::new("effort", "Default effort")
-            .hint("low, medium, or high; leave empty for the provider default")
-            .default_value(
-                existing
-                    .and_then(|profile| profile.effort)
-                    .map(|effort| effort.as_str().to_owned()),
-            )
-            .check(|value| {
-                Effort::parse(value)
-                    .map(|_| ())
-                    .ok_or_else(|| "Use low, medium, or high, or leave it empty.".to_owned())
-            }),
-    ];
-    if template.base_url_required || existing.is_some_and(|profile| profile.base_url.is_some()) {
-        let field = TextField::new("base_url", "API base URL")
-            .hint("the API root, such as https://host/v1")
-            .default_value(existing.and_then(|profile| profile.base_url.clone()));
-        fields.push(if template.base_url_required {
-            field.required()
-        } else {
-            field
-        });
+    if !(template.base_url_required || existing.is_some_and(|profile| profile.base_url.is_some())) {
+        return Vec::new();
     }
-    fields
+    let field = TextField::new("base_url", "API base URL")
+        .hint("the API root, such as https://host/v1")
+        .default_value(existing.and_then(|profile| profile.base_url.clone()));
+    vec![if template.base_url_required {
+        field.required()
+    } else {
+        field
+    }]
+}
+
+fn effort_field(default: Option<String>) -> TextField {
+    TextField::new("effort", "Default effort")
+        .hint("low, medium, or high; leave empty for the provider default")
+        .default_value(default)
+        .check(|value| {
+            Effort::parse(value)
+                .map(|_| ())
+                .ok_or_else(|| "Use low, medium, or high, or leave it empty.".to_owned())
+        })
 }
 
 fn with_form_values(
@@ -614,9 +896,10 @@ fn required_value(values: &BTreeMap<String, String>, key: &str) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::{
-        ConnectionChoice, KeyChoice, api_detail, default_message, existing_key_choice,
-        is_variable_name, key_options, key_possible, key_variable_name, preset_detail,
-        profile_fields, profile_id_field, saved_message, selected_connection, url_host,
+        ConnectionChoice, KeyChoice, api_detail, default_message, effort_field, endpoint_fields,
+        existing_key_choice, is_variable_name, key_options, key_possible, key_variable_name,
+        preset_detail, profile_id_field, saved_message, selected_connection, short_reason,
+        url_host,
     };
     use inifra_assistant::{
         ApiProtocol, AssistantConfig, AssistantProfile, ConnectionTemplate, CredentialSource,
@@ -628,7 +911,7 @@ mod tests {
 
     #[test]
     fn custom_api_fields_require_an_endpoint_and_leave_the_key_to_its_own_step() {
-        let fields = profile_fields(
+        let fields = endpoint_fields(
             template(Provider::CustomEndpoint, ApiProtocol::OpenAiChatCompletions),
             None,
         );
@@ -735,7 +1018,7 @@ mod tests {
 
     #[test]
     fn built_in_provider_fields_use_preset_defaults_without_asking_for_a_base_url() {
-        let fields = profile_fields(
+        let fields = endpoint_fields(
             template(Provider::NvidiaNim, ApiProtocol::OpenAiChatCompletions),
             None,
         );
@@ -853,7 +1136,7 @@ mod tests {
     }
 
     #[test]
-    fn editing_a_legacy_custom_profile_keeps_its_values_in_the_shared_form() {
+    fn editing_a_legacy_custom_profile_keeps_its_base_url() {
         let existing = AssistantProfile {
             provider: Provider::OpenAiCompatible,
             api: ApiProtocol::OpenAiChatCompletions,
@@ -863,20 +1146,11 @@ mod tests {
             credential_source: CredentialSource::Environment,
             effort: None,
         };
-        let fields = profile_fields(
+        let fields = endpoint_fields(
             template(Provider::CustomEndpoint, ApiProtocol::OpenAiChatCompletions),
             Some(&existing),
         );
 
-        assert_eq!(
-            fields
-                .iter()
-                .find(|field| field.name == "model")
-                .unwrap()
-                .default
-                .as_deref(),
-            Some("test-model")
-        );
         assert_eq!(
             fields
                 .iter()
@@ -948,13 +1222,29 @@ mod tests {
     }
 
     #[test]
-    fn model_field_is_the_profile_default_and_mentions_session_switching() {
-        let fields = profile_fields(
-            template(Provider::OpenAi, ApiProtocol::OpenAiResponses),
-            None,
+    fn effort_field_defaults_to_the_saved_effort_and_only_accepts_known_levels() {
+        let field = effort_field(Some("high".to_owned()));
+        assert_eq!(field.default.as_deref(), Some("high"));
+        assert!(!field.required);
+        let check = field.check.unwrap();
+        assert_eq!(check("medium"), Ok(()));
+        assert!(check("extreme").is_err());
+    }
+
+    #[test]
+    fn model_lookup_failures_name_only_what_a_user_can_fix() {
+        assert_eq!(
+            short_reason("API key is missing; configure the profile credential"),
+            "the model list needs an API key"
         );
-        assert_eq!(fields[0].label, "Default model");
-        assert!(fields[0].hint.as_deref().unwrap().contains("/model"));
+        assert_eq!(
+            short_reason("HTTP 401 Unauthorized"),
+            "the provider rejected the API key"
+        );
+        assert_eq!(
+            short_reason("error sending request"),
+            "could not fetch the model list"
+        );
     }
 
     #[test]

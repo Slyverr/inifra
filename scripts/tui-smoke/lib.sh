@@ -15,7 +15,7 @@ screen() { tm capture-pane -t "$SESSION" -p | sed -e 's/[[:space:]]*$//'; }
 send() { tm send-keys -t "$SESSION" "$@"; }
 
 # type TEXT  type literal text, then wait a beat so the UI redraws.
-type_text() { tm send-keys -t "$SESSION" -l "$1"; sleep 0.2; }
+type_text() { tm send-keys -t "$SESSION" -l -- "$1"; sleep 0.2; }
 
 # wait_for TEXT [SECONDS]  poll the screen until TEXT appears.
 wait_for() {
