@@ -70,6 +70,17 @@ cargo +1.100.0 test --workspace --locked
 
 Run applicable checks and report anything not executed. The documented CI workflow runs stable Rust formatting, linting, and tests on Linux, macOS, and Windows, plus MSRV checks on Linux; consult [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for authoritative configuration.
 
+After changing an interactive screen or a slash command, also run the terminal smoke runner. It drives the real binary in a private tmux server against a local mock provider, using temporary configuration and project directories, and writes plain-text and ANSI captures to `target/tui-smoke/`:
+
+```sh
+cargo build
+scripts/tui-smoke/run.sh                  # every scenario in scripts/tui-smoke/scenarios/
+scripts/tui-smoke/run.sh ask-chat         # one scenario
+scripts/tui-smoke/run.sh --check-coverage # every slash command appears in a scenario
+```
+
+It needs `tmux` and `python3` (both are in the Nix development shell), runs only on Unix, and is not part of CI. Add a scenario file when you add a screen or a slash command.
+
 To verify the crates.io package archives locally, run `scripts/publish-crates.sh --dry-run`. It stages the root `templates/` catalog into `inifra-core` for packaging, then removes the staged copy. Use `--allow-dirty` only for a local dry run with uncommitted changes.
 
 ## Git and Commits
