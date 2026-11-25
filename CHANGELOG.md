@@ -26,6 +26,8 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 - Keep every profile form field in view: finished fields show a check and their value, the active field edits in place, and upcoming fields wait in gray.
 - Ask for the API key in its own step, with pasting as the default, instead of asking for an environment variable name first.
 - Drop leading and trailing spaces from submitted form values.
+- Choose the default model from the provider's own list during setup, after the key is entered, with `/` to filter and a typed model ID as the fallback when the list is unavailable. Setup now makes one network request to fetch that list.
+- Filter long choice lists with `/`.
 - Lead the chat footer with the active profile.
 - Label failed responses "request failed" and reserve "interrupted" for a user cancel.
 - Return from input and review to the picker with Esc in `inifra init` instead of cancelling.

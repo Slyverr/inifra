@@ -11,7 +11,7 @@ root=$(cd "$here/../.." && pwd)
 BIN=${BIN:-$root/target/debug/inifra}
 OUT=${OUT:-$root/target/tui-smoke}
 PORT=${PORT:-18765}
-export BIN OUT
+export BIN OUT PORT
 
 if [[ ${1:-} == --check-coverage ]]; then
   missing=0
