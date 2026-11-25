@@ -1,8 +1,11 @@
 //! Inline assistant conversation and Markdown rendering.
 
+mod local;
 mod markdown;
 mod switcher;
+mod thinking;
 mod view;
+mod wrap;
 
 use crate::terminal;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -201,11 +204,7 @@ pub fn run_chat(
             actions.send(request).map_err(channel_error)?;
         }
 
-        let next_viewport_height = if app.messages.is_empty() && app.switcher.is_none() {
-            EMPTY_VIEWPORT_HEIGHT
-        } else {
-            VIEWPORT_HEIGHT
-        };
+        let next_viewport_height = viewport_height(&app, terminal.height());
         if terminal.height() != next_viewport_height {
             terminal.set_height(next_viewport_height)?;
         }
@@ -226,10 +225,39 @@ pub fn run_chat(
     }
 }
 
+/// Rows the chat viewport grows in, so a streaming reply does not re-mount it on every line.
+const VIEWPORT_STEP: usize = 4;
+
+/// Picks the inline viewport height for the next frame.
+///
+/// The viewport grows downward with the conversation until it reaches the terminal height
+/// (less two rows), then the conversation scrolls inside it. It never shrinks while messages
+/// exist, so content already on screen does not jump.
+fn viewport_height(app: &ChatApp, current: u16) -> u16 {
+    if app.messages.is_empty() && app.switcher.is_none() {
+        return EMPTY_VIEWPORT_HEIGHT;
+    }
+
+    let (width, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+    let content = view::conversation_rows(app, width) + view::CHROME_ROWS;
+    grown_height(content, current, rows.saturating_sub(2))
+}
+
+/// Grows `current` to fit `content` rows in steps, never past `ceiling` and never below the
+/// base chat height.
+fn grown_height(content: usize, current: u16, ceiling: u16) -> u16 {
+    let ceiling = ceiling.max(VIEWPORT_HEIGHT);
+    let wanted = content.div_ceil(VIEWPORT_STEP) * VIEWPORT_STEP;
+    let wanted = u16::try_from(wanted).unwrap_or(u16::MAX);
+    current.max(VIEWPORT_HEIGHT).max(wanted).min(ceiling)
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Role {
     User,
     Assistant,
+    /// Output of a local slash command.
+    Local,
     Notice,
     Error,
 }
@@ -273,6 +301,8 @@ struct ChatApp {
     completion_prefix: Option<String>,
     streaming: bool,
     working: Option<String>,
+    /// When the current wait for the model began; drives the waiting animation.
+    busy_since: Option<std::time::Instant>,
     confirmation: Option<Confirmation>,
     scroll_from_bottom: u16,
 }
@@ -294,6 +324,7 @@ impl ChatApp {
             completion_prefix: None,
             streaming: false,
             working: None,
+            busy_since: None,
             confirmation: None,
             scroll_from_bottom: 0,
         }
@@ -314,6 +345,7 @@ impl ChatApp {
 
     fn start_assistant(&mut self) {
         self.streaming = true;
+        self.busy_since = Some(std::time::Instant::now());
         self.push_message(Role::Assistant, String::new());
     }
 
@@ -369,9 +401,12 @@ fn drain_events(events: &Receiver<ChatEvent>, app: &mut ChatApp) -> Vec<ChatActi
                 app.completions = completions;
                 clear_completion(app);
             }
-            ChatEvent::AssistantMessage(text) => app.push_message(Role::Assistant, text),
+            ChatEvent::AssistantMessage(text) => app.push_message(Role::Local, text),
             ChatEvent::Notice(text) => app.push_message(Role::Notice, text),
-            ChatEvent::WorkingStarted(status) => app.working = Some(status),
+            ChatEvent::WorkingStarted(status) => {
+                app.working = Some(status);
+                app.busy_since = Some(std::time::Instant::now());
+            }
             ChatEvent::WorkingFinished => app.working = None,
             ChatEvent::Error(text) => {
                 if app.streaming {

@@ -137,6 +137,16 @@ pub(crate) fn tui_dimmed_style() -> TuiStyle {
     TuiStyle::default().add_modifier(Modifier::DIM)
 }
 
+/// Returns the subtle background that sets the user's own messages apart, or no styling when
+/// `NO_COLOR` is set.
+pub(crate) fn tui_surface_style() -> TuiStyle {
+    if std::env::var_os("NO_COLOR").is_some() {
+        TuiStyle::default()
+    } else {
+        TuiStyle::default().bg(Color::Rgb(36, 42, 56))
+    }
+}
+
 fn tui_color(tone: Tone) -> Color {
     match tone {
         Tone::Accent => Color::Cyan,
