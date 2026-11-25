@@ -8,20 +8,29 @@ send Down Enter
 wait_for "Profile name"
 type_text "Work"
 send Enter
-wait_for "step 2 of 2"
+wait_for "● API base URL"
 expect "✓ Profile name"
-expect "› API base URL"
+expect "work"
+expect "✓ Connection"
+expect "Custom API · Chat Completions"
+expect "○ API key"
+expect "○ Default model"
+expect "○ Default effort"
 snap stepper
 type_text "http://127.0.0.1:$PORT/v1 extra"
 send C-w
 expect_not "extra"
 send Enter
 wait_for "Paste an API key"
+expect "● API key"
+expect "✓ API base URL"
 expect "Use an environment variable"
 expect "Use a different variable"
 snap key
 send Enter
-wait_for "API key"
+wait_for "└ Paste a key"
+expect "› API key"
+snap paste
 type_text "sk-smoke-123"
 send Enter
 wait_for "Enter a model ID" 15
@@ -31,7 +40,9 @@ snap models
 send /
 type_text "-2"
 send Enter
-wait_for "Default effort"
+wait_for "● Default effort"
+expect "pasted · WORK_API_KEY"
+expect "✓ Default model"
 send Enter
 wait_for "Saved profile work" 10
 snap saved

@@ -5,8 +5,8 @@ use inifra_assistant::{
     list_models, read_credential, write_credential,
 };
 use inifra_tui::{
-    Badge, FormOutcome, Heading, InteractionOutcome, Row, SelectScreen, TextField, presentation,
-    presentation::Tone, run_form, run_secret_input, run_select,
+    Badge, FormOutcome, Heading, InteractionOutcome, OutlineRow, Row, SelectScreen, StepState,
+    TextField, presentation, presentation::Tone, run_form, run_secret_input, run_select,
 };
 use std::{collections::BTreeMap, error::Error, fs, io::Write, path::Path};
 
@@ -32,36 +32,36 @@ pub(super) fn configure_profile(
     };
 
     let mut draft = Draft::default();
-    let mut step = Step::Connection;
+    let mut index = 0;
     loop {
+        let steps = setup.steps(&draft);
+        let step = steps[index.min(steps.len() - 1)];
         let flow = match step {
             Step::Connection => setup.connection(&mut draft)?,
-            Step::Basics => setup.basics(&mut draft)?,
+            Step::Name => setup.name(&mut draft)?,
+            Step::BaseUrl => setup.base_url(&mut draft)?,
             Step::Key => setup.key(&mut draft)?,
             Step::Model => setup.model(&mut draft)?,
             Step::Effort => setup.effort(&mut draft)?,
         };
-        step = match (step, flow) {
-            (_, Flow::Quit) => return Ok(UiExit::Quit),
-            (Step::Connection, Flow::Back) => return Ok(UiExit::Continue),
-            (Step::Connection, Flow::Next) => Step::Basics,
-            (Step::Basics, Flow::Next) => Step::Key,
-            (Step::Key, Flow::Next) => Step::Model,
-            (Step::Model, Flow::Next) => Step::Effort,
-            (Step::Effort, Flow::Next) => break,
-            (step, Flow::Back) => setup.previous(step, &draft),
-        };
+        match flow {
+            Flow::Quit => return Ok(UiExit::Quit),
+            Flow::Next if step == Step::Effort => break,
+            Flow::Next => index += 1,
+            Flow::Back if index == 0 => return Ok(UiExit::Continue),
+            Flow::Back => {
+                index -= 1;
+                if steps[index] == Step::Connection {
+                    setup.choice.resume_at_list = true;
+                }
+            }
+        }
     }
 
     let id = setup.id(&draft)?;
     let template = draft.template.ok_or("no connection was chosen")?;
     let key = draft.key.take().ok_or("no API key choice was made")?;
-    let base_url = draft
-        .basics
-        .get("base_url")
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-        .map(str::to_owned);
+    let base_url = draft.base_url.clone().filter(|value| !value.is_empty());
     let profile = AssistantProfile {
         provider: template.provider,
         api: template.api,
@@ -96,11 +96,12 @@ pub(super) fn configure_profile(
     Ok(UiExit::Continue)
 }
 
-/// The setup screens, in order. Each can be revisited with Esc without losing earlier answers.
+/// The setup screens. Each can be revisited with Esc without losing earlier answers.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Step {
     Connection,
-    Basics,
+    Name,
+    BaseUrl,
     Key,
     Model,
     Effort,
@@ -116,7 +117,8 @@ enum Flow {
 #[derive(Default)]
 struct Draft {
     template: Option<ConnectionTemplate>,
-    basics: BTreeMap<String, String>,
+    name: Option<String>,
+    base_url: Option<String>,
     key: Option<KeySetup>,
     model: Option<String>,
     effort: Option<String>,
@@ -126,6 +128,20 @@ struct KeySetup {
     api_key_env: Option<String>,
     source: CredentialSource,
     secret: Option<String>,
+}
+
+impl KeySetup {
+    /// One line for the outline; never includes the key itself.
+    fn summary(&self) -> String {
+        match (&self.api_key_env, self.source, &self.secret) {
+            (None, _, _) => "no key".to_owned(),
+            (Some(name), CredentialSource::CredentialsFile, Some(_)) => {
+                format!("pasted · {name}")
+            }
+            (Some(name), CredentialSource::CredentialsFile, None) => format!("stored · {name}"),
+            (Some(name), CredentialSource::Environment, _) => format!("{name} (environment)"),
+        }
+    }
 }
 
 struct Setup<'a> {
@@ -138,29 +154,123 @@ struct Setup<'a> {
 }
 
 impl Setup<'_> {
-    fn heading(&self, id: Option<&str>) -> Heading {
-        let heading = Heading::new(if self.existing.is_some() {
+    /// The steps this connection needs, in order. Steps with nothing to ask are left out.
+    fn steps(&self, draft: &Draft) -> Vec<Step> {
+        let mut steps = vec![Step::Connection];
+        if self.profile_id.is_none() {
+            steps.push(Step::Name);
+        }
+        if let Some(template) = draft.template {
+            if !endpoint_fields(template, self.existing.as_ref()).is_empty() {
+                steps.push(Step::BaseUrl);
+            }
+            if key_possible(template, self.existing.as_ref()) {
+                steps.push(Step::Key);
+            }
+        } else {
+            steps.push(Step::Key);
+        }
+        steps.extend([Step::Model, Step::Effort]);
+        steps
+    }
+
+    /// Every step as an outline row: finished ones with their answers, the current one marked,
+    /// and upcoming ones pending. `branch` names a sub-step taken under the current step.
+    fn outline_rows(
+        &self,
+        draft: &Draft,
+        current: Step,
+        branch: Option<(&str, Option<String>)>,
+    ) -> Vec<OutlineRow> {
+        let steps = self.steps(draft);
+        let current_index = steps
+            .iter()
+            .position(|step| *step == current)
+            .unwrap_or_default();
+        let mut rows = Vec::new();
+        let mut row = |step: Step, label: &str, value: Option<String>| {
+            let position = steps.iter().position(|candidate| *candidate == step);
+            let state = match position {
+                None => StepState::Done,
+                Some(position) if position < current_index => StepState::Done,
+                Some(position) if position == current_index => StepState::Active,
+                Some(_) => StepState::Pending,
+            };
+            let mut outline = OutlineRow::new(label, state);
+            if let Some(value) = value {
+                outline = outline.value(value);
+            }
+            if step == current
+                && let Some((name, detail)) = &branch
+            {
+                outline = outline.branch(*name, detail.clone());
+            }
+            rows.push(outline);
+        };
+        row(
+            Step::Connection,
+            "Connection",
+            draft.template.map(|template| {
+                format!(
+                    "{} · {}",
+                    template.provider.display_name(),
+                    template.api.short_name()
+                )
+            }),
+        );
+        row(
+            Step::Name,
+            "Profile name",
+            self.profile_id
+                .map(str::to_owned)
+                .or_else(|| draft.name.clone()),
+        );
+        if steps.contains(&Step::BaseUrl) {
+            row(Step::BaseUrl, "API base URL", draft.base_url.clone());
+        }
+        if steps.contains(&Step::Key) {
+            row(
+                Step::Key,
+                "API key",
+                draft.key.as_ref().map(KeySetup::summary),
+            );
+        }
+        row(Step::Model, "Default model", draft.model.clone());
+        row(
+            Step::Effort,
+            "Default effort",
+            draft.effort.as_ref().map(|effort| {
+                if effort.is_empty() {
+                    "provider default".to_owned()
+                } else {
+                    effort.clone()
+                }
+            }),
+        );
+        rows
+    }
+
+    /// The heading with every step listed beneath it, so progress stays visible.
+    fn heading(
+        &self,
+        draft: &Draft,
+        current: Step,
+        branch: Option<(&str, Option<String>)>,
+    ) -> Heading {
+        Heading::new(if self.existing.is_some() {
             "edit profile"
         } else {
             "new profile"
-        });
-        match id {
-            Some(id) => heading.context(id),
-            None => heading,
-        }
-    }
-
-    fn connection_heading(&self, template: ConnectionTemplate) -> Heading {
-        self.heading(self.profile_id)
-            .context(template.provider.display_name())
-            .context(template.api.short_name())
+        })
+        .outline(self.outline_rows(draft, current, branch))
     }
 
     fn id(&self, draft: &Draft) -> Result<String, Box<dyn Error>> {
-        Ok(match self.profile_id {
-            Some(id) => id.to_owned(),
-            None => normalize_profile_name(&required_value(&draft.basics, "id")?),
-        })
+        match (self.profile_id, &draft.name) {
+            (Some(id), _) => Ok(id.to_owned()),
+            (None, Some(name)) => Ok(name.clone()),
+            (None, None) => Err("no profile name was entered".into()),
+        }
     }
 
     fn template(draft: &Draft) -> Result<ConnectionTemplate, Box<dyn Error>> {
@@ -169,49 +279,10 @@ impl Setup<'_> {
             .ok_or_else(|| "no connection was chosen".into())
     }
 
-    fn basics_fields(&self, template: ConnectionTemplate) -> Vec<TextField> {
-        let mut fields = Vec::new();
-        if self.profile_id.is_none() {
-            fields.push(profile_id_field(self.config));
-        }
-        fields.extend(endpoint_fields(template, self.existing.as_ref()));
-        fields
-    }
-
-    /// Steps with nothing to ask are passed over, in both directions.
-    fn skipped(&self, step: Step, draft: &Draft) -> bool {
-        let Some(template) = draft.template else {
-            return false;
-        };
-        match step {
-            Step::Basics => self.basics_fields(template).is_empty(),
-            Step::Key => !key_possible(template, self.existing.as_ref()),
-            _ => false,
-        }
-    }
-
-    fn previous(&mut self, from: Step, draft: &Draft) -> Step {
-        let mut step = from;
-        loop {
-            step = match step {
-                Step::Connection | Step::Basics => Step::Connection,
-                Step::Key => Step::Basics,
-                Step::Model => Step::Key,
-                Step::Effort => Step::Model,
-            };
-            if !self.skipped(step, draft) {
-                break;
-            }
-        }
-        if step == Step::Connection {
-            self.choice.resume_at_list = true;
-        }
-        step
-    }
-
     fn connection(&mut self, draft: &mut Draft) -> Result<Flow, Box<dyn Error>> {
+        let heading = self.heading(draft, Step::Connection, None);
         let template = match select_connection(
-            &self.heading(self.profile_id),
+            &heading,
             &mut self.choice,
             &self.presets,
             self.existing.as_ref(),
@@ -223,24 +294,38 @@ impl Setup<'_> {
         if draft.template != Some(template) {
             *draft = Draft {
                 template: Some(template),
+                name: draft.name.take(),
                 ..Draft::default()
             };
         }
         Ok(Flow::Next)
     }
 
-    fn basics(&mut self, draft: &mut Draft) -> Result<Flow, Box<dyn Error>> {
-        let template = Self::template(draft)?;
-        let fields = self.basics_fields(template);
-        if fields.is_empty() {
-            return Ok(Flow::Next);
-        }
-        match run_form(
-            &self.connection_heading(template),
-            with_form_values(fields, &draft.basics),
-        )? {
+    fn name(&mut self, draft: &mut Draft) -> Result<Flow, Box<dyn Error>> {
+        let field = profile_id_field(self.config).default_value(draft.name.clone());
+        match run_form(&self.heading(draft, Step::Name, None), vec![field])? {
             FormOutcome::Submitted(values) => {
-                draft.basics = values;
+                draft.name = Some(normalize_profile_name(&required_value(&values, "id")?));
+                Ok(Flow::Next)
+            }
+            FormOutcome::Back => Ok(Flow::Back),
+            FormOutcome::Quit => Ok(Flow::Quit),
+        }
+    }
+
+    fn base_url(&mut self, draft: &mut Draft) -> Result<Flow, Box<dyn Error>> {
+        let template = Self::template(draft)?;
+        let Some(field) = endpoint_fields(template, self.existing.as_ref())
+            .into_iter()
+            .next()
+        else {
+            return Ok(Flow::Next);
+        };
+        let default = draft.base_url.clone().or_else(|| field.default.clone());
+        let field = field.default_value(default);
+        match run_form(&self.heading(draft, Step::BaseUrl, None), vec![field])? {
+            FormOutcome::Submitted(values) => {
+                draft.base_url = Some(required_value(&values, "base_url")?);
                 Ok(Flow::Next)
             }
             FormOutcome::Back => Ok(Flow::Back),
@@ -277,7 +362,7 @@ impl Setup<'_> {
                     KeyChoice::Paste
                 });
             let screen = SelectScreen {
-                heading: self.heading(Some(&id)).context("API key"),
+                heading: self.heading(draft, Step::Key, None),
                 choices: options.iter().map(|(_, row)| row.clone()).collect(),
                 initial: options
                     .iter()
@@ -321,7 +406,11 @@ impl Setup<'_> {
                             }
                         });
                     match run_form(
-                        &self.heading(Some(&id)).context("API key variable"),
+                        &self.heading(
+                            draft,
+                            Step::Key,
+                            Some(("Variable name", Some("an environment variable".to_owned()))),
+                        ),
                         vec![field],
                     )? {
                         FormOutcome::Submitted(values) => KeySetup {
@@ -337,8 +426,17 @@ impl Setup<'_> {
                     let field = TextField::new("secret", "API key").hint(format!(
                         "saved as {name} in credentials.env, never in assistant.toml"
                     ));
-                    match run_secret_input(&self.heading(Some(&id)).context("save API key"), field)?
-                    {
+                    match run_secret_input(
+                        &self.heading(
+                            draft,
+                            Step::Key,
+                            Some((
+                                "Paste a key",
+                                Some(format!("saved as {name} in credentials.env")),
+                            )),
+                        ),
+                        field,
+                    )? {
                         FormOutcome::Submitted(values) => KeySetup {
                             api_key_env: Some(name.clone()),
                             source: CredentialSource::CredentialsFile,
@@ -357,8 +455,7 @@ impl Setup<'_> {
     /// Offers the provider's own model list when it can be fetched, and a typed ID otherwise.
     fn model(&mut self, draft: &mut Draft) -> Result<Flow, Box<dyn Error>> {
         let template = Self::template(draft)?;
-        let id = self.id(draft)?;
-        let heading = self.heading(Some(&id)).context("model");
+        let heading = self.heading(draft, Step::Model, None);
         let previous = draft
             .model
             .clone()
@@ -406,7 +503,16 @@ impl Setup<'_> {
                 .required()
                 .hint(hint)
                 .default_value(previous.clone());
-            match run_form(&heading, vec![field])? {
+            let typed_heading = if models.is_empty() {
+                heading.clone()
+            } else {
+                self.heading(
+                    draft,
+                    Step::Model,
+                    Some(("Model ID", Some("typed".to_owned()))),
+                )
+            };
+            match run_form(&typed_heading, vec![field])? {
                 FormOutcome::Submitted(values) => {
                     draft.model = Some(required_value(&values, "model")?);
                     return Ok(Flow::Next);
@@ -419,14 +525,13 @@ impl Setup<'_> {
     }
 
     fn effort(&mut self, draft: &mut Draft) -> Result<Flow, Box<dyn Error>> {
-        let id = self.id(draft)?;
         let default = draft.effort.clone().or_else(|| {
             self.existing
                 .as_ref()
                 .and_then(|profile| profile.effort)
                 .map(|effort| effort.as_str().to_owned())
         });
-        let heading = self.heading(Some(&id)).context("effort");
+        let heading = self.heading(draft, Step::Effort, None);
         match run_form(&heading, vec![effort_field(default)])? {
             FormOutcome::Submitted(values) => {
                 draft.effort = values.get("effort").cloned();
@@ -458,11 +563,7 @@ impl Setup<'_> {
             provider: template.provider,
             api: template.api,
             model: model.unwrap_or("model").to_owned(),
-            base_url: draft
-                .basics
-                .get("base_url")
-                .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty()),
+            base_url: draft.base_url.clone().filter(|value| !value.is_empty()),
             api_key_env: key.api_key_env.clone(),
             credential_source: key.source,
             effort: None,
@@ -656,20 +757,6 @@ fn effort_field(default: Option<String>) -> TextField {
                 .map(|_| ())
                 .ok_or_else(|| "Use low, medium, or high, or leave it empty.".to_owned())
         })
-}
-
-fn with_form_values(
-    mut fields: Vec<TextField>,
-    values: &BTreeMap<String, String>,
-) -> Vec<TextField> {
-    for field in &mut fields {
-        field.default = values
-            .get(&field.name)
-            .cloned()
-            .or_else(|| field.default.clone());
-    }
-
-    fields
 }
 
 /// Whether setup should ask about an API key for this connection.
@@ -896,10 +983,10 @@ fn required_value(values: &BTreeMap<String, String>, key: &str) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::{
-        ConnectionChoice, KeyChoice, api_detail, default_message, effort_field, endpoint_fields,
-        existing_key_choice, is_variable_name, key_options, key_possible, key_variable_name,
-        preset_detail, profile_id_field, saved_message, selected_connection, short_reason,
-        url_host,
+        ConnectionChoice, Draft, KeyChoice, Setup, Step, api_detail, default_message, effort_field,
+        endpoint_fields, existing_key_choice, is_variable_name, key_options, key_possible,
+        key_variable_name, preset_detail, profile_id_field, saved_message, selected_connection,
+        short_reason, url_host,
     };
     use inifra_assistant::{
         ApiProtocol, AssistantConfig, AssistantProfile, ConnectionTemplate, CredentialSource,
@@ -1219,6 +1306,92 @@ mod tests {
             "nvidia-test"
         );
         assert_eq!(check("home-lab"), Ok(()));
+    }
+
+    fn setup<'a>(config: &'a AssistantConfig, profile_id: Option<&'a str>) -> Setup<'a> {
+        Setup {
+            choice: ConnectionChoice::initial(None, &[]),
+            config,
+            credentials_path: std::path::Path::new("credentials.env"),
+            profile_id,
+            existing: None,
+            presets: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn steps_follow_what_the_connection_needs() {
+        let config = AssistantConfig::default();
+        let setup = setup(&config, None);
+        let mut draft = Draft::default();
+        assert_eq!(
+            setup.steps(&draft),
+            [
+                Step::Connection,
+                Step::Name,
+                Step::Key,
+                Step::Model,
+                Step::Effort
+            ]
+        );
+
+        draft.template = Some(template(
+            Provider::CustomEndpoint,
+            ApiProtocol::OpenAiChatCompletions,
+        ));
+        assert_eq!(
+            setup.steps(&draft),
+            [
+                Step::Connection,
+                Step::Name,
+                Step::BaseUrl,
+                Step::Key,
+                Step::Model,
+                Step::Effort
+            ]
+        );
+
+        draft.template = Some(template(Provider::Ollama, ApiProtocol::OllamaChat));
+        assert_eq!(
+            setup.steps(&draft),
+            [Step::Connection, Step::Name, Step::Model, Step::Effort]
+        );
+        let editing = super::Setup {
+            profile_id: Some("local"),
+            ..setup
+        };
+        assert!(!editing.steps(&draft).contains(&Step::Name));
+    }
+
+    #[test]
+    fn the_outline_marks_progress_and_hangs_a_branch_under_the_current_step() {
+        use inifra_tui::StepState;
+        let config = AssistantConfig::default();
+        let setup = setup(&config, None);
+        let draft = Draft {
+            template: Some(template(Provider::OpenAi, ApiProtocol::OpenAiResponses)),
+            name: Some("work".to_owned()),
+            ..Draft::default()
+        };
+        let rows = setup.outline_rows(&draft, Step::Key, Some(("Paste a key", None)));
+        let summary = rows
+            .iter()
+            .map(|row| (row.label.as_str(), row.state))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            summary,
+            [
+                ("Connection", StepState::Done),
+                ("Profile name", StepState::Done),
+                ("API key", StepState::Active),
+                ("Default model", StepState::Pending),
+                ("Default effort", StepState::Pending),
+            ]
+        );
+        assert_eq!(rows[0].value.as_deref(), Some("OpenAI · Responses"));
+        assert_eq!(rows[1].value.as_deref(), Some("work"));
+        assert_eq!(rows[2].branch, Some(("Paste a key".to_owned(), None)));
+        assert!(rows[3].branch.is_none());
     }
 
     #[test]

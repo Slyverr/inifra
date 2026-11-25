@@ -1,7 +1,10 @@
 //! Shared headings, rows, and key-hint footers for inline controls.
 
 use crate::presentation::{Tone, terminal_text, tui_style};
-use ratatui::text::{Line, Span};
+use ratatui::{
+    style::Style,
+    text::{Line, Span},
+};
 use unicode_width::UnicodeWidthStr;
 
 /// The heading line of an inline screen: `Inifra · task · context…`.
@@ -12,6 +15,7 @@ use unicode_width::UnicodeWidthStr;
 pub struct Heading {
     task: String,
     context: Vec<String>,
+    outline: Vec<OutlineRow>,
 }
 
 impl Heading {
@@ -20,6 +24,7 @@ impl Heading {
         Self {
             task: task.into(),
             context: Vec::new(),
+            outline: Vec::new(),
         }
     }
 
@@ -38,8 +43,81 @@ impl Heading {
         self
     }
 
+    /// Shows every step of a multi-screen task under the heading, so progress stays visible.
+    #[must_use]
+    pub fn outline(mut self, rows: Vec<OutlineRow>) -> Self {
+        self.outline = rows;
+        self
+    }
+
     pub(crate) fn is_empty(&self) -> bool {
         self.task.trim().is_empty()
+    }
+
+    /// Rows taken by the outline and the blank row after it; zero without an outline.
+    pub(crate) fn outline_height(&self) -> u16 {
+        if self.outline.is_empty() {
+            return 0;
+        }
+        let lines = self
+            .outline
+            .iter()
+            .map(|row| 1 + usize::from(row.branch.is_some()))
+            .sum::<usize>();
+        u16::try_from(lines + 1).unwrap_or(u16::MAX)
+    }
+
+    /// Renders the outline: a state glyph and label per step, with a branch under its step.
+    pub(crate) fn outline_lines(&self) -> Vec<Line<'static>> {
+        let width = self
+            .outline
+            .iter()
+            .map(|row| UnicodeWidthStr::width(terminal_text(&row.label).as_str()))
+            .max()
+            .unwrap_or_default();
+        let mut lines = Vec::new();
+        for row in &self.outline {
+            let label = terminal_text(&row.label);
+            let padding = " ".repeat(width.saturating_sub(UnicodeWidthStr::width(label.as_str())));
+            let (glyph, label_style) = match row.state {
+                StepState::Done => (
+                    Span::styled("✓ ", tui_style(Tone::Success, false)),
+                    Style::default(),
+                ),
+                StepState::Active => (
+                    Span::styled("● ", tui_style(Tone::Accent, true)),
+                    tui_style(Tone::Accent, true),
+                ),
+                StepState::Pending => (
+                    Span::styled("○ ", tui_style(Tone::Muted, false)),
+                    tui_style(Tone::Muted, false),
+                ),
+            };
+            let mut spans = vec![glyph, Span::styled(label, label_style)];
+            if let Some(value) = &row.value {
+                spans.push(Span::raw(format!("{padding}   ")));
+                spans.push(Span::styled(
+                    terminal_text(value),
+                    tui_style(Tone::Secondary, false),
+                ));
+            }
+            lines.push(Line::from(spans));
+            if let Some((branch, detail)) = &row.branch {
+                let mut spans = vec![
+                    Span::styled("  └ ", tui_style(Tone::Muted, false)),
+                    Span::styled(terminal_text(branch), tui_style(Tone::Accent, false)),
+                ];
+                if let Some(detail) = detail {
+                    spans.push(Span::raw("   "));
+                    spans.push(Span::styled(
+                        terminal_text(detail),
+                        tui_style(Tone::Secondary, false),
+                    ));
+                }
+                lines.push(Line::from(spans));
+            }
+        }
+        lines
     }
 
     pub(crate) fn height(&self) -> u16 {
@@ -75,6 +153,56 @@ impl Heading {
             }
         }
         Line::from(spans)
+    }
+}
+
+/// Where a step stands in a multi-screen task.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StepState {
+    /// Finished; its answer is shown.
+    Done,
+    /// The screen the user is on.
+    Active,
+    /// Still to come.
+    Pending,
+}
+
+/// One step in a heading's outline, optionally with a branch for a sub-step taken under it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OutlineRow {
+    /// Step name.
+    pub label: String,
+    /// The answer, once there is one.
+    pub value: Option<String>,
+    /// Whether the step is finished, current, or upcoming.
+    pub state: StepState,
+    /// A sub-step drawn under this step with an L-shaped connector, and its detail.
+    pub branch: Option<(String, Option<String>)>,
+}
+
+impl OutlineRow {
+    /// Creates a step in the given state.
+    pub fn new(label: impl Into<String>, state: StepState) -> Self {
+        Self {
+            label: label.into(),
+            value: None,
+            state,
+            branch: None,
+        }
+    }
+
+    /// Adds the step's answer.
+    #[must_use]
+    pub fn value(mut self, value: impl Into<String>) -> Self {
+        self.value = Some(value.into());
+        self
+    }
+
+    /// Adds a sub-step shown under this step.
+    #[must_use]
+    pub fn branch(mut self, label: impl Into<String>, detail: Option<String>) -> Self {
+        self.branch = Some((label.into(), detail));
+        self
     }
 }
 
@@ -192,9 +320,11 @@ pub(crate) fn row_line(row: &Row, state: RowState, label_width: usize) -> Line<'
     Line::from(spans)
 }
 
-/// Returns the widest label in `rows`, measured in terminal columns.
+/// Returns the widest label among the rows that show something after it, in terminal columns.
+/// Rows with no detail or badge need no alignment, so they do not widen the label column.
 pub(crate) fn label_width(rows: &[Row]) -> usize {
     rows.iter()
+        .filter(|row| row.detail.is_some() || row.badge.is_some())
         .map(|row| UnicodeWidthStr::width(terminal_text(&row.label).as_str()))
         .max()
         .unwrap_or_default()
@@ -265,7 +395,10 @@ fn separator() -> Span<'static> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Badge, Heading, Row, RowState, essential, footer, hint, label_width, row_line};
+    use super::{
+        Badge, Heading, OutlineRow, Row, RowState, StepState, essential, footer, hint, label_width,
+        row_line,
+    };
     use crate::presentation::Tone;
 
     fn text(line: &ratatui::text::Line<'_>) -> String {
@@ -334,5 +467,33 @@ mod tests {
             "↑/↓ move · Enter choose · Esc back"
         );
         assert_eq!(text(&footer(&hints, 20)), "↑/↓ · Enter · Esc");
+    }
+
+    #[test]
+    fn outline_marks_done_active_and_pending_steps_and_aligns_answers() {
+        let heading = Heading::new("new profile").outline(vec![
+            OutlineRow::new("Connection", StepState::Done).value("OpenAI · Responses"),
+            OutlineRow::new("API key", StepState::Active),
+            OutlineRow::new("Model", StepState::Pending),
+        ]);
+        let lines = heading.outline_lines().iter().map(text).collect::<Vec<_>>();
+        assert_eq!(lines[0], "✓ Connection   OpenAI · Responses");
+        assert_eq!(lines[1], "● API key");
+        assert_eq!(lines[2], "○ Model");
+        // Three rows and the blank row that separates the outline from the screen.
+        assert_eq!(heading.outline_height(), 4);
+        assert_eq!(Heading::new("x").outline_height(), 0);
+    }
+
+    #[test]
+    fn a_branch_hangs_under_its_step_with_an_l_connector() {
+        let heading = Heading::new("new profile").outline(vec![
+            OutlineRow::new("API key", StepState::Active)
+                .branch("Paste a key", Some("saved as WORK_API_KEY".to_owned())),
+            OutlineRow::new("Model", StepState::Pending),
+        ]);
+        let lines = heading.outline_lines().iter().map(text).collect::<Vec<_>>();
+        assert_eq!(lines[1], "  └ Paste a key   saved as WORK_API_KEY");
+        assert_eq!(heading.outline_height(), 4);
     }
 }
