@@ -3,6 +3,7 @@ use super::{
     chrome::{Heading, essential, footer, hint},
 };
 use crate::{
+    line_edit,
     presentation::{Tone, terminal_text, tui_style},
     terminal,
 };
@@ -20,8 +21,6 @@ use std::{
 };
 use unicode_width::UnicodeWidthStr;
 
-/// Rows used by a form's heading, field label, hint, input, and footer.
-const FORM_FIXED_ROWS: u16 = 7;
 const CONFIRM_FIXED_ROWS: u16 = 5;
 
 /// Checks a field value before the form advances; the error is shown in place of the hint.
@@ -173,12 +172,9 @@ fn run_form_with_mode(
 }
 
 fn form_height(heading: &Heading, fields: usize) -> u16 {
-    let overview = if fields > 1 {
-        u16::try_from(fields).unwrap_or(u16::MAX)
-    } else {
-        0
-    };
-    FORM_FIXED_ROWS - 2 * (1 - heading.height()) + overview
+    // Heading and its gap, one row per field plus the active field's guidance, a gap, the footer.
+    let fields = u16::try_from(fields).unwrap_or(u16::MAX);
+    2 * heading.height() + fields.saturating_add(1) + 2
 }
 
 /// Asks a yes/no question in a compact inline Ratatui screen.
@@ -237,7 +233,7 @@ struct FormApp {
     secret: bool,
     values: BTreeMap<String, String>,
     index: usize,
-    input: String,
+    input: Vec<char>,
     cursor: usize,
     error: Option<String>,
 }
@@ -249,8 +245,13 @@ impl FormApp {
     }
 
     fn new_with_mode(heading: &Heading, fields: Vec<TextField>, secret: bool) -> Self {
-        let input = fields[0].default.clone().unwrap_or_default();
-        let cursor = input.chars().count();
+        let input = fields[0]
+            .default
+            .clone()
+            .unwrap_or_default()
+            .chars()
+            .collect::<Vec<_>>();
+        let cursor = input.len();
         Self {
             heading: heading.clone(),
             fields,
@@ -273,45 +274,11 @@ impl FormApp {
 
         match key.code {
             KeyCode::BackTab => return self.move_field(false),
-            KeyCode::Tab => return self.move_field(true),
-            KeyCode::Enter => return self.move_field(true),
-            KeyCode::Left if self.cursor > 0 => self.cursor -= 1,
-            KeyCode::Right if self.cursor < self.input.chars().count() => self.cursor += 1,
-            KeyCode::Home => self.cursor = 0,
-            KeyCode::End => self.cursor = self.input.chars().count(),
-            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.cursor = 0;
-            }
-            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.cursor = self.input.chars().count();
-            }
-            KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.input.clear();
-                self.cursor = 0;
-                self.error = None;
-            }
-            KeyCode::Char(character)
-                if !key
-                    .modifiers
-                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
-            {
-                self.insert(character);
-                self.error = None;
-            }
-            KeyCode::Backspace => {
-                if self.cursor > 0 {
-                    self.cursor -= 1;
-                    self.remove_at_cursor();
-                }
-                self.error = None;
-            }
-            KeyCode::Delete => {
-                if self.cursor < self.input.chars().count() {
-                    self.remove_at_cursor();
-                }
-                self.error = None;
-            }
+            KeyCode::Tab | KeyCode::Enter => return self.move_field(true),
             _ => {}
+        }
+        if line_edit::apply(&mut self.input, &mut self.cursor, key) == line_edit::Edit::Changed {
+            self.error = None;
         }
 
         None
@@ -322,7 +289,7 @@ impl FormApp {
         let value = if self.input.is_empty() {
             field.default.clone().unwrap_or_default()
         } else {
-            self.input.clone()
+            self.input_text()
         };
 
         if forward && field.required && value.trim().is_empty() {
@@ -339,7 +306,8 @@ impl FormApp {
             return None;
         }
 
-        self.values.insert(field.name.clone(), value);
+        self.values
+            .insert(field.name.clone(), value.trim().to_owned());
         self.error = None;
         let next = if forward {
             self.index + 1
@@ -361,63 +329,31 @@ impl FormApp {
             .values
             .remove(&field.name)
             .or_else(|| field.default.clone())
-            .unwrap_or_default();
-        self.cursor = self.input.chars().count();
+            .unwrap_or_default()
+            .chars()
+            .collect();
+        self.cursor = self.input.len();
         None
     }
 
-    fn insert(&mut self, character: char) {
-        let byte_index = self
-            .input
-            .char_indices()
-            .nth(self.cursor)
-            .map_or(self.input.len(), |(index, _)| index);
-        self.input.insert(byte_index, character);
-        self.cursor += 1;
-    }
-
-    fn remove_at_cursor(&mut self) {
-        let byte_index = self
-            .input
-            .char_indices()
-            .nth(self.cursor)
-            .map_or(self.input.len(), |(index, _)| index);
-        if byte_index < self.input.len() {
-            let next = self.input[byte_index..]
-                .chars()
-                .next()
-                .map(char::len_utf8)
-                .unwrap_or_default();
-            self.input.replace_range(byte_index..byte_index + next, "");
-        }
+    fn input_text(&self) -> String {
+        self.input.iter().collect()
     }
 }
 
 fn draw_form(frame: &mut Frame<'_>, app: &FormApp) {
-    let overview_height = if app.fields.len() > 1 {
-        u16::try_from(app.fields.len()).unwrap_or(u16::MAX)
-    } else {
-        0
-    };
     let heading_height = app.heading.height();
+    let rows = u16::try_from(app.fields.len() + 1).unwrap_or(u16::MAX);
     let [
         heading_area,
         _heading_gap,
-        label_area,
-        hint_area,
-        input_area,
-        _input_gap,
-        overview_area,
+        fields_area,
         _footer_gap,
         footer_area,
     ] = Layout::vertical([
         Constraint::Length(heading_height),
         Constraint::Length(heading_height),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(1),
-        Constraint::Length(u16::from(overview_height > 0)),
-        Constraint::Length(overview_height.saturating_sub(1)),
+        Constraint::Length(rows),
         Constraint::Length(1),
         Constraint::Length(1),
     ])
@@ -430,66 +366,13 @@ fn draw_form(frame: &mut Frame<'_>, app: &FormApp) {
         heading_area,
     );
 
-    let field = &app.fields[app.index];
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw("  "),
-            Span::styled(terminal_text(&field.label), tui_style(Tone::Accent, true)),
-        ])),
-        label_area,
-    );
-
-    let hint_line = if let Some(error) = &app.error {
-        Line::from(vec![
-            Span::raw("  "),
-            Span::styled(terminal_text(error), tui_style(Tone::Error, false)),
-        ])
-    } else {
-        let mut spans = vec![
-            Span::raw("  "),
-            Span::styled(
-                if field.required {
-                    "Required"
-                } else {
-                    "Optional"
-                },
-                tui_style(Tone::Secondary, false),
-            ),
-        ];
-        if let Some(hint) = &field.hint {
-            spans.extend([
-                Span::styled(" · ", tui_style(Tone::Muted, false)),
-                Span::styled(terminal_text(hint), tui_style(Tone::Secondary, false)),
-            ]);
-        }
-        Line::from(spans)
-    };
-    frame.render_widget(Paragraph::new(hint_line), hint_area);
-
-    let input_width = input_area.width.saturating_sub(2);
-    let (input, cursor_column) = if app.secret {
-        let masked = "•".repeat(app.input.chars().count());
-        visible_input(&masked, app.cursor, input_width)
-    } else {
-        visible_input(&app.input, app.cursor, input_width)
-    };
-
-    let displayed_input = if app.input.is_empty() && !app.secret {
-        Span::styled("Type a value…", tui_style(Tone::Muted, false))
-    } else {
-        Span::raw(input)
-    };
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::styled("› ", tui_style(Tone::Accent, true)),
-            displayed_input,
-        ])),
-        input_area,
-    );
-
-    if overview_height > 0 {
-        frame.render_widget(Paragraph::new(overview_lines(app)), overview_area);
-    }
+    let label_width = label_column_width(app);
+    let value_column = FIELD_MARKER_WIDTH + label_width + FIELD_GAP;
+    let input_width = fields_area
+        .width
+        .saturating_sub(u16::try_from(value_column).unwrap_or(u16::MAX));
+    let (lines, cursor) = field_rows(app, label_width, input_width);
+    frame.render_widget(Paragraph::new(lines), fields_area);
 
     let last = app.index + 1 == app.fields.len();
     let hints = [
@@ -508,50 +391,113 @@ fn draw_form(frame: &mut Frame<'_>, app: &FormApp) {
         footer_area,
     );
 
-    let x = input_area.x.saturating_add(2).saturating_add(cursor_column);
-    if x < input_area.right() {
-        frame.set_cursor_position((x, input_area.y));
+    let x = fields_area
+        .x
+        .saturating_add(u16::try_from(value_column).unwrap_or(u16::MAX))
+        .saturating_add(cursor.1);
+    let y = fields_area.y.saturating_add(cursor.0);
+    if x < fields_area.right() {
+        frame.set_cursor_position((x, y));
     }
 }
 
-/// Lists every other field: completed ones with their value, upcoming ones muted.
-fn overview_lines(app: &FormApp) -> Vec<Line<'static>> {
-    let width = app
-        .fields
+/// Columns before a field label: the state marker and a space.
+const FIELD_MARKER_WIDTH: usize = 2;
+/// Columns between the longest label and the value column.
+const FIELD_GAP: usize = 3;
+
+fn label_column_width(app: &FormApp) -> usize {
+    app.fields
         .iter()
         .map(|field| UnicodeWidthStr::width(terminal_text(&field.label).as_str()))
         .max()
-        .unwrap_or_default();
-    app.fields
-        .iter()
-        .enumerate()
-        .filter(|(index, _)| *index != app.index)
-        .map(|(_, field)| {
-            let label = terminal_text(&field.label);
-            let padding = width.saturating_sub(UnicodeWidthStr::width(label.as_str()));
-            match app.values.get(&field.name) {
-                Some(value) => {
-                    let value = if app.secret {
-                        "•".repeat(value.chars().count())
-                    } else if value.trim().is_empty() {
-                        "—".to_owned()
-                    } else {
-                        terminal_text(value)
-                    };
-                    Line::from(vec![
-                        Span::styled("  ✓ ", tui_style(Tone::Success, false)),
-                        Span::raw(label),
-                        Span::raw(" ".repeat(padding + 3)),
-                        Span::raw(value),
-                    ])
-                }
-                None => Line::from(vec![
-                    Span::styled("  · ", tui_style(Tone::Muted, false)),
-                    Span::styled(label, tui_style(Tone::Secondary, false)),
-                ]),
-            }
-        })
-        .collect()
+        .unwrap_or_default()
+}
+
+/// Every field in order, so the list never reshuffles: finished fields show a check and their
+/// value, the active field becomes the input with its guidance underneath, and upcoming fields
+/// wait muted. Returns the lines and the cursor's (row, column) within the value column.
+fn field_rows(
+    app: &FormApp,
+    label_width: usize,
+    input_width: u16,
+) -> (Vec<Line<'static>>, (u16, u16)) {
+    let mut lines = Vec::new();
+    let mut cursor = (0, 0);
+    for (index, field) in app.fields.iter().enumerate() {
+        let label = terminal_text(&field.label);
+        let padding = " ".repeat(
+            (label_width + FIELD_GAP).saturating_sub(UnicodeWidthStr::width(label.as_str())),
+        );
+        if index == app.index {
+            let (shown, column) = if app.secret {
+                visible_input(&"•".repeat(app.input.len()), app.cursor, input_width)
+            } else {
+                visible_input(&app.input_text(), app.cursor, input_width)
+            };
+            let value = if app.input.is_empty() && !app.secret {
+                Span::styled("Type a value…", tui_style(Tone::Muted, false))
+            } else {
+                Span::raw(shown)
+            };
+            cursor = (u16::try_from(lines.len()).unwrap_or(u16::MAX), column);
+            lines.push(Line::from(vec![
+                Span::styled("› ", tui_style(Tone::Accent, true)),
+                Span::styled(label, tui_style(Tone::Accent, true)),
+                Span::raw(padding),
+                value,
+            ]));
+            lines.push(guidance_line(app, field));
+        } else if let Some(value) = app.values.get(&field.name) {
+            let value = if app.secret {
+                "•".repeat(value.chars().count())
+            } else if value.trim().is_empty() {
+                "—".to_owned()
+            } else {
+                terminal_text(value)
+            };
+            lines.push(Line::from(vec![
+                Span::styled("✓ ", tui_style(Tone::Success, false)),
+                Span::raw(label),
+                Span::raw(padding),
+                Span::styled(value, tui_style(Tone::Secondary, false)),
+            ]));
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled("· ", tui_style(Tone::Muted, false)),
+                Span::styled(label, tui_style(Tone::Muted, false)),
+            ]));
+        }
+    }
+    (lines, cursor)
+}
+
+/// The line under the active field: a validation error, or Required/Optional with its hint.
+fn guidance_line(app: &FormApp, field: &TextField) -> Line<'static> {
+    if let Some(error) = &app.error {
+        return Line::from(vec![
+            Span::raw("  "),
+            Span::styled(terminal_text(error), tui_style(Tone::Error, false)),
+        ]);
+    }
+    let mut spans = vec![
+        Span::raw("  "),
+        Span::styled(
+            if field.required {
+                "Required"
+            } else {
+                "Optional"
+            },
+            tui_style(Tone::Secondary, false),
+        ),
+    ];
+    if let Some(hint) = &field.hint {
+        spans.extend([
+            Span::styled(" · ", tui_style(Tone::Muted, false)),
+            Span::styled(terminal_text(hint), tui_style(Tone::Secondary, false)),
+        ]);
+    }
+    Line::from(spans)
 }
 
 fn visible_input(input: &str, cursor: usize, width: u16) -> (String, u16) {
@@ -703,7 +649,7 @@ mod tests {
                 field("description", true, None),
             ],
         );
-        assert_eq!(app.input, "custom");
+        assert_eq!(app.input_text(), "custom");
         app.handle(key(KeyCode::Enter));
         for character in "Useful template".chars() {
             app.handle(key(KeyCode::Char(character)));
@@ -748,10 +694,10 @@ mod tests {
         app.cursor = 3;
         app.handle(key(KeyCode::Backspace));
         app.handle(key(KeyCode::Char('o')));
-        assert_eq!(app.input, "caoé");
+        assert_eq!(app.input_text(), "caoé");
         app.handle(key(KeyCode::Home));
         app.handle(key(KeyCode::Delete));
-        assert_eq!(app.input, "aoé");
+        assert_eq!(app.input_text(), "aoé");
     }
 
     #[test]
@@ -767,7 +713,7 @@ mod tests {
         let secret = "private-key";
         let heading = Heading::new("save API key");
         let mut app = FormApp::new_with_mode(&heading, vec![field("secret", true, None)], true);
-        app.input = secret.to_owned();
+        app.input = secret.chars().collect();
         app.cursor = secret.chars().count();
         let backend = TestBackend::new(40, form_height(&heading, 1));
         let mut terminal = Terminal::new(backend).unwrap();
@@ -836,15 +782,19 @@ mod tests {
         assert!(rows[0].starts_with("Inifra · new profile · OpenAI"));
         assert!(rows[0].ends_with("step 2 of 2"));
         assert_eq!(rows[1], "");
-        assert_eq!(rows[2], "  Model ID");
-        assert_eq!(rows[3], "  Required");
-        assert_eq!(rows[4], "› gpt-5");
+        // Every field keeps its place: finished above, the active one editing in place.
+        assert_eq!(rows[2], "✓ Profile ID   work");
+        assert_eq!(rows[3], "› Model ID     gpt-5");
+        assert_eq!(rows[4], "  Required");
         assert_eq!(rows[5], "");
-        assert_eq!(rows[6], "  ✓ Profile ID   work");
-        assert!(rows[8].contains("Enter finish"));
-        assert!(rows[8].contains("Shift+Tab previous"));
+        assert!(rows[6].contains("Enter finish"));
+        assert!(rows[6].contains("Shift+Tab previous"));
         let buffer = terminal.backend().buffer();
-        assert_eq!(buffer[(2, 2)].fg, tui_style(Tone::Accent, true).fg.unwrap());
+        assert_eq!(buffer[(2, 3)].fg, tui_style(Tone::Accent, true).fg.unwrap());
+        assert_eq!(
+            buffer[(0, 2)].fg,
+            tui_style(Tone::Success, false).fg.unwrap()
+        );
     }
 
     #[test]
@@ -861,10 +811,55 @@ mod tests {
         terminal.draw(|frame| draw_form(frame, &app)).unwrap();
         let rows = rows(&terminal);
 
+        assert_eq!(rows[2], "› Profile ID   Type a value…");
         assert_eq!(rows[3], "  Required · lowercase letters, numbers, hyphens");
-        assert_eq!(rows[4], "› Type a value…");
-        assert_eq!(rows[6], "  · Model ID");
-        assert!(!rows[8].contains("previous"));
+        assert_eq!(rows[4], "· Model ID");
+        assert!(!rows[6].contains("previous"));
+        let buffer = terminal.backend().buffer();
+        assert_eq!(buffer[(2, 4)].fg, tui_style(Tone::Muted, false).fg.unwrap());
+    }
+
+    #[test]
+    fn the_cursor_sits_in_the_active_row_after_the_typed_text() {
+        let heading = Heading::new("new profile");
+        let mut app = FormApp::new(
+            &heading,
+            vec![field("Name", true, None), field("Model", true, None)],
+        );
+        for character in "ab".chars() {
+            app.handle(key(KeyCode::Char(character)));
+        }
+        let mut terminal = Terminal::new(TestBackend::new(60, form_height(&heading, 2))).unwrap();
+        terminal.draw(|frame| draw_form(frame, &app)).unwrap();
+        // "› " + "Name" label column (5) + 3 gap + two typed characters.
+        terminal
+            .backend_mut()
+            .assert_cursor_position((2 + 5 + 3 + 2, 2));
+    }
+
+    #[test]
+    fn submitted_values_drop_surrounding_whitespace() {
+        let mut app = FormApp::new(&Heading::none(), vec![field("Model", true, None)]);
+        for character in "  gpt-5 ".chars() {
+            app.handle(key(KeyCode::Char(character)));
+        }
+        let Some(FormOutcome::Submitted(values)) = app.handle(key(KeyCode::Enter)) else {
+            panic!("the form should submit");
+        };
+        assert_eq!(values["Model"], "gpt-5");
+    }
+
+    #[test]
+    fn word_editing_keys_work_in_a_field() {
+        let mut app = FormApp::new(&Heading::none(), vec![field("Name", true, None)]);
+        for character in "alpha beta".chars() {
+            app.handle(key(KeyCode::Char(character)));
+        }
+        app.handle(KeyEvent::new(KeyCode::Left, KeyModifiers::CONTROL));
+        assert_eq!(app.cursor, 6);
+        app.handle(KeyEvent::new(KeyCode::Char('w'), KeyModifiers::CONTROL));
+        assert_eq!(app.input_text(), "beta");
+        assert_eq!(app.cursor, 0);
     }
 
     #[test]
