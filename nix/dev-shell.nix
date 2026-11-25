@@ -9,5 +9,7 @@ pkgs.mkShell {
     pkgs.git
     pkgs.openssh
     pkgs.perl
+    pkgs.python3
+    pkgs.tmux
   ];
 }
