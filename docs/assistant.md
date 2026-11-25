@@ -44,6 +44,7 @@ The footer shows the active profile, provider, model, effort when set, and token
 - `/inspect ID` shows one template's outputs and inputs.
 - `/project` reports recognized manifests and guidance files in the current directory.
 - `/plan ID... [--set NAME=VALUE] [--overwrite]` prepares a generation plan using Inifra Core's validation.
+- `/clear` starts a new conversation: it clears the visible conversation, queued local results, and any unapproved plan, and keeps the profile, model, and effort.
 - `/apply` opens a No-default confirmation. Files and directories are changed only after an explicit Yes, and the core revalidates the plan before applying it.
 
 `/model` without an ID, or Ctrl+O while idle, opens the switcher: profiles on the left and the highlighted profile's model IDs on the right. Use ↑/↓ or `j`/`k` to move, Tab or `h`/`l` to switch sides, `e` to cycle the effort, Enter to use the selection for this session, `s` to also save it as the default profile with its model and effort in `assistant.toml`, and Esc to close. Switching profile or model clears the conversation and queued local context; changing only the effort does not.

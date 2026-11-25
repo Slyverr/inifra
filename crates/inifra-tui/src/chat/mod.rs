@@ -126,6 +126,8 @@ pub enum ChatEvent {
     AssistantMessage(String),
     /// Add a non-error status line to the conversation.
     Notice(String),
+    /// Forget the visible conversation after the orchestrator starts a new one.
+    ConversationCleared,
     /// Mark a non-chat operation as active and pause input until it completes.
     WorkingStarted(String),
     /// Resume input after a non-chat operation completes.
@@ -403,6 +405,10 @@ fn drain_events(events: &Receiver<ChatEvent>, app: &mut ChatApp) -> Vec<ChatActi
             }
             ChatEvent::AssistantMessage(text) => app.push_message(Role::Local, text),
             ChatEvent::Notice(text) => app.push_message(Role::Notice, text),
+            ChatEvent::ConversationCleared => {
+                app.messages.clear();
+                app.scroll_from_bottom = 0;
+            }
             ChatEvent::WorkingStarted(status) => {
                 app.working = Some(status);
                 app.busy_since = Some(std::time::Instant::now());

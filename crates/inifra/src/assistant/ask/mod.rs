@@ -302,6 +302,15 @@ fn handle_command(
                 profile.model
             )));
         }
+        commands::Command::Clear => {
+            session.clear_pending_plan(events);
+            session.clear_local_context();
+            session.history.truncate(1);
+            let _ = events.send(ChatEvent::ConversationCleared);
+            let _ = events.send(ChatEvent::Notice(
+                "Started a new conversation. Profile, model, and effort are unchanged.".to_owned(),
+            ));
+        }
         commands::Command::Switcher => switching::open_switcher(session, events),
         commands::Command::Effort(value) => {
             switching::set_effort(value.as_deref(), session, events);
@@ -681,6 +690,42 @@ mod tests {
         );
         assert!(
             matches!(received.try_recv(), Ok(ChatEvent::Notice(message)) if message.contains("context was cleared"))
+        );
+    }
+
+    #[test]
+    fn clear_starts_a_new_conversation_without_changing_the_connection() {
+        let parent = tempfile::tempdir().unwrap();
+        let mut session = session(parent.path().to_path_buf());
+        let (events, received) = mpsc::channel::<ChatEvent>();
+        let (worker_tx, _) = mpsc::channel();
+        let mut active: Option<ActiveRequest> = None;
+        session
+            .history
+            .push(ChatMessage::new(ChatRole::User, "old context"));
+        let _ = session.queue_local_context("private local result", &events);
+        let connection = session.connection.id.clone();
+        let model = session.connection.profile.model.clone();
+        while received.try_recv().is_ok() {}
+
+        handle_command(
+            commands::Command::Clear,
+            &mut session,
+            &events,
+            &worker_tx,
+            &mut active,
+        );
+
+        assert_eq!(session.history.len(), 1);
+        assert!(session.local_context.is_empty());
+        assert_eq!(session.connection.id, connection);
+        assert_eq!(session.connection.profile.model, model);
+        assert!(matches!(
+            received.try_recv(),
+            Ok(ChatEvent::ConversationCleared)
+        ));
+        assert!(
+            matches!(received.try_recv(), Ok(ChatEvent::Notice(message)) if message.contains("new conversation"))
         );
     }
 
