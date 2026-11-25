@@ -78,7 +78,11 @@ pub fn run_select(screen: &SelectScreen) -> io::Result<InteractionOutcome<usize>
     }
 
     let visible = choices.len().min(MAX_VISIBLE_CHOICES) as u16;
-    let height = screen.heading_height() + screen.context_height() + visible + 2;
+    let height = screen.heading_height()
+        + screen.heading.outline_height()
+        + screen.context_height()
+        + visible
+        + 2;
     let mut terminal = terminal::InlineTerminal::new(height)?;
     let mut app = SelectApp::new(screen);
     loop {
@@ -233,12 +237,14 @@ fn draw_select(frame: &mut Frame<'_>, screen: &SelectScreen, app: &SelectApp) {
     let area = frame.area();
     let [
         heading_area,
+        outline_area,
         context_area,
         choices_area,
         _footer_gap,
         footer_area,
     ] = Layout::vertical([
         Constraint::Length(screen.heading_height()),
+        Constraint::Length(screen.heading.outline_height()),
         Constraint::Length(screen.context_height()),
         Constraint::Min(1),
         Constraint::Length(1),
@@ -250,6 +256,10 @@ fn draw_select(frame: &mut Frame<'_>, screen: &SelectScreen, app: &SelectApp) {
         Paragraph::new(screen.heading.line(None, heading_area.width)),
         heading_area,
     );
+
+    if screen.heading.outline_height() > 0 {
+        frame.render_widget(Paragraph::new(screen.heading.outline_lines()), outline_area);
+    }
 
     if screen.context_height() > 0 {
         let width = label_width(&screen.summary);

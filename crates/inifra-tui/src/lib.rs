@@ -14,8 +14,8 @@ pub use chat::{
     SwitcherProfile, run_chat,
 };
 pub use controls::{
-    Badge, FieldCheck, FormOutcome, Heading, InteractionOutcome, Row, SelectScreen, TextField,
-    run_confirmation, run_form, run_secret_input, run_select,
+    Badge, FieldCheck, FormOutcome, Heading, InteractionOutcome, OutlineRow, Row, SelectScreen,
+    StepState, TextField, run_confirmation, run_form, run_secret_input, run_select,
 };
 pub use init::{run_init, run_init_with_selection};
 pub use model::{

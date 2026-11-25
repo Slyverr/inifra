@@ -23,7 +23,7 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 - Show slash-command output in `inifra ask` as a styled card instead of plain text, and grow the chat viewport downward while a reply streams.
 - Show the "Type a message" placeholder in a muted color.
 - Edit text in the profile form and the chat composer with one readline-style keymap, including Ctrl+W, Ctrl+←/→, Alt+B/F, Alt+Backspace, Ctrl+K, and Ctrl+U.
-- Keep every profile form field in view: finished fields show a check and their value, the active field edits in place, and upcoming fields wait in gray.
+- Show every setup step under the heading of each assistant setup screen, with finished steps checked and answered, the current step marked, upcoming steps in gray, and sub-steps such as pasting a key hanging under their step with an L-shaped connector.
 - Ask for the API key in its own step, with pasting as the default, instead of asking for an environment variable name first.
 - Drop leading and trailing spaces from submitted form values.
 - Choose the default model from the provider's own list during setup, after the key is entered, with `/` to filter and a typed model ID as the fallback when the list is unavailable. Setup now makes one network request to fetch that list.

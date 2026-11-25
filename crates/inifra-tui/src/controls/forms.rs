@@ -174,7 +174,7 @@ fn run_form_with_mode(
 fn form_height(heading: &Heading, fields: usize) -> u16 {
     // Heading and its gap, one row per field plus the active field's guidance, a gap, the footer.
     let fields = u16::try_from(fields).unwrap_or(u16::MAX);
-    2 * heading.height() + fields.saturating_add(1) + 2
+    2 * heading.height() + heading.outline_height() + fields.saturating_add(1) + 2
 }
 
 /// Asks a yes/no question in a compact inline Ratatui screen.
@@ -347,12 +347,14 @@ fn draw_form(frame: &mut Frame<'_>, app: &FormApp) {
     let [
         heading_area,
         _heading_gap,
+        outline_area,
         fields_area,
         _footer_gap,
         footer_area,
     ] = Layout::vertical([
         Constraint::Length(heading_height),
         Constraint::Length(heading_height),
+        Constraint::Length(app.heading.outline_height()),
         Constraint::Length(rows),
         Constraint::Length(1),
         Constraint::Length(1),
@@ -365,6 +367,10 @@ fn draw_form(frame: &mut Frame<'_>, app: &FormApp) {
         Paragraph::new(app.heading.line(step.as_deref(), heading_area.width)),
         heading_area,
     );
+
+    if app.heading.outline_height() > 0 {
+        frame.render_widget(Paragraph::new(app.heading.outline_lines()), outline_area);
+    }
 
     let label_width = label_column_width(app);
     let value_column = FIELD_MARKER_WIDTH + label_width + FIELD_GAP;
