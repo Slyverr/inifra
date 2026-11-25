@@ -19,6 +19,12 @@ expect "Model"
 expect "mock-1"
 expect_not "Make default"
 snap profile
+# Cancelling a removal returns to the menu on the action just chosen, not back on the first.
+send Down Enter
+wait_for "Remove mock"
+send Escape
+wait_for "Connection"
+screen | grep -qF "› Remove" || fail "menu did not keep its selection"
 send Escape
 wait_for "Create a profile"
 send Down Enter

@@ -258,6 +258,7 @@ fn profile_menu(
     credentials_path: &Path,
     id: &str,
 ) -> Result<UiExit, Box<dyn Error>> {
+    let mut last = ProfileAction::Edit;
     loop {
         let config = load_config(config_path)?;
         let Some(profile) = config.profile(id) else {
@@ -273,6 +274,10 @@ fn profile_menu(
             heading,
             summary: profile_summary(profile),
             choices: actions.iter().map(|(_, label)| Row::new(*label)).collect(),
+            initial: actions
+                .iter()
+                .position(|(action, _)| *action == last)
+                .unwrap_or_default(),
             ..SelectScreen::default()
         };
         let action = match run_select(&screen)? {
@@ -280,6 +285,7 @@ fn profile_menu(
             InteractionOutcome::Back => return Ok(UiExit::Continue),
             InteractionOutcome::Quit => return Ok(UiExit::Quit),
         };
+        last = action;
         match action {
             ProfileAction::Edit => {
                 if edit_profile(config_path, credentials_path, id)? == UiExit::Quit {
