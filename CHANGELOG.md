@@ -22,6 +22,10 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 - Start `inifra ask` replies with a `●` bullet and indent the rest, tint your messages, and show an animated "Thinking" indicator while the assistant works.
 - Show slash-command output in `inifra ask` as a styled card instead of plain text, and grow the chat viewport downward while a reply streams.
 - Show the "Type a message" placeholder in a muted color.
+- Edit text in the profile form and the chat composer with one readline-style keymap, including Ctrl+W, Ctrl+←/→, Alt+B/F, Alt+Backspace, Ctrl+K, and Ctrl+U.
+- Keep every profile form field in view: finished fields show a check and their value, the active field edits in place, and upcoming fields wait in gray.
+- Ask for the API key in its own step, with pasting as the default, instead of asking for an environment variable name first.
+- Drop leading and trailing spaces from submitted form values.
 - Lead the chat footer with the active profile.
 - Label failed responses "request failed" and reserve "interrupted" for a user cancel.
 - Return from input and review to the picker with Esc in `inifra init` instead of cancelling.

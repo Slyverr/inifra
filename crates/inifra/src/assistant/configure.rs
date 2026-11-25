@@ -65,49 +65,42 @@ pub(super) fn configure_profile(
             }
             FormOutcome::Quit => return Ok(UiExit::Quit),
         };
-        let mut credential_initial = existing
-            .as_ref()
-            .map(|profile| match profile.credential_source {
-                CredentialSource::Environment => 0,
-                CredentialSource::CredentialsFile => 1,
-            })
-            .unwrap_or_default();
+        let key_possible = key_possible(template, existing.as_ref());
+        let mut last_choice: Option<KeyChoice> = None;
 
         let (id, api_key_env, credential_source, secret) = 'credentials: loop {
             let id = match profile_id {
                 Some(id) => id.to_owned(),
                 None => normalize_profile_name(&required_value(&values, "id")?),
             };
-            let api_key_env = profile_api_key_env(template, &values)?;
-            let Some(api_key_env) = api_key_env else {
+            if !key_possible {
                 break (id, None, CredentialSource::Environment, None);
-            };
+            }
 
-            let mut choices = vec![
-                Row::new("Read from environment").badge(environment_badge(&api_key_env)),
-                Row::new("Save in credentials.env")
-                    .detail("kept in the Inifra config directory, never in assistant.toml"),
-            ];
-            let can_keep = existing.as_ref().is_some_and(|profile| {
+            let name = key_variable_name(template, &id, existing.as_ref());
+            let keep_stored = existing.as_ref().is_some_and(|profile| {
                 profile.credential_source == CredentialSource::CredentialsFile
-                    && profile.api_key_env.as_deref() == Some(&api_key_env)
-            });
-            if can_keep {
-                choices.push(Row::new("Keep current stored key").detail("already saved"));
-            }
-            if !can_keep && credential_initial > 1 {
-                credential_initial = 1;
-            }
-
-            let credential_heading = heading(Some(&id)).context(format!("API key {api_key_env}"));
+                    && profile.api_key_env.as_deref() == Some(&name)
+            }) && read_credential(credentials_path, &name)?
+                .is_some_and(|secret| !secret.trim().is_empty());
+            let options = key_options(template, &name, keep_stored);
+            let initial = last_choice
+                .or_else(|| existing_key_choice(existing.as_ref(), keep_stored))
+                .or(Some(if template.api_key_required {
+                    KeyChoice::Paste
+                } else {
+                    KeyChoice::None
+                }))
+                .and_then(|choice| options.iter().position(|(kind, _)| *kind == choice))
+                .unwrap_or_default();
             let screen = SelectScreen {
-                heading: credential_heading.clone(),
-                choices,
-                initial: credential_initial,
+                heading: heading(Some(&id)).context("API key"),
+                choices: options.iter().map(|(_, row)| row.clone()).collect(),
+                initial,
                 ..SelectScreen::default()
             };
             let selected = match run_select(&screen)? {
-                InteractionOutcome::Selected(selected) => selected,
+                InteractionOutcome::Selected(selected) => options[selected].0,
                 InteractionOutcome::Back => {
                     match run_form(&form_heading, with_form_values(fields.clone(), &values))? {
                         FormOutcome::Submitted(next_values) => {
@@ -123,31 +116,56 @@ pub(super) fn configure_profile(
                 }
                 InteractionOutcome::Quit => return Ok(UiExit::Quit),
             };
-            credential_initial = selected;
+            last_choice = Some(selected);
 
-            let credential_source = if selected == 0 {
-                CredentialSource::Environment
-            } else {
-                CredentialSource::CredentialsFile
-            };
-            let keep_saved_credential = selected == 2
-                && read_credential(credentials_path, &api_key_env)?
-                    .is_some_and(|secret| !secret.trim().is_empty());
-            let secret = if credential_source == CredentialSource::CredentialsFile
-                && !keep_saved_credential
-            {
-                let field = TextField::new("secret", api_key_env.clone())
-                    .hint("saved in credentials.env, never in assistant.toml");
-                match run_secret_input(&heading(Some(&id)).context("save API key"), field)? {
-                    FormOutcome::Submitted(values) => Some(required_value(&values, "secret")?),
-                    FormOutcome::Back => continue 'credentials,
-                    FormOutcome::Quit => return Ok(UiExit::Quit),
+            match selected {
+                KeyChoice::None => break (id, None, CredentialSource::Environment, None),
+                KeyChoice::Variable => {
+                    break (id, Some(name), CredentialSource::Environment, None);
                 }
-            } else {
-                None
-            };
-
-            break (id, Some(api_key_env), credential_source, secret);
+                KeyChoice::Keep => {
+                    break (id, Some(name), CredentialSource::CredentialsFile, None);
+                }
+                KeyChoice::OtherVariable => {
+                    let field = TextField::new("name", "Variable name")
+                        .required()
+                        .hint("the environment variable's name, such as WORK_API_KEY")
+                        .default_value(Some(name))
+                        .check(|value| {
+                            if is_variable_name(value) {
+                                Ok(())
+                            } else {
+                                Err("Use uppercase letters, digits, and underscores.".to_owned())
+                            }
+                        });
+                    match run_form(&heading(Some(&id)).context("API key variable"), vec![field])? {
+                        FormOutcome::Submitted(values) => {
+                            let name = required_value(&values, "name")?;
+                            break (id, Some(name), CredentialSource::Environment, None);
+                        }
+                        FormOutcome::Back => continue 'credentials,
+                        FormOutcome::Quit => return Ok(UiExit::Quit),
+                    }
+                }
+                KeyChoice::Paste => {
+                    let field = TextField::new("secret", "API key").hint(format!(
+                        "saved as {name} in credentials.env, never in assistant.toml"
+                    ));
+                    match run_secret_input(&heading(Some(&id)).context("save API key"), field)? {
+                        FormOutcome::Submitted(values) => {
+                            let secret = required_value(&values, "secret")?;
+                            break (
+                                id,
+                                Some(name),
+                                CredentialSource::CredentialsFile,
+                                Some(secret),
+                            );
+                        }
+                        FormOutcome::Back => continue 'credentials,
+                        FormOutcome::Quit => return Ok(UiExit::Quit),
+                    }
+                }
+            }
         };
 
         break 'selection (id, template, values, api_key_env, credential_source, secret);
@@ -355,23 +373,6 @@ fn profile_fields(
             field
         });
     }
-    if template.api_key_required
-        || template.api_key_optional
-        || existing.is_some_and(|profile| profile.api_key_env.is_some())
-    {
-        let field = TextField::new("api_key_env", "API key environment variable")
-            .hint("the variable name, not the key itself")
-            .default_value(
-                existing
-                    .and_then(|profile| profile.api_key_env.clone())
-                    .or_else(|| template.api_key_env.map(str::to_owned)),
-            );
-        fields.push(if template.api_key_required {
-            field.required()
-        } else {
-            field
-        });
-    }
     fields
 }
 
@@ -389,18 +390,88 @@ fn with_form_values(
     fields
 }
 
-fn profile_api_key_env(
+/// Whether setup should ask about an API key for this connection.
+fn key_possible(template: ConnectionTemplate, existing: Option<&AssistantProfile>) -> bool {
+    template.api_key_required
+        || template.api_key_optional
+        || existing.is_some_and(|profile| profile.api_key_env.is_some())
+}
+
+/// The variable that names the key: the saved one, the provider's usual one, or `<NAME>_API_KEY`.
+fn key_variable_name(
     template: ConnectionTemplate,
-    values: &BTreeMap<String, String>,
-) -> Result<Option<String>, Box<dyn Error>> {
-    if template.api_key_required {
-        Ok(Some(required_value(values, "api_key_env")?))
-    } else {
-        Ok(values
-            .get("api_key_env")
-            .map(|value| value.trim())
-            .filter(|value| !value.is_empty())
-            .map(str::to_owned))
+    profile_id: &str,
+    existing: Option<&AssistantProfile>,
+) -> String {
+    existing
+        .and_then(|profile| profile.api_key_env.clone())
+        .or_else(|| template.api_key_env.map(str::to_owned))
+        .unwrap_or_else(|| format!("{}_API_KEY", profile_id.to_uppercase().replace('-', "_")))
+}
+
+fn is_variable_name(name: &str) -> bool {
+    let mut bytes = name.bytes();
+    bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_uppercase() || byte == b'_')
+        && bytes.all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit() || byte == b'_')
+}
+
+/// How the API key reaches Inifra.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum KeyChoice {
+    None,
+    Paste,
+    Variable,
+    OtherVariable,
+    Keep,
+}
+
+/// The key choices to offer, in order. A key is pasted by default; `None` appears only when the
+/// provider can work without one.
+fn key_options(
+    template: ConnectionTemplate,
+    name: &str,
+    keep_stored: bool,
+) -> Vec<(KeyChoice, Row)> {
+    let mut options = Vec::new();
+    if !template.api_key_required {
+        options.push((
+            KeyChoice::None,
+            Row::new("No API key").detail("for servers that need none"),
+        ));
+    }
+    options.push((
+        KeyChoice::Paste,
+        Row::new("Paste an API key").detail("stored in credentials.env, not assistant.toml"),
+    ));
+    if keep_stored {
+        options.push((
+            KeyChoice::Keep,
+            Row::new("Keep the stored key").detail("already saved"),
+        ));
+    }
+    options.push((
+        KeyChoice::Variable,
+        Row::new("Use an environment variable").badge(environment_badge(name)),
+    ));
+    options.push((
+        KeyChoice::OtherVariable,
+        Row::new("Use a different variable").detail("you choose the name"),
+    ));
+    options
+}
+
+fn existing_key_choice(
+    existing: Option<&AssistantProfile>,
+    keep_stored: bool,
+) -> Option<KeyChoice> {
+    let profile = existing?;
+    match (&profile.api_key_env, profile.credential_source) {
+        (None, _) => Some(KeyChoice::None),
+        (Some(_), CredentialSource::Environment) => Some(KeyChoice::Variable),
+        (Some(_), CredentialSource::CredentialsFile) if keep_stored => Some(KeyChoice::Keep),
+        (Some(_), CredentialSource::CredentialsFile) => Some(KeyChoice::Paste),
     }
 }
 
@@ -543,21 +614,20 @@ fn required_value(values: &BTreeMap<String, String>, key: &str) -> Result<String
 #[cfg(test)]
 mod tests {
     use super::{
-        ConnectionChoice, api_detail, default_message, preset_detail, profile_api_key_env,
+        ConnectionChoice, KeyChoice, api_detail, default_message, existing_key_choice,
+        is_variable_name, key_options, key_possible, key_variable_name, preset_detail,
         profile_fields, profile_id_field, saved_message, selected_connection, url_host,
     };
     use inifra_assistant::{
         ApiProtocol, AssistantConfig, AssistantProfile, ConnectionTemplate, CredentialSource,
         PROVIDER_PRESETS, Provider, connection_template,
     };
-    use std::collections::BTreeMap;
-
     fn template(provider: Provider, api: ApiProtocol) -> ConnectionTemplate {
         connection_template(provider, api).unwrap()
     }
 
     #[test]
-    fn custom_api_fields_require_an_endpoint_and_allow_an_optional_key() {
+    fn custom_api_fields_require_an_endpoint_and_leave_the_key_to_its_own_step() {
         let fields = profile_fields(
             template(Provider::CustomEndpoint, ApiProtocol::OpenAiChatCompletions),
             None,
@@ -566,30 +636,101 @@ mod tests {
             .iter()
             .find(|field| field.name == "base_url")
             .unwrap();
-        let api_key = fields
-            .iter()
-            .find(|field| field.name == "api_key_env")
-            .unwrap();
 
         assert!(base_url.required);
-        assert!(!api_key.required);
-    }
-
-    #[test]
-    fn local_ollama_profiles_do_not_request_an_api_key() {
-        let fields = profile_fields(template(Provider::Ollama, ApiProtocol::OllamaChat), None);
         assert!(!fields.iter().any(|field| field.name == "api_key_env"));
     }
 
     #[test]
-    fn existing_ollama_profiles_keep_an_optional_api_key_reference() {
-        let values = BTreeMap::from([("api_key_env".to_owned(), "REMOTE_API_KEY".to_owned())]);
+    fn key_step_depends_on_what_the_connection_needs() {
+        let ollama = template(Provider::Ollama, ApiProtocol::OllamaChat);
+        assert!(!key_possible(ollama, None));
+        let remote = AssistantProfile {
+            api_key_env: Some("REMOTE_API_KEY".to_owned()),
+            ..profile(Provider::Ollama, ApiProtocol::OllamaChat, "llama3.2")
+        };
+        assert!(key_possible(ollama, Some(&remote)));
+        assert!(key_possible(
+            template(Provider::OpenAi, ApiProtocol::OpenAiResponses),
+            None
+        ));
+        assert!(key_possible(
+            template(Provider::CustomEndpoint, ApiProtocol::OpenAiChatCompletions),
+            None
+        ));
+    }
+
+    #[test]
+    fn key_variable_name_prefers_saved_then_preset_then_the_profile_name() {
+        let nvidia = template(Provider::NvidiaNim, ApiProtocol::OpenAiChatCompletions);
+        assert_eq!(key_variable_name(nvidia, "work", None), "NVIDIA_API_KEY");
+        let custom = template(Provider::CustomEndpoint, ApiProtocol::OpenAiChatCompletions);
         assert_eq!(
-            profile_api_key_env(template(Provider::Ollama, ApiProtocol::OllamaChat), &values)
-                .unwrap()
-                .as_deref(),
-            Some("REMOTE_API_KEY")
+            key_variable_name(custom, "home-lab", None),
+            "HOME_LAB_API_KEY"
         );
+        let saved = AssistantProfile {
+            api_key_env: Some("MY_KEY".to_owned()),
+            ..profile(Provider::NvidiaNim, ApiProtocol::OpenAiChatCompletions, "m")
+        };
+        assert_eq!(key_variable_name(nvidia, "work", Some(&saved)), "MY_KEY");
+        assert!(is_variable_name(&key_variable_name(
+            custom, "home-lab", None
+        )));
+    }
+
+    #[test]
+    fn pasting_is_the_first_key_choice_and_no_key_is_offered_only_when_optional() {
+        let openai = key_options(
+            template(Provider::OpenAi, ApiProtocol::OpenAiResponses),
+            "OPENAI_API_KEY",
+            false,
+        );
+        assert_eq!(openai[0].0, KeyChoice::Paste);
+        assert!(!openai.iter().any(|(kind, _)| *kind == KeyChoice::None));
+        assert!(!openai.iter().any(|(kind, _)| *kind == KeyChoice::Keep));
+
+        let custom = key_options(
+            template(Provider::CustomEndpoint, ApiProtocol::OpenAiChatCompletions),
+            "WORK_API_KEY",
+            true,
+        );
+        let kinds = custom.iter().map(|(kind, _)| *kind).collect::<Vec<_>>();
+        assert_eq!(
+            kinds,
+            [
+                KeyChoice::None,
+                KeyChoice::Paste,
+                KeyChoice::Keep,
+                KeyChoice::Variable,
+                KeyChoice::OtherVariable
+            ]
+        );
+    }
+
+    #[test]
+    fn existing_profiles_reopen_on_their_current_key_choice() {
+        let mut saved = profile(Provider::OpenAi, ApiProtocol::OpenAiResponses, "gpt-5");
+        saved.api_key_env = Some("OPENAI_API_KEY".to_owned());
+        assert_eq!(
+            existing_key_choice(Some(&saved), false),
+            Some(KeyChoice::Variable)
+        );
+        saved.credential_source = CredentialSource::CredentialsFile;
+        assert_eq!(
+            existing_key_choice(Some(&saved), true),
+            Some(KeyChoice::Keep)
+        );
+        assert_eq!(
+            existing_key_choice(Some(&saved), false),
+            Some(KeyChoice::Paste)
+        );
+        saved.api_key_env = None;
+        assert_eq!(
+            existing_key_choice(Some(&saved), false),
+            Some(KeyChoice::None)
+        );
+        assert_eq!(existing_key_choice(None, false), None);
     }
 
     #[test]
@@ -599,15 +740,6 @@ mod tests {
             None,
         );
         assert!(!fields.iter().any(|field| field.name == "base_url"));
-        assert_eq!(
-            fields
-                .iter()
-                .find(|field| field.name == "api_key_env")
-                .unwrap()
-                .default
-                .as_deref(),
-            Some("NVIDIA_API_KEY")
-        );
     }
 
     #[test]

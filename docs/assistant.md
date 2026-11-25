@@ -6,9 +6,26 @@ Run `inifra assistant` to open the inline profile manager. Its home screen lists
 
 Profile setup first asks whether to use a known provider or a custom endpoint. A known provider applies its preset protocol and endpoint (OpenAI defaults to Responses) and each row shows its host and whether it needs a key. A custom endpoint asks you to pick a supported API protocol and then enter the base URL. A custom endpoint must implement the chosen protocol's request and response schema; the protocol adapter already knows where to read the assistant's text.
 
-The profile form then asks for a Profile name (a short name for the connection, such as `work` or `local`; letters, numbers, and hyphens, starting with a letter; it is saved in lowercase, so `Work` and `work` are the same name), checked when you press Enter, the Default model, an optional Default effort (`low`, `medium`, or `high`; leave it empty for the provider default), and, where relevant, the API key environment variable. The form shows the current step and lists the other fields with the values entered so far. The credential choice shows whether the variable is set or not set in the current environment. After saving, Inifra reports the saved connection and the default profile. A profile stores the provider, API protocol, model ID, optional effort, optional base URL, and credential reference. It never stores a key in `assistant.toml`.
+The profile form then asks for a Profile name (a short name for the connection, such as `work` or `local`; letters, numbers, and hyphens, starting with a letter; it is saved in lowercase, so `Work` and `work` are the same name), checked when you press Enter, the Default model, an optional Default effort (`low`, `medium`, or `high`; leave it empty for the provider default), and, for a custom endpoint, its base URL. The form lists every field in order: finished fields show a check and their value, the active field is the input with its guidance underneath, and upcoming fields wait in gray. A separate API key step follows, with one question: how does Inifra get the key? Paste an API key (the default) stores it in the user-level `credentials.env` under the provider's usual variable name, such as `OPENAI_API_KEY`, or `<PROFILE>_API_KEY` for a custom endpoint. Use an environment variable reads the key from the process environment and shows whether the variable is set. Use a different variable lets you choose the variable name, and Keep the stored key appears when one is already saved. Servers that need no key, such as local Ollama, also offer No API key. After saving, Inifra reports the saved connection and the default profile. A profile stores the provider, API protocol, model ID, optional effort, optional base URL, and credential reference (the variable name). It never stores a key in `assistant.toml`.
 
 For a custom API, enter its base URL; Inifra adds the protocol's API path while preserving path prefixes. For example, Chat Completions adds `/chat/completions` and does not duplicate the route if it is already present. Custom Chat Completions requests omit optional streaming usage settings because support varies between compatible servers. The picker supports arrow keys or `j`/`k` to move, `h`/`l` to switch sides, `/` to filter, and Enter to choose. Esc clears an active filter first, then returns one step. Esc backs out of nested screens; Ctrl+C quits everywhere, and `q` quits non-text screens while remaining ordinary text in fields, filters, and chat input.
+
+## Editing keys
+
+Every text input, in the profile form and in the `inifra ask` composer, uses one readline-style keymap. A terminal program receives key events, not your shell's own bindings, so these are built in:
+
+| Keys | Action |
+| --- | --- |
+| ←/→ | Move one character |
+| Ctrl+←/→, Alt+←/→, Alt+B/F | Move one word |
+| Home or Ctrl+A, End or Ctrl+E | Start or end of the line |
+| Backspace, Delete | Delete one character |
+| Ctrl+W | Delete the whitespace-separated word before the cursor |
+| Alt+Backspace, Ctrl+Backspace | Delete the word before the cursor |
+| Alt+D, Ctrl+Delete | Delete the word after the cursor |
+| Ctrl+U, Ctrl+K | Delete to the start or end of the line |
+
+Some terminals send Ctrl+←/→ as another sequence; Alt+B and Alt+F always work.
 
 ## Commands
 
