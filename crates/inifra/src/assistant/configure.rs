@@ -1747,16 +1747,34 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            saved_message("local", &local),
+            plain(&saved_message("local", &local)),
             "Saved profile local · Ollama · Ollama Chat · qwen3:8b"
         );
         assert_eq!(
-            default_message(&config, "local"),
+            plain(&default_message(&config, "local")),
             "  now the default profile"
         );
         assert_eq!(
-            default_message(&config, "work"),
+            plain(&default_message(&config, "work")),
             "  default profile: local · switch with inifra assistant use work"
         );
+    }
+
+    /// Output is colored when stdout is a terminal, as in some sandboxed builds; compare text only.
+    fn plain(text: &str) -> String {
+        let mut out = String::new();
+        let mut chars = text.chars();
+        while let Some(c) = chars.next() {
+            if c == '\u{1b}' {
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            } else {
+                out.push(c);
+            }
+        }
+        out
     }
 }
