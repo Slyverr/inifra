@@ -1,15 +1,32 @@
 name: CI
 
+# Documentation-only changes skip CI. Only root-level Markdown is ignored:
+# templates/ holds Markdown that is embedded in the binary, so it still runs CI.
+# Tag pushes ignore path filters, so releases are always fully validated.
 on:
   push:
     branches: ['**']
     tags: ["v*"]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - '.github/pull_request_template.md'
+      - 'LICENSE-*'
   pull_request:
     branches: [main, 'release/**']
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+      - '.github/pull_request_template.md'
+      - 'LICENSE-*'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -72,7 +89,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # The macOS build is the slowest job by far, so branches and PRs run
+        # Linux only; main and release tags still cover macOS.
+        os: ${{ fromJSON((github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/')) && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
     steps:
       - uses: actions/checkout@v7
       - uses: cachix/install-nix-action@v31
@@ -110,7 +129,7 @@ jobs:
   release-assets:
     name: Build release archive (${{ matrix.target }})
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [checks, minimum-rust-version, nix-package, crate-packages, release-metadata]
+    needs: [release-metadata]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -156,7 +175,7 @@ jobs:
   github-release:
     name: Publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [release-assets]
+    needs: [checks, minimum-rust-version, nix-package, crate-packages, release-metadata, release-assets]
     runs-on: ubuntu-latest
     permissions:
       contents: write
