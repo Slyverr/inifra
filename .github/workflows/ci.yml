@@ -177,5 +177,11 @@ jobs:
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" dist/* --clobber
           else
-            gh release create "$RELEASE_TAG" dist/* --verify-tag --generate-notes --title "Inifra $RELEASE_TAG"
+            version="${RELEASE_TAG#v}"
+            awk -v v="$version" '
+              /^## \[/ { if (found) exit; if (index($0, "[" v "]")) { found = 1; next } }
+              found
+            ' CHANGELOG.md > release-notes.md
+            test -s release-notes.md
+            gh release create "$RELEASE_TAG" dist/* --verify-tag --title "Inifra $RELEASE_TAG" --notes-file release-notes.md --generate-notes
           fi
