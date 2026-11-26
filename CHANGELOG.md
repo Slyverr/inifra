@@ -6,6 +6,8 @@ This format follows [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) and
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-26
+
 ### Added
 
 - Choose a known provider or a custom endpoint during assistant setup, then pick the provider or API protocol from a short list.
