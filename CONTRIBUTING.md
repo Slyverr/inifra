@@ -1,18 +1,18 @@
 # Contributing
 
-Contributions are welcome. This guide covers development setup, project organization, coding conventions, testing, Git workflow, and releases.
+Contributions are welcome. This guide is the single source of truth for development setup, conventions, checks, Git workflow, and releases.
+
+The words **must** and **never** are requirements. **Should** is the default, to be departed from only with a stated reason.
 
 ## Getting Started
 
-For a rustup-based setup, install Rust 1.100.0 or newer with Cargo, Rustfmt, and Clippy:
+Install a Rust toolchain at or above the minimum supported Rust version (MSRV), with Cargo, Rustfmt, and Clippy:
 
 ```sh
 rustup toolchain install stable --profile minimal --component clippy --component rustfmt
 ```
 
-Nix users can enter the pinned project environment with `nix develop`; see [Nix support](docs/nix.md).
-
-Git is required for development and for using Git-backed template sources.
+Nix users can enter the pinned environment with `nix develop`; see [Nix support](docs/nix.md). Git is required for development and for Git-backed template sources.
 
 Run Inifra from the repository root:
 
@@ -20,57 +20,66 @@ Run Inifra from the repository root:
 cargo +stable run --locked -p inifra
 ```
 
-The Rust version declared in the workspace manifest is the minimum supported Rust version (MSRV). Keep `Cargo.toml` and `Cargo.lock` consistent when changing dependencies.
+The `rust-version` in the workspace `Cargo.toml` is the MSRV, and `unsafe_code = "forbid"` applies workspace-wide. Keep `Cargo.toml` and `Cargo.lock` consistent; always build and test with `--locked`.
 
 ## Repository Organization
 
-Inifra is organized as a Cargo workspace. Follow the existing crate layout when adding code, tests, or documentation.
+Inifra is a Cargo workspace. Follow the existing layout.
 
-| Crate | Responsibility |
+| Path | Responsibility |
 | --- | --- |
-| `crates/inifra/` | CLI parsing, command dispatch, and application wiring |
+| `crates/inifra/` | CLI parsing, command dispatch, application wiring |
 | `crates/inifra-core/` | Template, project, and generation services |
 | `crates/inifra-assistant/` | Assistant workflows and provider integrations |
 | `crates/inifra-tui/` | Ratatui presentation and terminal interaction |
-| `crates/<crate>/tests/` | Public-behavior tests for the corresponding crate |
-| `.github/workflows/ci.yml` | Authoritative CI checks |
-| `docs/` | Extended versioned documentation, when needed |
+| `crates/<crate>/tests/` | Public-behavior tests for that crate |
+| `templates/`, `presets/` | Built-in template and preset catalogs |
+| `scripts/` | Release validation, crate publishing, and the TUI smoke runner |
+| `.github/workflows/` | Authoritative CI and release automation |
+| `docs/` | Extended documentation |
 
-The crate responsibilities and allowed dependency direction are described in [`docs/architecture.md`](docs/architecture.md). Keep new modules inside their owning crate; add a crate only when a distinct responsibility, dependency boundary, or reuse case justifies it. Add tests and supporting files alongside the relevant crate.
+[`docs/architecture.md`](docs/architecture.md) owns crate responsibilities and the allowed dependency direction; [`DESIGN.md`](DESIGN.md) owns interface and terminal-design conventions. Keep new modules inside their owning crate. Add a crate only when a distinct responsibility, dependency boundary, or reuse case justifies it.
 
 ## Development Conventions
 
-Follow existing Rust patterns and repository tooling rather than introducing competing conventions.
-
-- Follow Rust idioms, existing naming and architecture patterns, and repository tool configuration.
-- Use Rustfmt, Clippy, and the configured lints; preserve the Rust 1.100 MSRV and `unsafe_code = "forbid"` setting.
-- Keep changes focused, errors explicit, and compatibility intentional.
-- Justify dependencies based on maintenance, security, licensing, and compatibility.
-- Discuss substantial interface or architectural changes, including alternatives and tradeoffs, before implementation.
-
-Use `docs/architecture.md` and `DESIGN.md` when maintained and relevant; these own detailed architecture and interface conventions.
+- Follow existing Rust idioms, naming, and architecture. Do not introduce a competing convention.
+- Keep changes focused. Do not mix refactors, formatting churn, or unrelated fixes into a feature or fix.
+- Make errors explicit and compatibility changes intentional; document breaking changes.
+- Justify every new dependency by maintenance, security, licensing, and compatibility. Prefer the standard library and existing dependencies.
+- Discuss substantial interface or architecture changes, with alternatives and tradeoffs, in an issue or draft PR before implementing them.
+- Never commit secrets, tokens, or local machine paths.
 
 ## Testing and Quality
 
-Prefer tests in dedicated files under each crate's `tests/`, grouped by behavior or component. Use source-local unit tests only when private internals or Rust-specific constraints make them necessary.
+Prefer tests in dedicated files under each crate's `tests/`, grouped by behavior or component. Use source-local unit tests only when private internals or Rust-specific constraints require them.
 
-- Test public CLI behavior, edge cases, failures, and regressions.
-- Keep tests deterministic, isolated, clearly named, and maintainable.
-- Reuse fixtures where useful; avoid arbitrary per-function or percentage coverage targets.
+- Cover public behavior, edge cases, failures, and regressions. A bug fix includes a test that fails without it.
+- Keep tests deterministic, isolated, and independent of the terminal, network, and the developer's configuration.
+- Do not chase per-function or percentage coverage targets.
 
-Before requesting review, run the checks relevant to your change:
+### Required checks
+
+Run these before every push and report any you did not run. They mirror CI:
 
 ```sh
 cargo +stable fmt --all -- --check
 cargo +stable clippy --workspace --all-targets --locked -- -D warnings
 cargo +stable test --workspace --locked
-cargo +1.100.0 check --workspace --locked
-cargo +1.100.0 test --workspace --locked
+cargo +<msrv> check --workspace --locked
+cargo +<msrv> test --workspace --locked
 ```
 
-Run applicable checks and report anything not executed. The documented CI workflow runs stable Rust formatting, linting, and tests on Linux, macOS, and Windows, plus MSRV checks on Linux; consult [`.github/workflows/ci.yml`](.github/workflows/ci.yml) for authoritative configuration.
+`<msrv>` is the toolchain CI pins in [`ci.yml`](.github/workflows/ci.yml), which matches `rust-version` in `Cargo.toml`. CI additionally runs the stable checks on Linux, macOS, and Windows, verifies the crates.io packages, and builds the Nix package; consult `ci.yml` for the exact configuration.
 
-After changing an interactive screen or a slash command, also run the terminal smoke runner. It drives the real binary in a private tmux server against a local mock provider, using temporary configuration and project directories, and writes plain-text and ANSI captures to `target/tui-smoke/`:
+### Additional checks
+
+| When you change | Also run |
+| --- | --- |
+| An interactive screen or slash command | The terminal smoke runner (below) |
+| Crate manifests, packaged files, or `templates/` | `scripts/publish-crates.sh --dry-run` (add `--allow-dirty` only for local runs with uncommitted changes) |
+| `flake.nix`, `nix/`, or `Cargo.lock` | `nix flake check --no-write-lock-file` |
+
+The smoke runner drives the real binary in a private tmux server against a local mock provider, using temporary configuration and project directories, and writes captures to `target/tui-smoke/`. It needs `tmux` and `python3` (both in the Nix shell), runs only on Unix, and is not part of CI:
 
 ```sh
 cargo build
@@ -79,15 +88,19 @@ scripts/tui-smoke/run.sh ask-chat         # one scenario
 scripts/tui-smoke/run.sh --check-coverage # every slash command appears in a scenario
 ```
 
-It needs `tmux` and `python3` (both are in the Nix development shell), runs only on Unix, and is not part of CI. Add a scenario file when you add a screen or a slash command.
+Add a scenario file whenever you add a screen or a slash command.
 
-To verify the crates.io package archives locally, run `scripts/publish-crates.sh --dry-run`. It stages the root `templates/` catalog into `inifra-core` for packaging, then removes the staged copy. Use `--allow-dirty` only for a local dry run with uncommitted changes.
+## Git Workflow
 
-## Git and Commits
+Use **GitHub Flow**: short-lived branches from `main`, no permanent `develop` branch, and no long-lived feature branches. `main` must always be releasable.
 
-Use **GitHub Flow**: short-lived feature or fix branches from `main`, PR-first integration, and no permanent `develop` branch. Roadmap chapters define milestones, **not long-lived chapter branches**. Git worktrees are optional and useful for independent concurrent changes.
+### Branches and worktrees
 
-Suggested branches: `feat/<topic>`, `fix/<topic>`, `docs/<topic>`, or the repository's existing scheme.
+- Name branches `<type>/<topic>` in lowercase kebab-case, using a Conventional Commit type: `feat/chat-history`, `fix/profile-name`, `docs/contributing`.
+- Start every branch from the current `main`, or from the relevant `release/vX.Y` branch for a patch to a supported release.
+- Use one branch per change and one worktree per concurrent change (`git worktree add ../<name> -b <branch>`). Never let two people modify the same checkout at once.
+- Delete a branch, its worktree, and its remote branch once its change is merged or abandoned.
+- Never rewrite history that others may have based work on. Force-push only your own unmerged branch, with `--force-with-lease`; never force-push `main` or a `release/vX.Y` branch, except to undo a mistaken push, and then only by a maintainer.
 
 ### Conventional Commits
 
@@ -97,90 +110,121 @@ Follow [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.
 type(scope[/area]): short imperative description
 ```
 
-The scope is optional and may contain **one or two segments**, never three or more (`core/parser/lexer` is invalid). This is a project rule, not a requirement of the specification. Omit scope for changes spanning unrelated components.
-
-For crate-owned work, use a scope that clearly names the crate: `inifra-cli` for `crates/inifra/`, or the crate name for `inifra-core`, `inifra-assistant`, and `inifra-tui`. Add one narrower area after `/` when it makes the change easier to locate.
+- **Types:** `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`, `ci`, `chore`, `revert`.
+- **Subject:** imperative mood, lowercase after the colon, no trailing period, at most 72 characters.
+- **Scope** is optional and has **one or two segments**, never three (`core/parser/lexer` is invalid). Omit it for changes spanning unrelated components.
+- **Crate scopes:** `inifra-cli` for `crates/inifra/`, otherwise the crate name (`inifra-core`, `inifra-assistant`, `inifra-tui`). Add one narrower area after `/` when it helps locate the change.
+- **Breaking changes** use `!` after the scope and a `BREAKING CHANGE:` footer.
 
 ```text
 feat(inifra-cli): add interactive initialization
 fix(inifra-core/inputs): reject conflicting values
 test(inifra-tui): cover cancellation
 docs: clarify installation
-chore(release): prepare v0.13.0
+chore(release): prepare vX.Y.Z
 ```
 
-Keep commits cohesive. A body is **optional**; add one when the title cannot explain motivation or consequences:
+A body is optional. Add one when the title cannot explain the motivation or consequences: a short paragraph of why, then bullets for significant changes, then footers such as `Refs: #123`. Omit empty sections.
 
-```text
-type(scope[/area]): short imperative description
-
-Briefly explain the purpose or motivation.
-
-- Summarize a significant change.
-- Summarize another relevant change.
-
-Optional consequences or additional context.
-
-Refs: #123
-```
-
-Omit unnecessary paragraphs and bullets. Use standard footers, including `BREAKING CHANGE: ...`, when applicable.
+Keep commits cohesive: each one builds, passes the required checks, and does one thing. Tidy fixup and noise commits before review.
 
 ## Pull Requests and Reviews
 
-Pull requests provide the review and integration path for contributors. Normal work targets `main`; fixes to a supported release line target its `release/vX.Y` branch (currently, `release/v0.8`).
+Everything reaches `main` or a `release/vX.Y` branch through one of two paths.
 
-- Use draft PRs for work in progress.
-- Describe the purpose, important changes, linked issues, checks performed, and compatibility impact.
-- Maintainers integrate only completed, reviewed changes with the required checks passing.
-- Prefer **rebase merging** to retain meaningful individual commits in a linear history; tidy noisy commits before review. GitHub rebase merges may assign new commit hashes.
-- Squash only when intermediate commits are not useful individually; the resulting commit must follow Conventional Commits.
+**Pull request (the default).** Required for every contributor and for any change that is not small. Use a draft PR for work in progress. Fill in the PR template: purpose, changes, review focus, exact checks run with results, and compatibility impact. The PR title follows Conventional Commits. Required CI checks must pass and a maintainer must approve before merging.
+
+**Direct fast-forward (maintainers only).** A maintainer may fast-forward `main` for a small, low-risk change (a typo, a comment, a CI or documentation tweak, a one-line fix) when the required checks pass locally and the history stays linear:
+
+```sh
+git switch main && git pull --ff-only
+git merge --ff-only <branch>
+git push origin main
+```
+
+If in doubt, open a PR.
+
+### Merging
+
+- Prefer **rebase merging** to keep meaningful commits in a linear history. GitHub may assign new hashes.
+- Squash only when intermediate commits are not useful alone; the resulting commit must follow Conventional Commits and keep any `BREAKING CHANGE:` footer.
+- Do not merge with failing or unrun required checks, unresolved review threads, or merge commits.
 
 ### Project and workspace context
 
-Keep repository-facing material—including documentation, commit messages, issues, and PR descriptions—grounded in checked-in project material, the change under review, or explicit user requirements. Do not expose private workspace plans or notes, conversation details, local machine paths, or personal environment setup as project context. Use external sources only when relevant to the change, cite them when making factual claims, and do not present them as project decisions.
+Keep repository-facing material (documentation, commit messages, issues, and PR descriptions) grounded in checked-in project material, the change under review, or explicit requirements. Do not expose private workspace plans or notes, conversation details, local machine paths, or personal environment setup. Use external sources only when relevant, cite them for factual claims, and do not present them as project decisions.
 
 ## Versioning and Releases
 
-Use [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html), with the project's additional release policy:
+Use [Semantic Versioning 2.0.0](https://semver.org/spec/v2.0.0.html) with these additions:
 
-- **`v0.x.0`**: Development milestones, generally tied to roadmap chapters; document pre-1.0 breaking changes.
-- **`v0.x.y` (`y > 0`)**: Compatible fixes and maintenance of a released `0.x` series, without unfinished next-minor features.
-- **`v1.0.0`**: Defined stable public contract, resolved release blockers, and representative external testing. No fixed tester count.
-- **`v1.x.y` onward**: Standard SemVer compatibility rules.
+- **`0.Y.0`:** development milestones; document breaking changes in the changelog.
+- **`0.Y.Z` (`Z > 0`):** compatible fixes to a released `0.Y` series, with no unfinished next-minor features.
+- **`1.0.0`:** a defined stable public contract, resolved release blockers, and representative external testing.
+- **`1.Y.Z` onward:** standard SemVer compatibility rules.
 
-An approved roadmap guides scope, but a checked-off chapter does **not** automatically authorize a release.
+Finished work does not by itself authorize a release; a maintainer decides when to release.
 
-### Maintenance Branches
+### Release branches
 
-Use a maintenance branch only when a supported release needs patches without including unfinished work from `main`. The current maintenance branch is `release/v0.8`, which starts at `v0.8.0`.
+A `release/vX.Y` branch exists to patch the **latest released minor series** without including unfinished work from `main`. This document names it only as `release/vX.Y`, so nothing here needs editing at release time.
 
-- Support only the latest published minor series by default; preserve tags for older versions. Maintain older series only when explicitly needed.
-- If `main` has no unrelated unreleased features, an ordinary patch can be made and tagged on `main` after verification.
-- If `main` contains work toward a newer release, create `release/vX.Y` from the **latest published tag in that series**, or reuse the existing branch. For example, create the current branch with `git switch -c release/v0.8 v0.8.0`. Patch PRs target `release/vX.Y`, not `main`, and exclude unfinished next-release features.
-- **Port fixes, not releases.** `git cherry-pick` applies the change from a selected fix commit to another branch as a new commit (usually with a new SHA). Port between `main` and `release/vX.Y` in whichever direction is needed; prefer `git cherry-pick -x` for source traceability. Resolve conflicts and retest the destination branch.
-- Keep release-specific version, lockfile, and changelog metadata out of ported fixes; do not merge the whole maintenance branch into `main`. A patch tag remains on its own release-line commit, even when absent from `git log main`. The maintenance branch may be deleted once support ends without losing its tags.
+- **Create:** after tagging a new minor release `vX.Y.0`, create `release/vX.Y` from that tag and push it:
 
-### Release Procedure
+  ```sh
+  git branch release/vX.Y vX.Y.0 && git push -u origin release/vX.Y
+  ```
 
-Release tags identify a verified revision on `main` or an active maintenance branch; both must meet the same quality requirements.
+- **Retire:** at the same time, delete the previous series' branch (`git push origin --delete release/vX.(Y-1)` and the local copy). Branches do not outlive their series; the tags remain, so nothing is lost. Maintain an older series only when a maintainer explicitly asks, and then recreate its branch from its latest tag.
+- **Patch:** if `main` holds no unreleased work, make and tag the patch on `main`. Otherwise make it on `release/vX.Y` through a PR that targets that branch, without unfinished next-release features.
+- **Port fixes, not releases.** Move a fix between `main` and `release/vX.Y` with `git cherry-pick -x`, resolving conflicts and retesting on the destination. Keep version, lockfile, and changelog release metadata out of ported commits, and never merge a whole release branch into `main`. A patch tag lives on its own release-branch commit even though it is absent from `git log main`.
 
-1. Verify the intended code and relevant roadmap acceptance criteria on `main` (major/minor) or the supported maintenance branch (patch). Ensure version metadata, `Cargo.lock` where applicable, documentation, and changelog match the intended release.
-2. **Major/minor:** Include a final, nonempty `chore(release): prepare vX.Y.Z` commit in the PR that completes the release scope whenever practical. Use a separate release-preparation PR only when the implementation has already merged or the metadata change must be reviewed independently. No commit body is needed by default.
-3. **Patch:** No required release-preparation commit. Include necessary version and changelog updates before tagging, keeping fix commits separate from release-only metadata when practical so the fix can be cleanly cherry-picked. If a separate metadata commit is necessary, use one without a ceremonial release-preparation step.
-4. CI must validate PRs targeting both `main` and supported `release/vX.Y` branches. Confirm the **exact final commit** passes relevant checks before tagging. Only a maintainer or explicitly authorized automation creates the immutable `vX.Y.Z` tag on that commit.
-5. Verify the tag target and signature **if signing is configured**. Tag-triggered CI tests the exact tagged revision, validates every Cargo package archive, and builds release binaries. A passing run creates a GitHub Release with platform archives and checksums.
-6. After reviewing the GitHub Release, dispatch the **Publish crates.io** workflow from `main` with that tag. It verifies the tag, successful tag CI, and the GitHub Release, then publishes the workspace crates through Cargo. Configure the repository Actions secret `CARGO_REGISTRY_TOKEN` before using this workflow. Never place the token in source, workflow inputs, or logs.
-7. Crates.io versions are immutable. If a workspace publish stops after publishing some crates, inspect crates.io and the workflow log before retrying; do not blindly rerun a partially completed publication.
-8. If a defect is found after tagging, publish a new patch rather than moving an existing tag.
+### Changelog
 
-**Publication policy:** Every published version has an immutable `vX.Y.Z` Git tag. A successful tag workflow creates the matching GitHub Release and binary archives. Crates.io publication is a separate, manually dispatched workflow that runs only after tag CI and the GitHub Release are verified.
+Maintain [`CHANGELOG.md`](CHANGELOG.md) in [Keep a Changelog](https://keepachangelog.com/en/2.0.0/) format for notable user-facing changes, not every commit.
+
+- Add entries under `## [Unreleased]` in the PR that makes the change.
+- Write each entry as a user-visible outcome in the imperative, under `Added`, `Changed`, `Deprecated`, `Removed`, `Fixed`, or `Security`.
+- At release, rename `Unreleased` to `## [X.Y.Z] - YYYY-MM-DD` and leave a new empty `## [Unreleased]` above it.
+- The release workflow publishes that section as the GitHub Release notes, so it must read well on its own.
+
+### Release procedure
+
+Releases are cut from a verified commit on `main` or on the current `release/vX.Y` branch; both meet the same bar.
+
+1. **Prepare.** Confirm the code, documentation, `Cargo.lock`, crate versions, and changelog match the intended version. The changelog must contain a dated `## [X.Y.Z] - YYYY-MM-DD` section; the tag workflow fails without one.
+2. **Release commit.** For `X.Y.0`, end the completing PR with a nonempty `chore(release): prepare vX.Y.Z` commit, or use a separate release-preparation PR when the implementation already merged or the metadata needs independent review. For a patch, keep fix commits separate from release-only metadata so the fix cherry-picks cleanly. No commit body is needed.
+3. **Verify.** CI must pass on the **exact final commit** before tagging; it runs on pushes and on PRs targeting `main` and `release/**`.
+4. **Tag.** Only a maintainer, or automation they explicitly authorize, creates the tag. It must be **annotated** and point at the verified commit; CI rejects lightweight tags and mismatches with the crate version:
+
+   ```sh
+   git tag -a vX.Y.Z -m "Inifra vX.Y.Z" && git push origin vX.Y.Z
+   ```
+
+   Sign the tag and verify its target if signing is configured.
+5. **Tag CI.** It validates the tag against `Cargo.toml` and `CHANGELOG.md`, tests the exact tagged revision, verifies every Cargo package archive, builds platform archives, and creates the GitHub Release with the changelog section as its notes, the archives, and `SHA256SUMS`.
+6. **Branch.** For `X.Y.0`, create `release/vX.Y` and retire the previous one as described in [Release branches](#release-branches).
+7. **Review the GitHub Release**, then dispatch the **Publish crates.io** workflow from `main` with the tag. It verifies the tag, a passing tag CI run, and the GitHub Release before publishing the workspace crates. The `CARGO_REGISTRY_TOKEN` Actions secret must be configured; never put the token in source, workflow inputs, or logs.
+8. **Handle failures.** Crates.io versions are immutable. If a publish stops partway, inspect crates.io and the workflow log before retrying; never blindly rerun it. If a defect is found after tagging, publish a new patch; never move or delete a published tag.
+
+Every published version has an immutable `vX.Y.Z` tag and a matching GitHub Release. Crates.io publication is a separate, manual step that runs only after tag CI and the GitHub Release are verified.
 
 ## Documentation and Support
 
-Update documentation when behavior or project conventions change, and link to existing authoritative details instead of repeating them.
+Update documentation in the same change that alters behavior or conventions, and link to the authoritative document instead of repeating it.
 
-- Update `README.md` when installation, CLI usage, or supported behavior changes.
-- Update relevant `docs/` documents when they exist; avoid repeating technical documentation here.
-- Maintain `CHANGELOG.md` for notable user-facing changes, not every commit.
-- Check existing issues and PRs to avoid overlapping work. Include reproduction steps and environment details in bug reports; use private vulnerability reporting when available.
+- `README.md`: installation, CLI usage, supported behavior.
+- `docs/`: detailed technical and user documentation.
+- `DESIGN.md`: terminal and interface design.
+- This file: development and release policy. Keep it free of version numbers, branch names, and dates that go stale.
+
+Check existing issues and PRs to avoid overlapping work. Include reproduction steps and environment details in bug reports, and use private vulnerability reporting for security issues when available.
+
+## Before You Finish
+
+- [ ] The change is focused, and the diff contains no accidental edits.
+- [ ] Required checks pass, plus any additional checks that apply; anything not run is stated.
+- [ ] Tests cover the change, and bug fixes include a regression test.
+- [ ] Documentation and `CHANGELOG.md` are updated for user-facing changes.
+- [ ] Commits follow Conventional Commits.
+- [ ] Compatibility impact is described, or stated as none.
